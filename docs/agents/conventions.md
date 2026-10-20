@@ -103,6 +103,9 @@ Done when every touched line follows the rules for its kind of code.
   ride along with the change that needs them.
 - Docs change in the same series as the code they describe.
 - Commits are signed; push only signed commits.
+- Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.
+  `check.sh --fast` fails on a fork hash in `docs/`, `CLAUDE.md` or `GLOSSARY.md`; upstream
+  hashes are fine.
 
 ## Legacy
 
@@ -130,7 +133,7 @@ in fork code:
 ## Upstream candidates
 
 Fixes to upstream code that upstream would want too are kept as separate, minimal commits so they
-can be offered upstream. Name them by subject, since rebases change hashes:
+can be offered upstream, named by subject (see Commits):
 `` `SConstruct`: discard make_unique results in configure tests `` and
 `` `OPTIMIZER_HIDE_VARIABLE`: use a memory operand clang accepts on arm64 ``.
 

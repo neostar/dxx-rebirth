@@ -74,6 +74,32 @@ step_shellcheck()
 	(cd "$root" && "$shellcheck" -x --source-path=SCRIPTDIR "${files[@]}")
 }
 
+# Fail on commit hashes in docs/, CLAUDE.md and GLOSSARY.md that are not in
+# upstream/master: fork-only hashes go stale on every rebase or re-sign, so
+# fork commits are cited by subject.  Only 7-40 digit hex tokens that name
+# a commit here count; other hex (checksums, other repositories' commits)
+# passes.  Without upstream/master the check is a SKIP.
+step_stale_hashes()
+{
+	local f tok rc=0 files=()
+	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
+		echo "SKIP stale_hashes: no upstream/master; fetch upstream to run this check"
+		return 0
+	fi
+	while IFS= read -r -d '' f; do
+		files+=("$f")
+	done < <(cd "$root" && find docs CLAUDE.md GLOSSARY.md -type f -name '*.md' -print0 2>/dev/null)
+	for f in "${files[@]+"${files[@]}"}"; do
+		for tok in $(tr -cs '0-9a-zA-Z' '\n' < "$root/$f" | grep -xE '[0-9a-f]{7,40}' | sort -u); do
+			git -C "$root" rev-parse -q --verify "$tok^{commit}" >/dev/null || continue
+			git -C "$root" merge-base --is-ancestor "$tok" upstream/master && continue
+			echo "$f: $tok is a fork commit; cite it by subject"
+			rc=1
+		done
+	done
+	return "$rc"
+}
+
 # Run every tools/dev/tests/*_test.sh, each under no-window.sh.
 step_shell_tests()
 {
@@ -107,7 +133,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(repo_config guard format shellcheck shell_tests)
+fast_steps=(repo_config guard format shellcheck stale_hashes shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full

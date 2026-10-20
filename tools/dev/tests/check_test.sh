@@ -115,6 +115,54 @@ test_fast_skips_shellcheck_when_absent()
 	assert_contains "$out" "SKIP shellcheck"
 }
 
+# Make a dev repo whose upstream/master is its tools commit, plus one
+# fork-only commit on top; print the repo, the upstream commit and the
+# fork commit.
+make_forked_dev_repo()
+{
+	local r
+	r=$(make_dev_repo)
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
+	git -C "$r" update-ref refs/remotes/upstream/master HEAD
+	tgit -C "$r" commit -q --no-verify --allow-empty -m 'fork change'
+	printf '%s %s %s\n' "$r" "$(git -C "$r" rev-parse HEAD~1)" "$(git -C "$r" rev-parse HEAD)"
+}
+
+# Test that the fast subset fails on a fork-only commit hash cited in
+# docs/, CLAUDE.md or GLOSSARY.md, naming file and hash, and accepts
+# upstream hashes and hex that is no commit.
+test_fast_fails_on_fork_commit_hash_in_docs()
+{
+	local r up fork out rc
+	read -r r up fork < <(make_forked_dev_repo)
+	mkdir -p "$r/docs/agents"
+	printf 'Like %s and (%s).\nsha256 %s, pin %s.\n' "${up:0:9}" "$up" \
+		"$(printf x | shasum -a 256 | cut -c1-64)" 0123456789abcdef0123456789abcdef01234567 \
+		> "$r/docs/agents/conventions.md"
+	printf 'See %s.\n' "${up:0:7}" > "$r/CLAUDE.md"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	printf 'Done in %s.\n' "${fork:0:9}" > "$r/GLOSSARY.md"
+	printf 'And %s.\n' "$fork" >> "$r/docs/agents/conventions.md"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "GLOSSARY.md: ${fork:0:9}"
+	assert_contains "$out" "docs/agents/conventions.md: $fork"
+	assert_contains "$out" "failed: stale_hashes"
+}
+
+# Test that the hash check is a visible SKIP without upstream/master.
+test_fast_skips_hash_check_without_upstream()
+{
+	local r up fork out
+	read -r r up fork < <(make_forked_dev_repo)
+	printf 'Done in %s.\n' "${fork:0:9}" > "$r/GLOSSARY.md"
+	git -C "$r" update-ref -d refs/remotes/upstream/master
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP stale_hashes"
+}
+
 # Test that an unknown option is a usage error with exit status 2.
 test_unknown_option_is_usage_error()
 {
