@@ -5,13 +5,14 @@
 #   format.sh --tidy [DIR...]      clang-tidy with build/dev/compile_commands.json
 #
 # DIRs default to the directories listed in tools/dev/fork-dirs.  Exit status
-# 1 means a file needs formatting or clang-tidy reported a problem.
+# 1 means a file needs formatting or clang-tidy reported a problem, 2 a
+# usage error or a missing or empty fork-dirs.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
-llvm_bin=$(brew --prefix llvm 2>/dev/null)/bin
-clang_format=$(command -v clang-format || echo "$llvm_bin/clang-format")
-clang_tidy=$(command -v clang-tidy || echo "$llvm_bin/clang-tidy")
+source "$dev_dir/env.sh"
+clang_format=$(dev_llvm_tool clang-format)
+clang_tidy=$(dev_llvm_tool clang-tidy)
 
 mode=format
 case "${1-}" in
@@ -22,9 +23,15 @@ esac
 
 dirs=("$@")
 if [[ ${#dirs[@]} -eq 0 ]]; then
-	while IFS= read -r d; do
-		[[ -z $d || $d == \#* ]] || dirs+=("$root/$d")
-	done < "$dev_dir/fork-dirs"
+	if [[ -f $dev_dir/fork-dirs ]]; then
+		while IFS= read -r d; do
+			[[ -z $d || $d == \#* ]] || dirs+=("$root/$d")
+		done < "$dev_dir/fork-dirs"
+	fi
+	if [[ ${#dirs[@]} -eq 0 ]]; then
+		echo "format.sh: $dev_dir/fork-dirs is missing or lists no directory" >&2
+		exit 2
+	fi
 fi
 
 files=()

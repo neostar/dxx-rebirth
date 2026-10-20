@@ -11,7 +11,8 @@ make_dev_repo()
 	r=$(make_repo)
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
-	cp -R "$DEV_DIR/hooks" "$r/tools/dev/"
+	cp "$DEV_DIR/fork-dirs" "$r/tools/dev/"
+	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
 	git -C "$r" config core.hooksPath tools/dev/hooks
 	printf '%s\n' "$r"
@@ -53,6 +54,18 @@ test_fast_runs_shell_tests()
 	assert_contains "$out" "ran-passing"
 	assert_contains "$out" "ran-failing"
 	assert_contains "$out" "zfail_test.sh"
+}
+
+# Test that the fast subset runs the format check on the fork directories.
+test_fast_fails_on_misformatted_fork_code()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
+	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "bad.cpp"
+	assert_contains "$out" "failed: format"
 }
 
 # Test that an unknown option is a usage error with exit status 2.

@@ -20,3 +20,10 @@ fi
 export ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=0:halt_on_error=1:detect_leaks=$_dev_detect_leaks}
 export UBSAN_OPTIONS=${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1:abort_on_error=0}
 unset _dev_detect_leaks
+
+# Print the path of LLVM tool $1 (clang-format, clang-tidy): from PATH, else
+# from Homebrew's keg-only llvm.
+dev_llvm_tool()
+{
+	command -v "$1" || echo "$(brew --prefix llvm 2>/dev/null)/bin/$1"
+}
