@@ -1,5 +1,7 @@
 # SCons settings for the fork's fast development build (tools/dev/build.sh).
 # Read by `scons site=tools/dev/site-dev.py`; affects nobody who does not pass it.
+# D2X only (d1x=0 d2x=1) cannot be set here: SConstruct reads d1x and d2x
+# from the command line alone, so build.sh passes them.
 builddir = 'build/dev'
 lto = '0'
 ccache = 'ccache'

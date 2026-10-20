@@ -5,7 +5,11 @@
 #
 # dev (default): build/dev, no LTO, ccache, constant version string,
 #   compilation database in build/dev/compile_commands.json.
-# asan: build/asan with AddressSanitizer and UndefinedBehaviorSanitizer.
+# asan: build/asan with AddressSanitizer and UndefinedBehaviorSanitizer;
+#   site-dev.py, then site-asan.py's overrides (SCons reads site files in
+#   order, later ones win).
+# Both build D2X only: SConstruct reads d1x and d2x from the command line
+# alone, not from site files, so they are passed here.
 # Pass `check` to build and run the unit tests.
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
@@ -38,4 +42,6 @@ fi
 export SDL_MAC_BACKGROUND_APP=1
 
 jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-exec scons -j"$jobs" d1x=0 d2x=1 "site=$dev_dir/site-$profile.py" "$@"
+sites=("site=$dev_dir/site-dev.py")
+[[ $profile == asan ]] && sites+=("site=$dev_dir/site-asan.py")
+exec scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "$@"
