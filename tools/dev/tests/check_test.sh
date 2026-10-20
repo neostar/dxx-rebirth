@@ -14,7 +14,7 @@ make_dev_repo()
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
-		"$DEV_DIR/requirements.lock" "$r/tools/dev/"
+		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
@@ -366,6 +366,33 @@ test_fast_skips_workflow_check_without_upstream()
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP workflows"
+}
+
+# Test that the pre-commit hook rejects a change over 300 lines, not
+# counting generated lockfiles, unless DXX_ALLOW_LARGE_COMMIT gives a
+# reason, which it prints.
+test_pre_commit_hook_limits_commit_size()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	# A generated file of this repository's own, beside requirements.lock,
+	# which doctor.sh checks against the venv.
+	echo gen.lock >> "$r/tools/dev/commit-size-exclude"
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
+	seq 301 > "$r/big.txt"
+	git -C "$r" add big.txt
+	out=$(tgit -C "$r" commit -q -m big 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "301 changed lines, over 300"
+	out=$(DXX_ALLOW_LARGE_COMMIT='one generated table' tgit -C "$r" commit -q -m big 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "301 changed lines allowed: one generated table"
+	seq 400 > "$r/gen.lock"
+	seq 300 > "$r/small.txt"
+	git -C "$r" add gen.lock small.txt
+	out=$(tgit -C "$r" commit -q -m lock 2>&1)
+	assert_eq "$?" 0 "$out"
 }
 
 run_tests

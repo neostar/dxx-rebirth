@@ -1,0 +1,4 @@
+# Files the pre-commit hook leaves out of a commit's size: generated, so
+# their line count says nothing about the change.  One path per line,
+# relative to the repository root.
+tools/dev/requirements.lock

@@ -1,3 +1,6 @@
 #!/usr/bin/env bash
-# Installed by tools/dev/setup.sh (core.hooksPath); runs the fast checks.
-exec "$(git rev-parse --show-toplevel)/tools/dev/check.sh" --fast
+# Installed by tools/dev/setup.sh (core.hooksPath): the commit size limit,
+# then the fast checks.
+dev_dir=$(git rev-parse --show-toplevel)/tools/dev
+"$dev_dir/commit-size.sh" || exit 1
+exec "$dev_dir/check.sh" --fast

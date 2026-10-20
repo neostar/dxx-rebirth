@@ -110,7 +110,10 @@ Done when every touched line follows the rules for its kind of code.
 - Trailers: `Fixes: <full hash> ("<old subject>")` for regressions, `Reported-by: <name> <issue URL>`
   for reported bugs.
 - One concern per commit, at most about 300 changed lines, test and change together; style changes
-  ride along with the change that needs them.
+  ride along with the change that needs them. The pre-commit hook enforces the 300, leaving out
+  the generated files `tools/dev/commit-size-exclude` lists; for a larger change that cannot be
+  split, commit with `DXX_ALLOW_LARGE_COMMIT=<reason>`, which the hook prints, and give the reason
+  in the body.
 - Docs change in the same series as the code they describe.
 - Commits are signed; push only signed commits.
 - Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.
