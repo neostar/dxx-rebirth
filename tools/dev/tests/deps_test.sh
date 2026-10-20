@@ -66,6 +66,32 @@ test_stamp_records_pins_and_build_options()
 		fail "no options hash in the stamp: $out"
 }
 
+# Test that a prebuilt archive with a member list installs only those
+# members, without the archive's top directory, and records the
+# programs' hashes.
+test_prebuilt_installs_listed_members()
+{
+	local d t out rc
+	d=$(make_scratch)
+	t=$d/src/LLVM-1.0
+	mkdir -p "$t/bin" "$t/lib/clang/1/include" "$t/share"
+	for f in clangd clang-format clang-tidy clang; do echo "$f" > "$t/bin/$f"; done
+	echo header > "$t/lib/clang/1/include/stddef.h"
+	echo docs > "$t/share/docs"
+	tar -czf "$d/LLVM-1.0.tar.gz" -C "$d/src" LLVM-1.0
+	echo "prebuilt llvm $dev_platform file://$d/LLVM-1.0.tar.gz $(dev_sha256 "$d/LLVM-1.0.tar.gz")" \
+		> "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$(cat "$d/prefix/opt/llvm/bin/clangd" 2>&1)" clangd
+	assert_eq "$(cat "$d/prefix/opt/llvm/lib/clang/1/include/stddef.h" 2>&1)" header
+	[[ ! -e $d/prefix/opt/llvm/bin/clang && ! -e $d/prefix/opt/llvm/share ]] ||
+		fail "unlisted members installed"
+	assert_eq "$(cat "$d/prefix/opt/llvm/bin.sha256" 2>&1)" \
+		"$(cd "$t" && for f in bin/clang-format bin/clang-tidy bin/clangd; do
+			echo "$(dev_sha256 "$f")  $f"; done)"
+}
+
 # Test that a download whose sha256 differs from the pin is refused and
 # kept out of the cache and the prefix.
 test_refuses_download_with_wrong_sha256()

@@ -8,6 +8,9 @@ DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
 # shellcheck source=../env.sh
 source "$DEV_DIR/env.sh"
+# Scripts run from a throwaway copy of tools/dev use this clone's pinned
+# tools: the dependency prefix (LLVM's among them) and the venv.
+export DXX_DEPS_PREFIX=$dev_deps_prefix DXX_VENV=$dev_venv
 
 # A test may run inside a git hook, where git exports GIT_DIR, GIT_INDEX_FILE
 # and friends for the repository being committed to.  Clear them, so every

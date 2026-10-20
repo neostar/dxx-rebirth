@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the fork's pinned dependencies (SDL3, FluidSynth, SDL3_mixer,
-# SDL3_image, SDL_shadercross, DXC) from tools/dev/toolchain.pins into
+# SDL3_image, SDL_shadercross, DXC, LLVM's clangd, clang-format and
+# clang-tidy) from tools/dev/toolchain.pins into
 # the project-local prefix, the same way on the Mac and in the Linux
 # reference container (ticket #57).
 #
@@ -218,9 +219,17 @@ cmake_options_SDL_shadercross()
 		-DSDLSHADERCROSS_INSTALL_RUNTIME=OFF -DSDLSHADERCROSS_INSTALL_CPACK=OFF
 }
 
+# The members of LLVM's release archive to install: the refactoring and
+# formatting tools and the headers clangd and clang-tidy parse with.
+prebuilt_members_llvm()
+{
+	echo bin/clangd bin/clang-format bin/clang-tidy lib/clang
+}
+
 # Unpack prebuilt archive $2 (.tar.gz, .tar.xz or .tar.zst) of dependency
 # $1 into $prefix/opt/$1: only the members prebuilt_members_$1 lists,
-# without the archive's top directory, if that is defined, else all.
+# without the archive's top directory, if that is defined, else all.  Its
+# programs' hashes go into $prefix/opt/$1/bin.sha256.
 extract_prebuilt()
 {
 	local name=$1 file=$2 top members=()
@@ -240,6 +249,12 @@ extract_prebuilt()
 	esac | tar -xf - -C "$prefix/opt/$name" \
 		${members[0]+--strip-components=1} "${members[@]+"${members[@]}"}" ||
 		refuse "$name: cannot unpack $file"
+	# The sha256 of each program as unpacked from the pinned archive:
+	# doctor.sh checks that the programs are still these.
+	[[ ! -d $prefix/opt/$name/bin ]] ||
+		(cd "$prefix/opt/$name" && for f in bin/*; do
+			echo "$(dev_sha256 "$f")  $f"
+		done > bin.sha256)
 }
 
 # Print a hash of everything that shapes a build besides the pins: the

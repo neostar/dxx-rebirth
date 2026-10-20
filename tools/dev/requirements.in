@@ -5,6 +5,7 @@
 # Image comparison (FLIP) for the render goldens.
 flip-evaluator==1.7
 numpy==2.5.4
-# Tools pinned here so the Mac and the container run the same binaries.
+# Tools pinned here so the Mac and the container run the same binaries;
+# LLVM's come from its own release (toolchain.pins, prebuilt llvm).
 shellcheck-py==0.11.0.1
 cmake==4.4.4

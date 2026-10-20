@@ -23,13 +23,6 @@ export ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=0:halt_on_error=1:detect_leak
 export UBSAN_OPTIONS=${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1:abort_on_error=0}
 unset _dev_detect_leaks
 
-# Print the path of LLVM tool $1 (clang-format, clang-tidy): from PATH, else
-# from Homebrew's keg-only llvm.
-dev_llvm_tool()
-{
-	command -v "$1" || echo "$(brew --prefix llvm 2>/dev/null)/bin/$1"
-}
-
 # This machine's OS (darwin, linux) and platform (OS-ARCH, as in the
 # manifest's `prebuilt` lines).
 # shellcheck disable=SC2034  # used by the scripts sourcing this file
@@ -57,6 +50,14 @@ if [[ -x $dev_venv/bin/python3 && :$PATH: != *":$dev_venv/bin:"* ]]; then
 	export PATH=$dev_venv/bin:$PATH
 fi
 unset _dev_root
+
+# Print the path of LLVM tool $1 (clangd, clang-format, clang-tidy): the
+# pinned LLVM release that deps.sh installs into the prefix, never
+# Homebrew's or Xcode's.
+dev_llvm_tool()
+{
+	echo "$dev_deps_prefix/opt/llvm/bin/$1"
+}
 
 # Print the sha256 of file $1, or of the standard input without one:
 # sha256sum on Linux, shasum on the Mac.
