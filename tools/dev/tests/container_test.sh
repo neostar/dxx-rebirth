@@ -52,4 +52,15 @@ test_fast_checks_pass()
 	assert_contains "$out" "check.sh: fast checks passed"
 }
 
+# Test that the clean clone has upstream/master, so stale_hashes runs.
+test_clean_clone_has_upstream()
+{
+	local out
+	need_image
+	git -C "$REPO_ROOT" rev-parse -q --verify upstream/master >/dev/null ||
+		skip "no upstream/master here"
+	out=$("$CONTAINER" run --clean git rev-parse --verify -q upstream/master 2>&1)
+	assert_eq "$out" "$(git -C "$REPO_ROOT" rev-parse upstream/master)"
+}
+
 run_tests

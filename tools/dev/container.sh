@@ -22,6 +22,9 @@
 #   --clean: /work is a fresh `git clone` of the commit under test (HEAD)
 #     from the clone's git directory, mounted read-only; uncommitted
 #     changes are excluded.
+# Both fetch upstream/master from that read-only git directory, so the
+# checks that compare against upstream run (the default also fetches the
+# fork's branches, whose commits those checks look up).
 # Neither keeps a build cache.  The Docker daemon must be running (on the
 # Mac: `orb start`).
 set -eu
@@ -69,17 +72,24 @@ run_offline()
 			set -e
 			git clone -q --no-checkout /src.git /work && cd /work
 			git -c advice.detachedHead=false checkout -q --detach "$CI_COMMIT"
+			git fetch -q /src.git "+refs/remotes/upstream/master:refs/remotes/upstream/master" ||
+				echo "container.sh: no upstream/master in the clone" >&2
 			tools/dev/setup.sh >/dev/null
 			exec "$@"' bash "$@" < /dev/null
 	else
 		# No extended attributes: Linux tar warns on macOS ones.
 		(cd "$root" && git ls-files -z -co --exclude-standard |
 			COPYFILE_DISABLE=1 tar --no-xattrs --null -T - -cf -) |
-			docker run --rm -i --network none --platform linux/amd64 "$tag" bash -c '
+			docker run --rm -i --network none --platform linux/amd64 \
+			-v "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir):/src.git:ro" \
+			"$tag" bash -c '
 			set -e
 			mkdir /work && tar -x -C /work && cd /work
 			git init -q -b main && git -c core.safecrlf=false add -A
 			git -c user.name=ci -c user.email=ci@example.invalid commit -q -m worktree
+			git fetch -q /src.git "+refs/remotes/upstream/master:refs/remotes/upstream/master" \
+				"+refs/heads/*:refs/remotes/origin/*" ||
+				echo "container.sh: no upstream/master in the copy" >&2
 			tools/dev/setup.sh >/dev/null
 			exec "$@"' bash "$@"
 	fi
