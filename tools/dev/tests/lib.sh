@@ -42,17 +42,17 @@ assert_not_contains()
 	[[ "$1" != *"$2"* ]] || fail "expected output not to contain '$2', got: $1"
 }
 
+# Every scratch directory lives under one root made here, in the test
+# file's own shell, and removed when it exits.  Tests call make_scratch in
+# a command substitution, a subshell that cannot report back what it made.
+_scratch_root=$(mktemp -d "${TMPDIR:-/tmp}/dxx-dev-test.XXXXXX")
+trap 'rm -rf "$_scratch_root"' EXIT
+
 # Make an empty scratch directory removed when the test file exits.
 make_scratch()
 {
-	local d
-	d=$(mktemp -d "${TMPDIR:-/tmp}/dxx-dev-test.XXXXXX")
-	_scratch_dirs+=("$d")
-	printf '%s\n' "$d"
+	mktemp -d "$_scratch_root/XXXXXX"
 }
-
-_scratch_dirs=()
-trap 'rm -rf "${_scratch_dirs[@]}"' EXIT
 
 # git with a test identity and no signing, set per command so that no
 # repository's config is ever written.  Always pass -C <throwaway repo>.
