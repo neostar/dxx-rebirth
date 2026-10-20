@@ -55,4 +55,33 @@ test_enables_rerere()
 	assert_eq "$(git -C "$r" config rerere.enabled)" "true"
 }
 
+# Test that the default per-commit command builds and runs the fast checks
+# where the commit has tools/dev, and skips visibly where it predates them.
+test_default_exec_skips_commits_without_dev_tools()
+{
+	local r out log
+	r=$(make_fork_repo)
+	log=$(make_scratch)/exec.log
+	git -C "$r" checkout -q fork
+	mkdir -p "$r/tools/dev"
+	printf '#!/bin/sh\necho build >> %s\n' "$log" > "$r/tools/dev/build.sh"
+	printf '#!/bin/sh\necho "check $*" >> %s\n' "$log" > "$r/tools/dev/check.sh"
+	chmod +x "$r/tools/dev/build.sh" "$r/tools/dev/check.sh"
+	git -C "$r" add tools; tgit -C "$r" commit -q -m 'fork: add tools'
+	out=$(cd "$r" && "$REBASE" --upstream up 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_eq "$(tr '\n' '|' < "$log")" 'build|check --fast|'
+	assert_eq "$(grep -c '^rebase.sh: skip checks at .* fork: add [ab]: no tools' <<<"$out")" 2 "$out"
+}
+
+# Test that an option without its value is a usage error.
+test_option_without_value_is_usage_error()
+{
+	local r out rc
+	r=$(make_fork_repo)
+	out=$(cd "$r" && "$REBASE" --exec 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2
+	assert_contains "$out" "usage"
+}
+
 run_tests
