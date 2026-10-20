@@ -42,8 +42,20 @@ step_shell_tests()
 	return "$rc"
 }
 
+# Build D2X with the dev profile and run the unit tests.
+step_unit_tests()
+{
+	"$dev_dir/build.sh" dev check
+}
+
+# Run the unit tests under AddressSanitizer and UndefinedBehaviorSanitizer.
+step_sanitizer_tests()
+{
+	"$dev_dir/build.sh" asan check
+}
+
 fast_steps=(guard shell_tests)
-full_steps=()
+full_steps=(unit_tests sanitizer_tests)
 
 mode=full
 case "${1-}" in
