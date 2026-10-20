@@ -7,6 +7,7 @@
 #
 #   deps.sh [--manifest FILE] [--cache DIR] [--prefix DIR] [--platform OS-ARCH]
 #           [fetch|build|all|stamp]
+#   deps.sh [--manifest FILE] [--venv DIR] venv
 #
 # fetch: download each source once into the cache and verify it: a
 #   `source` or `prebuilt` file by its pinned sha256, a `git` checkout by its
@@ -22,6 +23,10 @@
 # stamp: print what build records in deps.stamp (doctor.sh compares the
 #   two).
 # all (default): fetch, then build.
+# venv: make the Python venv afresh with uv from the manifest's `venv python`
+#   (a uv-managed CPython, so the same build on the Mac and in the
+#   container) and requirements.lock next to the manifest, every wheel
+#   checked against its hash; it records both in venv.stamp.  Downloads.
 # Cache and prefix default to env.sh's dev_deps_cache and dev_deps_prefix.
 # Exit status 1 means a source was refused or a build failed, 2 a usage
 # error.
@@ -31,14 +36,15 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--manifest FILE] [--cache DIR] [--prefix DIR]" \
-		"[--platform OS-ARCH] [fetch|build|all|stamp]" >&2
+	echo "usage: $0 [--manifest FILE] [--cache DIR] [--prefix DIR] [--venv DIR]" \
+		"[--platform OS-ARCH] [fetch|build|all|venv|stamp]" >&2
 	exit 2
 }
 
 manifest=$dev_dir/toolchain.pins
 cache=$dev_deps_cache
 prefix=$dev_deps_prefix
+venv=$dev_venv
 mode=all
 platform=$dev_platform
 while [[ $# -gt 0 ]]; do
@@ -46,8 +52,9 @@ while [[ $# -gt 0 ]]; do
 	--manifest) [[ $# -ge 2 ]] || usage; manifest=$2; shift 2 ;;
 	--cache) [[ $# -ge 2 ]] || usage; cache=$2; shift 2 ;;
 	--prefix) [[ $# -ge 2 ]] || usage; prefix=$2; shift 2 ;;
+	--venv) [[ $# -ge 2 ]] || usage; venv=$2; shift 2 ;;
 	--platform) [[ $# -ge 2 ]] || usage; platform=$2; shift 2 ;;
-	fetch|build|all|stamp) mode=$1; shift ;;
+	fetch|build|all|venv|stamp) mode=$1; shift ;;
 	*) usage ;;
 	esac
 done
@@ -308,6 +315,17 @@ build_one()
 
 if [[ $mode == stamp ]]; then
 	stamp
+	exit 0
+fi
+if [[ $mode == venv ]]; then
+	python=$(dev_venv_python "$manifest")
+	[[ -n $python ]] || refuse "no 'venv python' line in $manifest"
+	rm -rf "$venv"
+	UV_PYTHON_PREFERENCE=only-managed uv venv -q --python "$python" "$venv"
+	uv pip sync -q --require-hashes --python "$venv/bin/python3" \
+		"$(dirname "$manifest")/requirements.lock"
+	dev_venv_pins "$manifest" > "$venv/venv.stamp"
+	echo "deps.sh: made $venv"
 	exit 0
 fi
 if [[ $mode != build ]]; then
