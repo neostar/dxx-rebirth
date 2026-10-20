@@ -73,22 +73,71 @@ test_other_platform_ignored()
 	assert_not_contains "$out" "gcc"
 }
 
-# Test that LLVM tools in the prefix from different releases fail.
+# Write fake LLVM tools into prefix $1's opt/llvm/bin: clangd and
+# clang-format report version $2 and source commit $3, clang-tidy version
+# $4 (default $2); bin.sha256 records them as unpacked.
+llvm_fixture()
+{
+	local b=$1/opt/llvm/bin
+	mkdir -p "$b"
+	fake_tool "$b" clangd "clangd version $2 (https://github.com/llvm/llvm-project $3)"
+	fake_tool "$b" clang-format "clang-format version $2 (https://github.com/llvm/llvm-project $3)"
+	fake_tool "$b" clang-tidy 'LLVM (http://llvm.org/):' "  LLVM version ${4:-$2}"
+	(cd "$1/opt/llvm" && for f in bin/*; do echo "$(dev_sha256 "$f")  $f"; done > bin.sha256)
+}
+
+# Test that clangd, clang-format and clang-tidy from one pinned LLVM
+# release pass.
+test_one_llvm_passes()
+{
+	local d out rc
+	d=$(make_scratch)
+	llvm_fixture "$d/prefix" 23.1.3 0d261d1
+	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
+	out=$(DXX_DEPS_PREFIX="$d/prefix" DXX_VENV="$d/no-venv" DOCTOR_PLATFORM=linux \
+		"$DOCTOR" --manifest "$d/manifest" --prefix "$d/prefix" 2>&1) && rc=0 || rc=$?
+	assert_contains "$out" "ok   llvm 23.1.3"
+}
+
+# Test that LLVM tools of different releases fail.
 test_mixed_llvm_fails()
 {
-	local d b out rc
+	local d out rc
 	d=$(make_scratch)
-	b=$d/no-prefix/opt/llvm/bin
-	mkdir -p "$b"
-	fake_tool "$b" clangd 'clangd version 23.1.3'
-	fake_tool "$b" clang-format 'clang-format version 23.1.3'
-	fake_tool "$b" clang-tidy 'LLVM (http://llvm.org/):' '  LLVM version 22.1.8'
+	llvm_fixture "$d/prefix" 23.1.3 0d261d1 22.1.8
 	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
-	out=$(run_doctor "$d" linux --manifest "$d/manifest") && rc=0 || rc=$?
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
 	assert_eq "$rc" 1
 	assert_contains "$out" "llvm: found 23.1.3 (clang-tidy is 22.1.8)"
 }
 
+# Test that a tool swapped after deps.sh unpacked the release fails, even
+# at the pinned version: the binaries must be the release's own.
+test_swapped_llvm_tool_fails()
+{
+	local d out rc
+	d=$(make_scratch)
+	llvm_fixture "$d/prefix" 23.1.3 0d261d1
+	fake_tool "$d/prefix/opt/llvm/bin" clangd 'Homebrew clangd version 23.1.3'
+	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "llvm: found 23.1.3 (bin/clangd is not the pinned release's)"
+}
+
+# Test that tools at one version built from different sources fail.
+test_llvm_from_two_sources_fails()
+{
+	local d out rc
+	d=$(make_scratch)
+	llvm_fixture "$d/prefix" 23.1.3 0d261d1
+	fake_tool "$d/prefix/opt/llvm/bin" clang-format 'clang-format version 23.1.3 (https://example.invalid/llvm abc1234)'
+	(cd "$d/prefix/opt/llvm" && for f in bin/*; do echo "$(dev_sha256 "$f")  $f"; done > bin.sha256)
+	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "llvm: found 23.1.3 (clang-format is from another source)"
+}
 
 # Write a fake pkg-config into directory $1 that knows module $2 at
 # version $3.

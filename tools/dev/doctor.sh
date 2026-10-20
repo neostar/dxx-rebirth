@@ -54,16 +54,26 @@ probe_apple-clang()
 	clang --version 2>/dev/null | sed -n 's/^Apple clang version \([0-9.]*\).*/\1/p' | head -n 1
 }
 
-# clangd, clang-format and clang-tidy must come from one LLVM release, so
-# they report one version or none.
+# clangd, clang-format and clang-tidy from the pinned LLVM release in the
+# prefix: each still the program deps.sh unpacked (bin.sha256), all of one
+# version, and clangd and clang-format built from one source commit
+# (clang-tidy does not report its commit).
 probe_llvm()
 {
-	local t v seen=''
+	local dir=$prefix/opt/llvm t v line src seen='' seen_src=''
 	for t in clangd clang-format clang-tidy; do
-		v=$("$(dev_llvm_tool "$t")" --version 2>/dev/null | grep -i version | first_version)
+		v=$("$dir/bin/$t" --version 2>/dev/null | grep -i version | first_version)
 		[[ -n $v ]] || { echo "($t missing)"; return 0; }
 		[[ -z $seen || $seen == "$v" ]] || { echo "$seen ($t is $v)"; return 0; }
 		seen=$v
+		line=$(grep -F "  bin/$t" "$dir/bin.sha256" 2>/dev/null)
+		[[ -n $line && $(dev_sha256 "$dir/bin/$t") == "${line%% *}" ]] ||
+			{ echo "$v (bin/$t is not the pinned release's)"; return 0; }
+		[[ $t == clang-tidy ]] && continue
+		src=$("$dir/bin/$t" --version 2>/dev/null | grep -oE '\(https?://[^)]*\)' | head -n 1)
+		[[ -z $seen_src || $seen_src == "$src" ]] ||
+			{ echo "$v ($t is from another source)"; return 0; }
+		seen_src=$src
 	done
 	echo "$seen"
 }
