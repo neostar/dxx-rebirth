@@ -52,3 +52,5 @@ xcuserdata
 # Brewfile installation artifacts
 #################################
 Brewfile.lock.json
+# Local reference docs mirror (SDL3, SDL_GPU, shadercross, FLIP)
+/docs/reference/
