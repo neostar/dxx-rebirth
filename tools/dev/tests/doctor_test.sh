@@ -339,8 +339,8 @@ fake_machine()
 	chmod +x "$d/sysctl" "$d/df" "$d/docker"
 }
 
-# Test that doctor reports the machine: jobs from the performance cores
-# and RAM.
+# Test that doctor reports the machine: jobs from the performance cores,
+# RAM and free disk.
 test_reports_cores_ram_and_disk()
 {
 	local d out
@@ -350,6 +350,7 @@ test_reports_cores_ram_and_disk()
 	: > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest")
 	assert_contains "$out" "info machine: 6 jobs (DXX_JOBS), 32 GiB RAM"
+	assert_contains "$out" "ok   disk 100 GiB free"
 }
 
 # Test that without performance levels the jobs are all the CPUs.
@@ -362,6 +363,34 @@ test_jobs_fall_back_to_all_cpus()
 	: > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest")
 	assert_contains "$out" "info machine: 10 jobs (DXX_JOBS)"
+}
+
+# Test that low free disk warns below 40 GiB and fails below 15 GiB.
+test_low_disk_warns_then_fails()
+{
+	local d out rc
+	d=$(make_scratch)
+	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
+	: > "$d/manifest"
+	out=$(DF_FREE_KB=$((30 * 1048576)) run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "WARN disk: 30 GiB free"
+	out=$(DF_FREE_KB=$((10 * 1048576)) run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL disk: 10 GiB free"
+}
+
+# Test that more than one reference image warns.
+test_counts_reference_images()
+{
+	local d out
+	d=$(make_scratch)
+	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
+	: > "$d/manifest"
+	out=$(DOCKER_IMAGES='dxx-rebirth-ref:a dxx-rebirth-ref:b' run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "WARN images: 2 dxx-rebirth-ref images"
+	out=$(DOCKER_IMAGES='dxx-rebirth-ref:a' run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "ok   images: 1 dxx-rebirth-ref image"
 }
 
 run_tests
