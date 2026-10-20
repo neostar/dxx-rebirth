@@ -90,6 +90,54 @@ test_mixed_llvm_fails()
 }
 
 
+# Write a fake pkg-config into directory $1 that knows module $2 at
+# version $3.
+fake_pkg_config()
+{
+	printf '#!/bin/sh\n[ "$1" = --modversion ] && [ "$2" = %s ] && { echo %s; exit 0; }\nexit 1\n' \
+		"$2" "$3" > "$1/pkg-config"
+	chmod +x "$1/pkg-config"
+}
+
+# Test that a system library at its pinned version passes.
+test_matching_pkg_passes()
+{
+	local d out rc
+	d=$(make_scratch)
+	fake_pkg_config "$d" physfs 3.2.0
+	printf 'pkg physfs darwin 3.2.0\n' > "$d/manifest"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ok   physfs 3.2.0"
+}
+
+# Test that a system library at another version, or missing, fails.
+test_drifted_or_missing_pkg_fails()
+{
+	local d out rc
+	d=$(make_scratch)
+	fake_pkg_config "$d" physfs 3.2.1
+	printf 'pkg physfs darwin 3.2.0\npkg sdl2 darwin 2.32.74\n' > "$d/manifest"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "physfs: found 3.2.1, manifest pins 3.2.0"
+	assert_contains "$out" "sdl2: not found, manifest pins 2.32.74"
+}
+
+# Test that scons and ccache are probed.
+test_scons_and_ccache_probed()
+{
+	local d out rc
+	d=$(make_scratch)
+	fake_tool "$d" scons 'SCons by Steven Knight et al.:' '	SCons: v4.11.1.abc, 2026, by bdbaddog'
+	fake_tool "$d" ccache 'ccache version 4.14.2' 'Features: file-storage'
+	printf 'tool scons darwin 4.11.1\ntool ccache darwin 4.14.2\n' > "$d/manifest"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ok   scons 4.11.1"
+	assert_contains "$out" "ok   ccache 4.14.2"
+}
+
 # Write a manifest with one dependency line into $1/manifest.
 dep_manifest()
 {

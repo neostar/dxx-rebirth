@@ -6,8 +6,9 @@
 #
 # Each `tool <name> <platform> <version>` line whose platform is `any` or
 # this machine's (darwin, linux; DOCTOR_PLATFORM overrides uname) is probed
-# with probe_<name> below and must report exactly <version>.  A missing
-# tool is drift too.  The dependency prefix (default: env.sh's
+# with probe_<name> below and must report exactly <version>; each `pkg
+# <module> <platform> <version>` line with pkg-config.  A missing tool or
+# library is drift too.  The dependency prefix (default: env.sh's
 # dev_deps_prefix) must have been built by deps.sh from the manifest's
 # current dependency lines and build options; the venv (default: dev_venv)
 # from the `venv python` pin and the requirements.lock next to the
@@ -98,16 +99,37 @@ probe_shellcheck()
 	shellcheck --version 2>/dev/null | sed -n 's/^version: //p'
 }
 
+probe_ccache()
+{
+	command -v ccache >/dev/null || return 0
+	ccache --version 2>/dev/null | head -n 1 | first_version
+}
+
+probe_scons()
+{
+	command -v scons >/dev/null || return 0
+	scons --version 2>/dev/null | grep -i 'SCons:' | first_version
+}
+
+# The version of pkg-config module $1, or nothing when it is missing.
+probe_pkg()
+{
+	pkg-config --modversion "$1" 2>/dev/null
+}
+
 rc=0
 while read -r kind name where want _; do
-	[[ $kind == tool ]] || continue
+	[[ $kind == tool || $kind == pkg ]] || continue
 	[[ $where == any || $where == "$platform" ]] || continue
-	if ! declare -F "probe_$name" >/dev/null; then
+	if [[ $kind == pkg ]]; then
+		got=$(probe_pkg "$name")
+	elif ! declare -F "probe_$name" >/dev/null; then
 		echo "FAIL $name: doctor.sh has no probe for it"
 		rc=1
 		continue
+	else
+		got=$("probe_$name")
 	fi
-	got=$("probe_$name")
 	if [[ -z $got ]]; then
 		echo "FAIL $name: not found, manifest pins $want"
 		rc=1
