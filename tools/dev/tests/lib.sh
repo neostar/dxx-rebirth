@@ -1,9 +1,12 @@
+# shellcheck shell=bash
 # Shared helpers for the shell tests in tools/dev/tests; sourced, not run.
 # Each test file defines functions named test_*; run_tests runs them in
 # order, reports skipped ones, and exits non-zero if any failed.
 
 DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck disable=SC2034  # used by the test files
 REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
+# shellcheck source=../env.sh
 source "$DEV_DIR/env.sh"
 
 # A test may run inside a git hook, where git exports GIT_DIR, GIT_INDEX_FILE

@@ -52,7 +52,7 @@ else
 fi
 if [[ -n $missing ]]; then
 	echo "run.sh: $bin: unresolved libraries:" >&2
-	printf '  %s\n' $missing >&2
+	while IFS= read -r lib; do echo "  $lib"; done <<<"$missing" >&2
 	exit 1
 fi
 exec "$dev_dir/no-window.sh" "$bin" "${@:2}"

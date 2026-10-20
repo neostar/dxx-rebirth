@@ -9,6 +9,7 @@
 # all steps, then exits 1 if any failed.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
+root=$(cd "$dev_dir/../.." && pwd)
 source "$dev_dir/env.sh"
 
 usage()
@@ -52,6 +53,27 @@ step_repo_config()
 	return "$rc"
 }
 
+# Run shellcheck on the shell scripts in the fork directories
+# (tools/dev/fork-dirs): *.sh files and files with a sh or bash shebang.
+# CHECK_SHELLCHECK names the binary (default shellcheck); a missing one is
+# a SKIP.
+step_shellcheck()
+{
+	local shellcheck=${CHECK_SHELLCHECK:-shellcheck} d f dirs=() files=()
+	if ! command -v "$shellcheck" >/dev/null; then
+		echo "SKIP shellcheck: $shellcheck not found; install shellcheck to run this check"
+		return 0
+	fi
+	while IFS= read -r d; do
+		[[ -z $d || $d == \#* ]] || dirs+=("$d")
+	done < "$dev_dir/fork-dirs"
+	while IFS= read -r -d '' f; do
+		[[ $f == *.sh ]] || head -n 1 "$f" | grep -qE '^#!.*[/ ](ba)?sh$' && files+=("$f")
+	done < <(cd "$root" && find "${dirs[@]}" -type f -print0)
+	[[ ${#files[@]} -eq 0 ]] && return 0
+	(cd "$root" && "$shellcheck" -x --source-path=SCRIPTDIR "${files[@]}")
+}
+
 # Run every tools/dev/tests/*_test.sh, each under no-window.sh.
 step_shell_tests()
 {
@@ -85,7 +107,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(repo_config guard format shell_tests)
+fast_steps=(repo_config guard format shellcheck shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full

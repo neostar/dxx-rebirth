@@ -60,12 +60,13 @@ test_empty_frontmost_sample_fails()
 test_headless_sdl_gpu_tool_stays_in_background()
 {
 	[[ $(uname -s) == Darwin ]] || return 0
-	local d out
+	local d out sdl3_flags
 	d=$(make_scratch)
 	pkg-config --exists sdl3 2>/dev/null || skip 'pkg-config finds no sdl3; install SDL3 to run this check'
-	cc -std=c11 "$DEV_DIR/tests/headless_probe.c" -o "$d/headless_probe" \
-		$(pkg-config --cflags --libs sdl3) || { fail 'cannot build headless_probe'; return; }
-	out=$("$NO_WINDOW" "$d/headless_probe" 2>&1)
+	read -ra sdl3_flags < <(pkg-config --cflags --libs sdl3)
+	cc -std=c11 "$DEV_DIR/tests/headless_probe.c" -o "$d/headless_probe" "${sdl3_flags[@]}" ||
+		{ fail 'cannot build headless_probe'; return; }
+	out=$("$DEV_DIR/run.sh" "$d/headless_probe" 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "headless_probe: gpu device"
 }

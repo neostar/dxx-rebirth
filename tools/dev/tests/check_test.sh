@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Command-line behaviour of tools/dev/check.sh and the pre-commit hook,
 # run against a throwaway repository holding a copy of tools/dev.
+# Single quotes hold scripts expanded by the shells they are written for.
+# shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 
 # Make a throwaway repo with tools/dev copied in (no tests, so check.sh
@@ -85,6 +87,34 @@ test_fast_fails_on_misformatted_fork_code()
 	assert_contains "$out" "failed: format"
 }
 
+# Test that the fast subset runs shellcheck on scripts in the fork
+# directories, found by extension or by shebang.
+test_fast_fails_on_shellcheck_finding()
+{
+	local r out rc
+	command -v shellcheck >/dev/null || skip 'shellcheck not installed'
+	r=$(make_dev_repo)
+	printf '#!/usr/bin/env bash\ncd "$1"\n' > "$r/tools/bad.sh"
+	printf '#!/bin/sh\ncd "$1"\n' > "$r/tools/noext"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/bad.sh"
+	assert_contains "$out" "tools/noext"
+	assert_contains "$out" "SC2164"
+	assert_contains "$out" "failed: shellcheck"
+}
+
+# Test that a missing shellcheck is a visible SKIP, not a failure.
+test_fast_skips_shellcheck_when_absent()
+{
+	local r out
+	r=$(make_dev_repo)
+	printf '#!/usr/bin/env bash\ncd "$1"\n' > "$r/tools/bad.sh"
+	out=$(CHECK_SHELLCHECK=no-such-shellcheck "$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP shellcheck"
+}
+
 # Test that an unknown option is a usage error with exit status 2.
 test_unknown_option_is_usage_error()
 {
@@ -146,7 +176,7 @@ test_fast_checks_repo_config_from_worktree()
 {
 	local r wt out rc
 	r=$(make_dev_repo)
-	tgit -C "$r" add -A && tgit -C "$r" commit -q -m tools >/dev/null 2>&1
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
 	wt=$(make_scratch)/wt
 	git -C "$r" worktree add -q -b side "$wt"
 	out=$("$wt/tools/dev/check.sh" --fast 2>&1)

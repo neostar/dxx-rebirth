@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Command-line behaviour of tools/dev/run.sh, which runs a binary with the
 # dev environment, after checking its libraries resolve, under no-window.sh.
+# Single quotes hold scripts expanded by the shells they are written for.
+# shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 RUN="$DEV_DIR/run.sh"
 
@@ -46,9 +48,10 @@ test_unresolved_library_fails_before_launch()
 	d=$(make_scratch)
 	printf 'int lib_answer(void) { return 42; }\n' > "$d/lib.c"
 	printf 'int lib_answer(void);\nint main(void) { return lib_answer() == 42 ? 0 : 1; }\n' > "$d/main.c"
-	cc -dynamiclib "$d/lib.c" -install_name @rpath/libanswer.dylib -o "$d/libanswer.dylib" &&
-		cc "$d/main.c" -L"$d" -lanswer -Wl,-rpath,@executable_path -o "$d/prog" ||
-		{ fail 'cannot build the test binary'; return; }
+	if ! cc -dynamiclib "$d/lib.c" -install_name @rpath/libanswer.dylib -o "$d/libanswer.dylib" ||
+		! cc "$d/main.c" -L"$d" -lanswer -Wl,-rpath,@executable_path -o "$d/prog"; then
+		fail 'cannot build the test binary'; return
+	fi
 	out=$("$RUN" "$d/prog" 2>&1)
 	assert_eq "$?" 0 "$out"
 	rm "$d/libanswer.dylib"

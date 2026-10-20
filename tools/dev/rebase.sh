@@ -10,7 +10,8 @@
 # on a conflict or a failing CMD the rebase stops for you to fix it.
 set -u
 upstream=upstream/master
-# One line: git rebase --exec rejects newlines.
+# One line: git rebase --exec rejects newlines.  Expanded by git's shell.
+# shellcheck disable=SC2016
 exec_cmd='if [ -x tools/dev/build.sh ] && [ -x tools/dev/check.sh ]; then tools/dev/build.sh && tools/dev/check.sh --fast; else echo "rebase.sh: skip checks at $(git log -1 --format="%h %s"): no tools/dev/build.sh or check.sh"; fi'
 
 usage()

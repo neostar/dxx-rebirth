@@ -1,9 +1,11 @@
+# shellcheck shell=bash
 # Environment shared by the tools in tools/dev and their tests; sourced,
 # not run.
 
 # git's repository variables.  Inside a git hook git exports some of them
 # for the repository being committed to; the shell tests must never see
 # any of them, or their throwaway repositories become that repository.
+# shellcheck disable=SC2034  # used by the scripts sourcing this file
 dev_git_repo_vars=(GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_COMMON_DIR
 	GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 	GIT_NAMESPACE)
