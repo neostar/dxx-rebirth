@@ -13,7 +13,8 @@ make_dev_repo()
 	r=$(make_repo)
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
-	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$r/tools/dev/"
+	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
+		"$DEV_DIR/requirements.lock" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)

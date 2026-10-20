@@ -115,6 +115,12 @@ step_shell_tests()
 	return "$rc"
 }
 
+# Check the toolchain against tools/dev/toolchain.pins.
+step_doctor()
+{
+	"$dev_dir/doctor.sh"
+}
+
 # Check fork code against tools/dev/style/clang-format.
 step_format()
 {
@@ -133,7 +139,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(repo_config guard format shellcheck stale_hashes shell_tests)
+fast_steps=(repo_config doctor guard format shellcheck stale_hashes shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full
