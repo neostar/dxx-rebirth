@@ -1,0 +1,22 @@
+# Pinned reference docs for tools/dev/fetch-docs.sh: PATH URL SHA256.
+# Versions from the approved plan: SDL3 3.4.18, SDL3_mixer 3.2.4,
+# SDL3_image 3.4.8, SDL_shadercross 1ff05bec5739; FLIP and the Vulkan
+# validation layer docs pinned to the commit/tag current on 2026-10-20.
+sdl3/SDL_gpu.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_gpu.h 126b7407f5a81448a8888e435dee49a1c1c9808e6c3f4eb93a91778066b8c3e5
+sdl3/SDL_hints.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_hints.h d47a37c21db9dab22cadb985245d5f5b775930710a072954b5be930cf0b39a57
+sdl3/README-migration.md https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/docs/README-migration.md 31081722db858ed81f1eb31377aebed629a2bd5a4f4af0f5c6ceb44a68a0e7dd
+sdl3/README-highdpi.md https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/docs/README-highdpi.md d2f873f874de435fe12470ff94a426e6cd2621a184506ec9f7d1f6f09c862236
+sdl3/test/testgpu_simple_clear.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testgpu_simple_clear.c 68d63ed5c57c3ffdf1f58e86ffcee36e65af3827810367795f9067c4ca2804f5
+sdl3/test/testgpu_spinning_cube.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testgpu_spinning_cube.c 7eb5570a7fe1d6e0377d2cfeb0ce0a1a1846b75d4558eb54431773049256e4ab
+sdl3/test/testgpurender_effects.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testgpurender_effects.c 5f73cd6b6c3b3c22f4d19681a841e64cf28a25f223408b9a772ec5cbb9f19553
+sdl3/test/testgpu/cube.vert.hlsl https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testgpu/cube.vert.hlsl a829dd55fe4ebcd15079e387b2ac107f093a7cc8bf016fb34e2419d98f7318cc
+sdl3/test/testgpu/cube.frag.hlsl https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testgpu/cube.frag.hlsl c2fef9c3e01e14bead6251d282cc82ca3a76d0e44dd910a611bf52971e32ca65
+sdl3_mixer/README-migration.md https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/docs/README-migration.md 54f8e6b99edfe26a2bd303c843acccffcc8695b8d4eee074fbc9abb4a5cb6ac0
+sdl3_mixer/SDL_mixer.h https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/include/SDL3_mixer/SDL_mixer.h 4041e4b5d39e0751220541e2b460d62a5cd143b0f3192d792eef0d8e4243667a
+sdl3_image/README-migration.md https://raw.githubusercontent.com/libsdl-org/SDL_image/release-3.4.8/docs/README-migration.md 4dd7b4b1ea4e1ec301766b75da339e48b940773a52b707ccca42418bc568abca
+shadercross/README.txt https://raw.githubusercontent.com/libsdl-org/SDL_shadercross/1ff05bec573988a98ef9e0260b4da44f512b8367/README.txt 0d7d3119a25dfc6208ac34ec09a2bf5b29c6c16ec255b64dcfe054af3d9bcd8d
+shadercross/cli.c https://raw.githubusercontent.com/libsdl-org/SDL_shadercross/1ff05bec573988a98ef9e0260b4da44f512b8367/src/cli.c 0413f4b753a4a08ef167cf9588e9d8450aef81eade32266ea76d29d55c7d7048
+flip/README.md https://raw.githubusercontent.com/NVlabs/flip/d3ab02a4425eb167d8a4021b382a2bafc6e6c838/README.md aeac3c674c7817136a5fc8a817bb262e2a18f23dee40f6d870af57f24eaac37f
+vulkan-validation/khronos_validation_layer.md https://raw.githubusercontent.com/KhronosGroup/Vulkan-ValidationLayers/vulkan-sdk-1.4.363.0/docs/khronos_validation_layer.md 2ede8df9d3eb3a7f42cb1abbf20b0ea63b68f618e350a7dcaacecd47489be95f
+vulkan-validation/error_messages.md https://raw.githubusercontent.com/KhronosGroup/Vulkan-ValidationLayers/vulkan-sdk-1.4.363.0/docs/error_messages.md 859bf17ae4646da5a8366636f13b0d5ce8c2293ff72a22a753a3f162915c5c84
+vulkan-validation/best_practices.md https://raw.githubusercontent.com/KhronosGroup/Vulkan-ValidationLayers/vulkan-sdk-1.4.363.0/docs/best_practices.md a830f551efee914481eda4be2eb5a4640a6d964f32530faa15612da5f89d6e50
