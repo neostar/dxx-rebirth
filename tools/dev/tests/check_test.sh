@@ -73,13 +73,13 @@ test_pre_commit_hook_blocks_game_data()
 	r=$(make_dev_repo)
 	printf 'DHF\0\0\0\0' > "$r/renamed.bin"
 	git -C "$r" add renamed.bin
-	out=$(git -C "$r" commit -q -m data 2>&1) && rc=0 || rc=$?
+	out=$(tgit -C "$r" commit -q -m data 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "renamed.bin"
 	git -C "$r" rm -q --cached renamed.bin
 	printf 'int y;\n' > "$r/b.cpp"
 	git -C "$r" add b.cpp
-	out=$(git -C "$r" commit -q -m code 2>&1)
+	out=$(tgit -C "$r" commit -q -m code 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
@@ -91,6 +91,26 @@ test_setup_installs_hooks()
 	git -C "$r" config --unset core.hooksPath
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	assert_eq "$(git -C "$r" config core.hooksPath)" "tools/dev/hooks"
+}
+
+# Test that the shell tests and check.sh, run with GIT_DIR and
+# GIT_INDEX_FILE exported to a decoy repository as inside a git hook, leave
+# the decoy's config and HEAD unchanged.
+test_hook_environment_does_not_leak_into_decoy_repo()
+{
+	local decoy r config_before head_before
+	decoy=$(make_repo)
+	r=$(make_dev_repo)
+	config_before=$(cat "$decoy/.git/config")
+	head_before=$(git -C "$decoy" rev-parse HEAD)
+	GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
+		bash "$DEV_DIR/tests/guard_test.sh" >/dev/null 2>&1
+	GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
+		bash -c 'source "$1"; make_repo >/dev/null' _ "$DEV_DIR/tests/lib.sh"
+	(cd "$r" && GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
+		tools/dev/check.sh --fast >/dev/null 2>&1)
+	assert_eq "$(cat "$decoy/.git/config")" "$config_before"
+	assert_eq "$(git -C "$decoy" rev-parse HEAD)" "$head_before"
 }
 
 run_tests

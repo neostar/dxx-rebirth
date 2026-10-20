@@ -93,7 +93,7 @@ test_staged_deletion_passes()
 	r=$(make_repo)
 	printf 'x' > "$r/old.hog"
 	git -C "$r" add old.hog
-	git -C "$r" commit -q -m add --no-verify
+	tgit -C "$r" commit -q -m add --no-verify
 	git -C "$r" rm -q old.hog
 	out=$(cd "$r" && "$GUARD" --staged 2>&1)
 	assert_eq "$?" 0

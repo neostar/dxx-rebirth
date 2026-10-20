@@ -2,6 +2,19 @@
 # Each test file defines functions named test_*; run_tests runs them in
 # order and exits non-zero if any failed.
 
+# A test may run inside a git hook, where git exports GIT_DIR, GIT_INDEX_FILE
+# and friends for the repository being committed to.  Clear them, so every
+# git command here acts only on the throwaway repository named by -C.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
+	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX GIT_NAMESPACE
+
+# Scripts under test call plain git; keep the owner's global config (signing
+# with 1Password, identity) out of throwaway repositories without writing
+# any config file.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
+
 DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
 
@@ -41,16 +54,21 @@ make_scratch()
 _scratch_dirs=()
 trap 'rm -rf "${_scratch_dirs[@]}"' EXIT
 
+# git with a test identity and no signing, set per command so that no
+# repository's config is ever written.  Always pass -C <throwaway repo>.
+tgit()
+{
+	git -c user.name=test -c user.email=test@example.invalid \
+		-c commit.gpgsign=false "$@"
+}
+
 # Make a throwaway git repository with one empty commit and print its path.
 make_repo()
 {
 	local d
 	d=$(make_scratch)
 	git -C "$d" init -q -b main
-	git -C "$d" config user.email test@example.invalid
-	git -C "$d" config user.name test
-	git -C "$d" config commit.gpgsign false
-	git -C "$d" commit -q --allow-empty -m 'root'
+	tgit -C "$d" commit -q --allow-empty -m 'root'
 	printf '%s\n' "$d"
 }
 
