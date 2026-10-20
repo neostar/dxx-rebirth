@@ -130,8 +130,9 @@ in fork code:
 ## Upstream candidates
 
 Fixes to upstream code that upstream would want too are kept as separate, minimal commits so they
-can be offered upstream: `SConstruct` make_unique configure test (265baa94e) and the
-`OPTIMIZER_HIDE_VARIABLE` asm in `valptridx-range` (6a7ca3a9c).
+can be offered upstream. Name them by subject, since rebases change hashes:
+`` `SConstruct`: discard make_unique results in configure tests `` and
+`` `OPTIMIZER_HIDE_VARIABLE`: use a memory operand clang accepts on arm64 ``.
 
 ## Fork rules defined elsewhere
 
