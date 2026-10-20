@@ -1,3 +1,7 @@
+## Conventions
+
+Read `docs/agents/conventions.md` before writing or reviewing C++, SConstruct, tests or commit messages.
+
 ## Agent skills
 
 ### Issue tracker

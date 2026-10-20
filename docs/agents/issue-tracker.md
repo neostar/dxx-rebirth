@@ -13,6 +13,19 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 **Always pass `-R neostar/dxx-rebirth`.** This clone has two remotes: `origin` is the fork and `upstream` is the official dxx-rebirth repo. Issues for this work live on the fork only; never create, comment on or label anything upstream.
 
+## Working a ticket
+
+- **Claim**: assign yourself and comment `started <ISO time>`.
+- **Time box**: a ticket's story points set its expected time. When the work passes twice that,
+  stop and report on the ticket: what is done, what is open, and why it took longer. The overrun is
+  data for the estimates, not a failure.
+- **Finish**: close with a comment giving review rounds and anything that surprised you.
+- **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
+  orchestrating session records each agent run's system-reported duration, tokens and tool calls,
+  per ticket, in the metrics log; GitHub timestamps (claim, PR ready, first review, merge, close)
+  give review wait and cycle time. An implementing agent runs `date -u +%FT%TZ` as its first and
+  last command and quotes both in its report as a cross-check.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
