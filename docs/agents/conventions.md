@@ -91,6 +91,16 @@ Done when every touched line follows the rules for its kind of code.
   (`enumerate.cpp:19`).
 - Register new files in `runtime_test_boost_tests` (`SConstruct:4999`); run them with `check`.
 
+## Shell scripts
+
+`check.sh --fast` runs shellcheck on `tools/dev/fork-dirs`; these are the calls it cannot make:
+
+- Throwaway repositories come from `make_repo` in `tools/dev/tests/lib.sh`, and scripts source
+  `tools/dev/env.sh`, so git's repository variables never reach the real repository.
+- Use options that behave the same in BSD and GNU tools (`od`, not `xxd`; no `sed -i`).
+- Test each option's default path, not only its overrides.
+- A missing tool is a visible SKIP naming the tool, never a silent pass.
+
 ## Commits
 
 - Subject: `` `symbol_or_file`: lowercase imperative summary `` (67bf8de68, 3285a3de9); a short
