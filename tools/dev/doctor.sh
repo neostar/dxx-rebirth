@@ -197,5 +197,10 @@ if [[ -n $want_python ]]; then
 	fi
 fi
 
+# The machine: jobs and RAM.
+ram=$(sysctl -n hw.memsize 2>/dev/null ||
+	awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo 2>/dev/null)
+echo "info machine: $dev_jobs jobs (DXX_JOBS), $((${ram:-0} / 1073741824)) GiB RAM"
+
 [[ $rc -eq 0 ]] && echo "doctor.sh: toolchain matches $(basename "$manifest")"
 exit "$rc"

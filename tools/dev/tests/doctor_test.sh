@@ -321,4 +321,47 @@ test_missing_venv_skips()
 	assert_contains "$out" "SKIP venv: $d/none not made; run tools/dev/deps.sh venv"
 }
 
+# Write fakes into directory $1 for the machine probes: sysctl answering
+# "name=value" pairs given as the remaining arguments (any other name
+# fails), df reporting $DF_FREE_KB free, docker listing $DOCKER_IMAGES.
+fake_machine()
+{
+	local d=$1 kv; shift
+	{
+		echo '#!/bin/sh'
+		echo 'case $2 in'
+		for kv in "$@"; do echo "${kv%%=*}) echo ${kv#*=} ;;"; done
+		echo '*) exit 1 ;;'
+		echo 'esac'
+	} > "$d/sysctl"
+	printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/fake 999999999 1 ${DF_FREE_KB:-104857600} 1%% /"\n' > "$d/df"
+	printf '#!/bin/sh\ncase $1 in info) exit 0 ;; image) printf "%%s\\n" ${DOCKER_IMAGES-} ;; esac\n' > "$d/docker"
+	chmod +x "$d/sysctl" "$d/df" "$d/docker"
+}
+
+# Test that doctor reports the machine: jobs from the performance cores
+# and RAM.
+test_reports_cores_ram_and_disk()
+{
+	local d out
+	d=$(make_scratch)
+	unset DXX_JOBS
+	fake_machine "$d" hw.perflevel0.physicalcpu=6 hw.ncpu=10 hw.memsize=34359738368
+	: > "$d/manifest"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "info machine: 6 jobs (DXX_JOBS), 32 GiB RAM"
+}
+
+# Test that without performance levels the jobs are all the CPUs.
+test_jobs_fall_back_to_all_cpus()
+{
+	local d out
+	d=$(make_scratch)
+	unset DXX_JOBS
+	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
+	: > "$d/manifest"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "info machine: 10 jobs (DXX_JOBS)"
+}
+
 run_tests

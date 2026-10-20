@@ -42,7 +42,7 @@ fi
 # Tests that create an SDL window stay in the background on macOS.
 export SDL_MAC_BACKGROUND_APP=1
 
-jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+jobs=$dev_jobs
 sites=("site=$dev_dir/site-dev.py")
 [[ $profile == asan ]] && sites+=("site=$dev_dir/site-asan.py")
 wrap=()

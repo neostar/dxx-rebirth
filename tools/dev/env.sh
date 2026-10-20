@@ -30,6 +30,12 @@ dev_os=$(uname -s | tr '[:upper:]' '[:lower:]')
 # shellcheck disable=SC2034
 dev_platform=$dev_os-$(uname -m)
 
+# How many jobs the tools run at once: DXX_JOBS, else the performance-core
+# count (Apple Silicon), else every CPU.
+# shellcheck disable=SC2034  # used by the scripts sourcing this file
+dev_jobs=${DXX_JOBS:-$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null ||
+	sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
+
 # The pinned dependencies (tools/dev/toolchain.pins): deps.sh fetches
 # their sources once into the sha256-verified cache and builds them into the
 # prefix, one per OS and architecture; both are gitignored under

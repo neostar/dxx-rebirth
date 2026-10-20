@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 [[ -r $manifest ]] || { echo "deps.sh: cannot read $manifest" >&2; exit 2; }
-jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+jobs=$dev_jobs
 
 refuse()
 {

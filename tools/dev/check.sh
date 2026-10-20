@@ -101,8 +101,8 @@ step_stale_hashes()
 }
 
 # Run every tools/dev/tests/*_test.sh, each under its own no-window.sh,
-# DXX_JOBS (default 8) at a time; print each one's output whole, in file
-# order, and fail if any failed.
+# env.sh's dev_jobs (DXX_JOBS) at a time; print each one's output whole,
+# in file order, and fail if any failed.
 step_shell_tests()
 {
 	local t i rc=0 out tests=()
@@ -111,7 +111,7 @@ step_shell_tests()
 	done
 	out=$(mktemp -d "${TMPDIR:-/tmp}/check-shell-tests.XXXXXX")
 	for i in "${!tests[@]}"; do
-		while [[ $(jobs -rp | wc -l) -ge ${DXX_JOBS:-8} ]]; do
+		while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
 			wait -n
 		done
 		# Inside a git hook, git exports GIT_DIR and friends for the
