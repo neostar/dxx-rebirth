@@ -99,4 +99,20 @@ test_staged_deletion_passes()
 	assert_eq "$?" 0
 }
 
+# Test that git ignores licensed game data and captures, traces and goldens
+# derived from it, but not synthetic goldens (read-only check of the
+# repository's .gitignore).
+test_gitignore_covers_licensed_data()
+{
+	local p
+	for p in descent2.hog d2/groupa.pig descent2.ham hires.mvl game.dem level01.rdl level01.rl2 \
+		traces/local/run.rtr captures/frame1.png goldens/corridor.png d2x-rebirth/goldens/x.png; do
+		(cd "$REPO_ROOT" && git check-ignore -q --no-index "$p") || fail "$p is not ignored"
+	done
+	for p in tools/dev/tests/synthetic/goldens/quad.png traces/synthetic/quad.rtr; do
+		(cd "$REPO_ROOT" && git check-ignore -q --no-index "$p") && fail "$p is ignored"
+	done
+	return 0
+}
+
 run_tests

@@ -54,3 +54,20 @@ xcuserdata
 Brewfile.lock.json
 # Local reference docs mirror (SDL3, SDL_GPU, shadercross, FLIP)
 /docs/reference/
+
+# Fork: licensed game data and data derived from it (rubric R15) #
+###################################################################
+# Descent archives, movies, demos and levels, and local traces, captures
+# and goldens made from them.  tools/dev/guard-licensed-data.sh rejects
+# them in the pre-commit hook too; synthetic goldens stay committable.
+*.[hH][oO][gG]
+*.[pP][iI][gG]
+*.[hH][aA][mM]
+*.[mM][vV][lL]
+*.[dD][eE][mM]
+*.[rR][dD][lL]
+*.[rR][lL]2
+traces/local/
+captures/
+goldens/
+!**/synthetic/**/goldens/
