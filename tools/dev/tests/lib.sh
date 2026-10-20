@@ -119,6 +119,24 @@ SAMPLER
 	printf '%s\n' "$d/sampler"
 }
 
+# Print "sha256  path" for every file under the directories $2... of
+# directory $1, in a fixed order.  A text file is hashed with every
+# occurrence of $1 (as given, normalized or resolved) replaced by
+# @PREFIX@: pkg-config and CMake files name their prefix by design; a
+# binary must not.
+tree_sums()
+{
+	local d=$1 f sub; shift
+	sub="s|$d|@PREFIX@|g;s|$(cd "$d" && pwd)|@PREFIX@|g;s|$(cd "$d" && pwd -P)|@PREFIX@|g"
+	(cd "$d" && find "$@" -type f | LC_ALL=C sort | while IFS= read -r f; do
+		if grep -Iq . "$f"; then
+			echo "$(sed "$sub" "$f" | dev_sha256)  $f"
+		else
+			echo "$(dev_sha256 "$f")  $f"
+		fi
+	done)
+}
+
 run_tests()
 {
 	local t rc

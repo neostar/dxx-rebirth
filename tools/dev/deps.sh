@@ -271,7 +271,7 @@ build_options_hash()
 {
 	local f
 	{
-		declare -f build_one extract_prebuilt
+		declare -f build_one reproducible_options extract_prebuilt
 		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members)_/ {print $3}'); do
 			echo "$f: $("$f")"
 		done
@@ -283,6 +283,37 @@ stamp()
 {
 	dep_lines
 	echo "options $(build_options_hash)"
+}
+
+# Reproducible builds (ADR 4): the same pins give the same bytes at any
+# prefix.  Set path_maps (compiler flags) and link_maps (CMake options)
+# that map the build, cache and prefix paths to fixed names in __FILE__,
+# debug info and the macOS debug map, and rpath, relative to each library
+# and program; archive members get no timestamps (GNU ar is deterministic
+# by default), and CMake's TIMESTAMP, which SPIRV-Cross puts in its
+# version string, gives the epoch (SOURCE_DATE_EPOCH).  Each path as given, normalized, and with symbolic links
+# resolved (on the Mac /var is /private/var): the compiler may see any.
+reproducible_options()
+{
+	local d m
+	export SOURCE_DATE_EPOCH=0
+	path_maps=()
+	mkdir -p "$cache"
+	for d in "$work=/dxx/build" "$cache=/dxx/cache" "$prefix=/dxx/prefix"; do
+		for m in "${d%%=*}" "$(cd "${d%%=*}" && pwd)" "$(cd "${d%%=*}" && pwd -P)"; do
+			path_maps+=("-ffile-prefix-map=$m=${d#*=}" "-fdebug-prefix-map=$m=${d#*=}")
+		done
+	done
+	link_maps=()
+	if [[ $platform == darwin-* ]]; then
+		rpath=@loader_path/../lib
+		link_maps=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-oso_prefix,$work"
+			"-DCMAKE_EXE_LINKER_FLAGS=-Wl,-oso_prefix,$work"
+			"-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-oso_prefix,$work")
+		export ZERO_AR_DATE=1
+	else
+		rpath=\$ORIGIN/../lib
+	fi
 }
 
 build_one()
@@ -301,7 +332,10 @@ build_one()
 	echo "build $name"
 	if ! { cmake -S "$src" -B "$work/build/$name" -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
-		-DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_RPATH="$prefix/lib" \
+		-DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_RPATH="$rpath" \
+		-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+		-DCMAKE_C_FLAGS="${path_maps[*]}" -DCMAKE_CXX_FLAGS="${path_maps[*]}" \
+		"${link_maps[@]+"${link_maps[@]}"}" \
 		-DCMAKE_IGNORE_PREFIX_PATH='/opt/homebrew;/usr/local' \
 		-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
 		-DFETCHCONTENT_FULLY_DISCONNECTED=ON "${fetchcontent[@]+"${fetchcontent[@]}"}" \
@@ -339,6 +373,7 @@ if [[ $mode != fetch ]]; then
 	work=$prefix-build
 	rm -rf "$prefix" "$work"
 	mkdir -p "$prefix" "$work"
+	reproducible_options
 	# Every build sees every `fetchcontent` checkout in place of its
 	# download, and may download nothing else.
 	fetchcontent=()

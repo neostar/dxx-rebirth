@@ -196,4 +196,66 @@ test_fetchcontent_comes_from_the_cache()
 	assert_eq "$(cat "$d/prefix/share/main/data" 2>&1)" extra
 }
 
+# Test that two builds of one C project at two different prefixes install
+# byte-identical libraries and programs: no build path, prefix path or
+# archive timestamp leaks into them.
+test_build_does_not_depend_on_its_path()
+{
+	local d t a b
+	command -v cc >/dev/null || skip "no C compiler"
+	d=$(make_scratch)
+	mkdir -p "$d/src/cdemo-1.0"
+	printf '%s\n' \
+		'const char *where(void) { return __FILE__; }' > "$d/src/cdemo-1.0/lib.c"
+	printf '%s\n' \
+		'const char *where(void);' \
+		'int main(void) { return where()[0] == 0; }' > "$d/src/cdemo-1.0/main.c"
+	printf '%s\n' \
+		'cmake_minimum_required(VERSION 3.20)' \
+		'project(cdemo C)' \
+		'add_library(cdemo SHARED lib.c)' \
+		'add_library(cdemo_static STATIC lib.c)' \
+		'add_executable(cdemo_main main.c)' \
+		'target_link_libraries(cdemo_main cdemo)' \
+		'install(TARGETS cdemo cdemo_static cdemo_main)' > "$d/src/cdemo-1.0/CMakeLists.txt"
+	tar -czf "$d/cdemo-1.0.tar.gz" -C "$d/src" cdemo-1.0
+	echo "source cdemo 1.0 file://$d/cdemo-1.0.tar.gz $(dev_sha256 "$d/cdemo-1.0.tar.gz")" \
+		> "$d/manifest"
+	for t in a b; do
+		"$DEPS" --manifest "$d/manifest" --cache "$d/cache" --prefix "$d/$t/prefix-$t" \
+			>/dev/null 2>&1 || fail "build in $t failed"
+		# Archive members carry a timestamp to the second.
+		[[ $t == a ]] && sleep 1
+	done
+	a=$(tree_sums "$d/a/prefix-a" bin lib)
+	b=$(tree_sums "$d/b/prefix-b" bin lib)
+	[[ -n $a ]] || fail "nothing installed"
+	assert_eq "$b" "$a" "installed files differ between the two prefixes"
+	"$d/b/prefix-b/bin/cdemo_main" || fail "the program does not run from its prefix"
+}
+
+# Test that a build records no build time: CMake's TIMESTAMP, as
+# SPIRV-Cross's version header uses it, gives the same value every build.
+test_build_records_no_build_time()
+{
+	local d a
+	d=$(make_scratch)
+	mkdir -p "$d/src/stamp-1.0"
+	printf '%s\n' \
+		'cmake_minimum_required(VERSION 3.20)' \
+		'project(stamp NONE)' \
+		'string(TIMESTAMP t "%Y-%m-%dT%H:%M:%S")' \
+		'file(WRITE ${CMAKE_BINARY_DIR}/when "${t}\n")' \
+		'install(FILES ${CMAKE_BINARY_DIR}/when DESTINATION share)' \
+		> "$d/src/stamp-1.0/CMakeLists.txt"
+	tar -czf "$d/stamp-1.0.tar.gz" -C "$d/src" stamp-1.0
+	echo "source stamp 1.0 file://$d/stamp-1.0.tar.gz $(dev_sha256 "$d/stamp-1.0.tar.gz")" \
+		> "$d/manifest"
+	run_deps "$d" >/dev/null || fail "first build failed"
+	a=$(cat "$d/prefix/share/when")
+	sleep 1
+	run_deps "$d" >/dev/null || fail "second build failed"
+	assert_eq "$(cat "$d/prefix/share/when")" "$a"
+}
+
 run_tests
