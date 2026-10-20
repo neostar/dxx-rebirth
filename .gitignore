@@ -52,6 +52,9 @@ xcuserdata
 # Brewfile installation artifacts
 #################################
 Brewfile.lock.json
+# Pinned dependencies: source cache, prefixes, venv (tools/dev/deps.sh)
+/third_party/
+
 # Local reference docs mirror (SDL3, SDL_GPU, shadercross, FLIP)
 /docs/reference/
 

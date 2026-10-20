@@ -29,3 +29,56 @@ dev_llvm_tool()
 {
 	command -v "$1" || echo "$(brew --prefix llvm 2>/dev/null)/bin/$1"
 }
+
+# This machine's OS (darwin, linux) and platform (OS-ARCH, as in the
+# manifest's `prebuilt` lines).
+# shellcheck disable=SC2034  # used by the scripts sourcing this file
+dev_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+# shellcheck disable=SC2034
+dev_platform=$dev_os-$(uname -m)
+
+# The pinned dependencies (tools/dev/toolchain.pins): deps.sh fetches
+# their sources once into the sha256-verified cache and builds them into the
+# prefix, one per OS and architecture; both are gitignored under
+# third_party/.  DXX_DEPS_CACHE and DXX_DEPS_PREFIX override them, so
+# worktrees can share one cache.
+_dev_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# shellcheck disable=SC2034  # used by the scripts sourcing this file
+dev_deps_cache=${DXX_DEPS_CACHE:-$_dev_root/third_party/cache}
+# shellcheck disable=SC2034
+dev_deps_prefix=${DXX_DEPS_PREFIX:-$_dev_root/third_party/$dev_platform}
+# The Python venv from tools/dev/requirements.lock (deps.sh venv): Python,
+# FLIP and numpy, and the pinned shellcheck and cmake.  When it exists its
+# bin comes first on PATH, so the fork's tools run the pinned versions.
+# DXX_VENV overrides it.
+# shellcheck disable=SC2034
+dev_venv=${DXX_VENV:-$_dev_root/third_party/venv-$dev_platform}
+if [[ -x $dev_venv/bin/python3 && :$PATH: != *":$dev_venv/bin:"* ]]; then
+	export PATH=$dev_venv/bin:$PATH
+fi
+unset _dev_root
+
+# Print the sha256 of file $1, or of the standard input without one:
+# sha256sum on Linux, shasum on the Mac.
+dev_sha256()
+{
+	if command -v sha256sum >/dev/null; then
+		sha256sum "$@"
+	else
+		shasum -a 256 "$@"
+	fi | awk '{print $1}'
+}
+
+# Print the Python version that manifest $1 pins for the venv.
+dev_venv_python()
+{
+	awk '$1 == "venv" && $2 == "python" {print $3}' "$1"
+}
+
+# Print what the venv of manifest $1 records in venv.stamp: its Python
+# version and the sha256 of the lockfile next to the manifest.
+dev_venv_pins()
+{
+	printf 'python %s\nlock %s\n' "$(dev_venv_python "$1")" \
+		"$(dev_sha256 "$(dirname "$1")/requirements.lock" 2>/dev/null)"
+}

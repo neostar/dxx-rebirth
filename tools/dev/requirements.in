@@ -1,0 +1,10 @@
+# The fork's Python venv (tools/dev/deps.sh venv), locked with hashes in
+# requirements.lock by:
+#   uv pip compile --universal --generate-hashes --python-version 3.13 \
+#     tools/dev/requirements.in -o tools/dev/requirements.lock
+# Image comparison (FLIP) for the render goldens.
+flip-evaluator==1.7
+numpy==2.5.4
+# Tools pinned here so the Mac and the container run the same binaries.
+shellcheck-py==0.11.0.1
+cmake==4.4.4
