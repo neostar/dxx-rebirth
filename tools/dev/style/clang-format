@@ -1,0 +1,40 @@
+# Fork code style, from docs/agents/conventions.md (Formatting).
+BasedOnStyle: LLVM
+UseTab: ForIndentation
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterControlStatement: Always
+  BeforeElse: true
+  BeforeCatch: true
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+NamespaceIndentation: None
+FixNamespaceComments: false
+PointerAlignment: Right
+ReferenceAlignment: Right
+QualifierAlignment: Left
+SpaceBeforeParens: ControlStatements
+AlwaysBreakTemplateDeclarations: Yes
+BreakAfterAttributes: Always
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IndentRequiresClause: false
+RequiresClausePosition: OwnLine
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<'
+    Priority: 1
+  - Regex: '^"'
+    Priority: 2

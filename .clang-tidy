@@ -1,0 +1,3 @@
+# No checks on upstream code.  tools/dev/format.sh --tidy runs
+# tools/dev/style/clang-tidy on the directories in tools/dev/fork-dirs.
+Checks: '-*'

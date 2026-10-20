@@ -1,0 +1,4 @@
+# Directories holding only fork code, one per line, relative to the repo
+# root.  tools/dev/format.sh formats and tidies C/C++ files under these and
+# nowhere else.  Add a directory here when a ticket creates it.
+tools

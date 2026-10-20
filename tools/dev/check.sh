@@ -42,6 +42,12 @@ step_shell_tests()
 	return "$rc"
 }
 
+# Check fork code against tools/dev/style/clang-format.
+step_format()
+{
+	"$dev_dir/format.sh" --check
+}
+
 # Build D2X with the dev profile and run the unit tests.
 step_unit_tests()
 {
@@ -54,7 +60,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(guard shell_tests)
+fast_steps=(guard format shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full

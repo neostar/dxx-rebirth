@@ -1,0 +1,5 @@
+# Upstream code has no formatter and must not be reformatted (ADR 1).  Fork
+# code is formatted with tools/dev/format.sh, which uses
+# tools/dev/style/clang-format for the directories in tools/dev/fork-dirs.
+DisableFormat: true
+SortIncludes: Never
