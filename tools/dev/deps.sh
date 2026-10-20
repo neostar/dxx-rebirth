@@ -163,6 +163,61 @@ verify_one()
 	esac
 }
 
+# Extra CMake options per dependency: only what the game needs, nothing
+# found outside the prefix.
+# On Linux the prefix serves the headless reference container: offscreen
+# video with Vulkan, no X11 or Wayland.
+cmake_options_SDL3()
+{
+	echo -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_TESTS=OFF
+	[[ $platform != linux-* ]] ||
+		echo -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=OFF \
+			-DSDL_OFFSCREEN=ON -DSDL_VULKAN=ON
+}
+
+# No glib (osal cpp11 is the default), no audio drivers or MIDI ports:
+# SDL3_mixer renders through FluidSynth's synthesizer only.
+cmake_options_fluidsynth()
+{
+	local o
+	for o in alsa aufile dbus ipv6 jack ladspa libsndfile midishare network oss \
+		sdl3 pulseaudio pipewire readline openmp systemd coreaudio coremidi \
+		framework portaudio libinstpatch; do
+		printf -- '-Denable-%s=OFF ' "$o"
+	done
+	echo -Dosal=cpp11 -DBUILD_SHARED_LIBS=ON
+}
+
+# FluidSynth linked directly; codecs only from SDL3_mixer's own sources.
+cmake_options_SDL3_mixer()
+{
+	echo -DSDLMIXER_VENDORED=OFF -DSDLMIXER_STRICT=ON -DSDLMIXER_DEPS_SHARED=OFF \
+		-DSDLMIXER_TESTS=OFF -DSDLMIXER_EXAMPLES=OFF \
+		-DSDLMIXER_MIDI_FLUIDSYNTH=ON -DSDLMIXER_MIDI_TIMIDITY=ON \
+		-DSDLMIXER_FLAC_LIBFLAC=OFF -DSDLMIXER_GME=OFF -DSDLMIXER_MOD=OFF \
+		-DSDLMIXER_MP3_MPG123=OFF -DSDLMIXER_OPUS=OFF -DSDLMIXER_VORBIS_VORBISFILE=OFF \
+		-DSDLMIXER_VORBIS_TREMOR=OFF -DSDLMIXER_WAVPACK=OFF
+}
+
+# PNG and JPEG through SDL3_image's built-in stb_image, on the Mac too (no
+# ImageIO), so both platforms decode with the same code.
+cmake_options_SDL3_image()
+{
+	echo -DSDLIMAGE_VENDORED=OFF -DSDLIMAGE_STRICT=ON -DSDLIMAGE_DEPS_SHARED=OFF \
+		-DSDLIMAGE_TESTS=OFF -DSDLIMAGE_SAMPLES=OFF -DSDLIMAGE_BACKEND_STB=ON \
+		-DSDLIMAGE_BACKEND_IMAGEIO=OFF -DSDLIMAGE_PNG_LIBPNG=OFF \
+		-DSDLIMAGE_AVIF=OFF -DSDLIMAGE_JXL=OFF -DSDLIMAGE_TIF=OFF -DSDLIMAGE_WEBP=OFF
+}
+
+# The shadercross CLI with its vendored SPIRV-Cross, SPIRV-Tools and DXC
+# (HLSL to SPIR-V); the pinned DXC release adds DXIL on Linux x86-64.
+cmake_options_SDL_shadercross()
+{
+	echo -DSDLSHADERCROSS_VENDORED=ON -DSDLSHADERCROSS_DXC=ON -DSDLSHADERCROSS_CLI=ON \
+		-DSDLSHADERCROSS_SHARED=ON -DSDLSHADERCROSS_STATIC=OFF -DSDLSHADERCROSS_INSTALL=ON \
+		-DSDLSHADERCROSS_INSTALL_RUNTIME=OFF -DSDLSHADERCROSS_INSTALL_CPACK=OFF
+}
+
 # Unpack prebuilt archive $2 (.tar.gz, .tar.xz or .tar.zst) of dependency
 # $1 into $prefix/opt/$1: only the members prebuilt_members_$1 lists,
 # without the archive's top directory, if that is defined, else all.
