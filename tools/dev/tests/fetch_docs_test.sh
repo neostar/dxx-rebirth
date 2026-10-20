@@ -47,4 +47,15 @@ test_default_dest_is_ignored()
 	(cd "$REPO_ROOT" && git check-ignore -q docs/reference/SDL_gpu.h) || fail 'docs/reference is not ignored'
 }
 
+# Test that an option without its value is a usage error.
+test_option_without_value_is_usage_error()
+{
+	local out rc
+	out=$("$FETCH" --manifest 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2
+	assert_contains "$out" "usage"
+	out=$("$FETCH" --dest 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2
+}
+
 run_tests

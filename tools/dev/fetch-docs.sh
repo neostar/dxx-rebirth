@@ -12,11 +12,17 @@ dev_dir=$(cd "$(dirname "$0")" && pwd)
 manifest=$dev_dir/reference-docs.txt
 dest=$dev_dir/../../docs/reference
 
+usage()
+{
+	echo "usage: $0 [--manifest FILE] [--dest DIR]" >&2
+	exit 2
+}
+
 while [[ $# -gt 0 ]]; do
 	case $1 in
-		--manifest) manifest=$2; shift 2 ;;
-		--dest) dest=$2; shift 2 ;;
-		*) echo "usage: $0 [--manifest FILE] [--dest DIR]" >&2; exit 2 ;;
+		--manifest) [[ $# -ge 2 ]] || usage; manifest=$2; shift 2 ;;
+		--dest) [[ $# -ge 2 ]] || usage; dest=$2; shift 2 ;;
+		*) usage ;;
 	esac
 done
 
