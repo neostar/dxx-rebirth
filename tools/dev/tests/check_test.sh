@@ -59,6 +59,34 @@ test_fast_runs_shell_tests()
 	assert_contains "$out" "zfail_test.sh"
 }
 
+# Test that shell tests run concurrently, DXX_JOBS at a time, and that
+# each one's output is printed whole and in file order: a_test waits for a
+# file b_test writes, so it passes only alongside b_test.
+test_fast_runs_shell_tests_in_parallel()
+{
+	local r d out rc
+	r=$(make_dev_repo)
+	d=$(make_scratch)
+	printf '#!/usr/bin/env bash
+echo a-start
+for _ in $(seq 50); do [[ -e %s/b ]] && { echo a-done; exit 0; }; sleep 0.1; done
+exit 1
+' \
+		"$d" > "$r/tools/dev/tests/a_test.sh"
+	printf '#!/usr/bin/env bash
+echo b-start
+touch %s/b
+echo b-done
+' "$d" > "$r/tools/dev/tests/b_test.sh"
+	out=$(DXX_JOBS=2 "$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" $'-- tests/a_test.sh\na-start\na-done\n-- tests/b_test.sh\nb-start\nb-done'
+	rm -f "$d/b"
+	out=$(DXX_JOBS=1 "$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAILED: tests/a_test.sh"
+}
+
 # Test that each shell test runs under no-window.sh: a test taking focus
 # fails the check.
 test_fast_runs_shell_tests_windowless()

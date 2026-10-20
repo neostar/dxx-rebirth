@@ -100,18 +100,34 @@ step_stale_hashes()
 	return "$rc"
 }
 
-# Run every tools/dev/tests/*_test.sh, each under no-window.sh.
+# Run every tools/dev/tests/*_test.sh, each under its own no-window.sh,
+# DXX_JOBS (default 8) at a time; print each one's output whole, in file
+# order, and fail if any failed.
 step_shell_tests()
 {
-	local t rc=0
+	local t i rc=0 out tests=()
 	for t in "$dev_dir"/tests/*_test.sh; do
-		[[ -e $t ]] || continue
-		echo "-- ${t#"$dev_dir"/}"
+		[[ -e $t ]] && tests+=("$t")
+	done
+	out=$(mktemp -d "${TMPDIR:-/tmp}/check-shell-tests.XXXXXX")
+	for i in "${!tests[@]}"; do
+		while [[ $(jobs -rp | wc -l) -ge ${DXX_JOBS:-8} ]]; do
+			wait -n
+		done
 		# Inside a git hook, git exports GIT_DIR and friends for the
 		# repository being committed to; tests must never see them.
-		(unset "${dev_git_repo_vars[@]}"; "$dev_dir/no-window.sh" bash "$t") ||
-			{ echo "FAILED: ${t#"$dev_dir"/}"; rc=1; }
+		(unset "${dev_git_repo_vars[@]}"
+			"$dev_dir/no-window.sh" bash "${tests[i]}" > "$out/$i" 2>&1
+			echo "$?" > "$out/$i.rc") &
 	done
+	wait
+	for i in "${!tests[@]}"; do
+		t=${tests[i]#"$dev_dir"/}
+		echo "-- $t"
+		cat "$out/$i"
+		[[ $(cat "$out/$i.rc" 2>/dev/null) == 0 ]] || { echo "FAILED: $t"; rc=1; }
+	done
+	rm -rf "$out"
 	return "$rc"
 }
 
