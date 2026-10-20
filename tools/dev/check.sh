@@ -100,6 +100,25 @@ step_stale_hashes()
 	return "$rc"
 }
 
+# Fail on any file under .github/workflows/ that upstream/master does not
+# have: the fork's CI is local (ADR 4), and GitHub must not run a workflow
+# of its own.  Without upstream/master the check is a SKIP.
+step_workflows()
+{
+	local f rc=0
+	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
+		echo "SKIP workflows: no upstream/master; fetch upstream to run this check"
+		return 0
+	fi
+	while IFS= read -r f; do
+		echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
+		rc=1
+	done < <(comm -23 \
+		<(git -C "$root" ls-files -co --exclude-standard -- .github/workflows | sort -u) \
+		<(git -C "$root" ls-tree -r --name-only upstream/master -- .github/workflows | sort -u))
+	return "$rc"
+}
+
 # Run every tools/dev/tests/*_test.sh, each under its own no-window.sh,
 # env.sh's dev_jobs (DXX_JOBS) at a time; print each one's output whole,
 # in file order, and fail if any failed.
@@ -157,7 +176,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(repo_config doctor guard format shellcheck stale_hashes shell_tests)
+fast_steps=(repo_config doctor guard format shellcheck stale_hashes workflows shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full

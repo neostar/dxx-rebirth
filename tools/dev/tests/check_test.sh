@@ -147,8 +147,13 @@ test_fast_skips_shellcheck_when_absent()
 # fork commit.
 make_forked_dev_repo()
 {
-	local r
-	r=$(make_dev_repo)
+	make_forked_dev_repo_in "$(make_dev_repo)"
+}
+
+# make_forked_dev_repo on dev repo $1.
+make_forked_dev_repo_in()
+{
+	local r=$1
 	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
 	git -C "$r" update-ref refs/remotes/upstream/master HEAD
 	tgit -C "$r" commit -q --no-verify --allow-empty -m 'fork change'
@@ -329,6 +334,38 @@ test_shell_tests_see_only_allowlisted_environment()
 		> "$r/tools/dev/tests/env_test.sh"
 	out=$(SECRET_TOKEN=decoy DXX_DECOY=kept "$r/tools/dev/check.sh" --fast 2>&1)
 	assert_contains "$out" "token=unset dxx=kept"
+}
+
+# Test that the fast subset fails on a workflow upstream/master does not
+# have, naming it, and accepts upstream's own workflows.
+test_fast_fails_on_new_github_workflow()
+{
+	local r up fork out rc
+	r=$(make_dev_repo)
+	mkdir -p "$r/.github/workflows"
+	echo 'on: push' > "$r/.github/workflows/ci.yml"
+	read -r r up fork < <(make_forked_dev_repo_in "$r")
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	echo 'on: push' > "$r/.github/workflows/fork.yml"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" ".github/workflows/fork.yml: a GitHub workflow upstream does not have"
+	assert_not_contains "$out" "ci.yml:"
+	assert_contains "$out" "failed: workflows"
+}
+
+# Test that the workflow check is a visible SKIP without upstream/master.
+test_fast_skips_workflow_check_without_upstream()
+{
+	local r up fork out
+	read -r r up fork < <(make_forked_dev_repo)
+	mkdir -p "$r/.github/workflows"
+	echo 'on: push' > "$r/.github/workflows/fork.yml"
+	git -C "$r" update-ref -d refs/remotes/upstream/master
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP workflows"
 }
 
 run_tests
