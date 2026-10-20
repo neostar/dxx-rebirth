@@ -9,10 +9,7 @@
 # all steps, then exits 1 if any failed.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
-# Sanitizer failures exit non-zero rather than abort(), which on macOS
-# opens a CrashReporter dialog.
-export ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=0:halt_on_error=1:detect_leaks=0}
-export UBSAN_OPTIONS=${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1:abort_on_error=0}
+source "$dev_dir/env.sh"
 
 usage()
 {
@@ -35,8 +32,7 @@ step_shell_tests()
 		echo "-- ${t#"$dev_dir"/}"
 		# Inside a git hook, git exports GIT_DIR and friends for the
 		# repository being committed to; tests must never see them.
-		env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_COMMON_DIR \
-			-u GIT_OBJECT_DIRECTORY -u GIT_PREFIX bash "$t" ||
+		(unset "${dev_git_repo_vars[@]}"; bash "$t") ||
 			{ echo "FAILED: ${t#"$dev_dir"/}"; rc=1; }
 	done
 	return "$rc"

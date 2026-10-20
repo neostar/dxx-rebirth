@@ -2,11 +2,14 @@
 # Each test file defines functions named test_*; run_tests runs them in
 # order and exits non-zero if any failed.
 
+DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
+source "$DEV_DIR/env.sh"
+
 # A test may run inside a git hook, where git exports GIT_DIR, GIT_INDEX_FILE
 # and friends for the repository being committed to.  Clear them, so every
 # git command here acts only on the throwaway repository named by -C.
-unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
-	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX GIT_NAMESPACE
+unset "${dev_git_repo_vars[@]}"
 
 # Scripts under test call plain git; keep the owner's global config (signing
 # with 1Password, identity) out of throwaway repositories without writing
@@ -14,9 +17,6 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
-
-DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
 
 _failures=0
 

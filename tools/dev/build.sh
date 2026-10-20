@@ -16,13 +16,8 @@ case "${1-}" in
 	dev|asan) profile=$1; shift ;;
 esac
 
-# Sanitizer failures exit non-zero instead of calling abort(): on macOS an
-# abort brings up a CrashReporter dialog.  LeakSanitizer is unsupported on
-# Apple Silicon macOS (use `leaks --atExit` there); elsewhere it stays on.
-detect_leaks=1
-[[ $(uname -s) == Darwin ]] && detect_leaks=0
-export ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=0:halt_on_error=1:detect_leaks=$detect_leaks}
-export UBSAN_OPTIONS=${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1:abort_on_error=0}
+# Sanitizer options (ASAN_OPTIONS, UBSAN_OPTIONS).
+source "$dev_dir/env.sh"
 
 # Homebrew's sdl2-compat dlopens SDL3 and shows a modal "Failed loading SDL3
 # library" alert if it cannot.  Under ASan its first candidate,

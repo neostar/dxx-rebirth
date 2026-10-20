@@ -114,4 +114,37 @@ test_hook_environment_does_not_leak_into_decoy_repo()
 	assert_eq "$(git -C "$decoy" rev-parse HEAD)" "$head_before"
 }
 
+# Test that the shell tests run without any of git's repository variables,
+# whether or not the test sources lib.sh.
+test_shell_tests_see_no_git_repository_variables()
+{
+	local r out
+	r=$(make_dev_repo)
+	printf '#!/usr/bin/env bash\necho "ns=${GIT_NAMESPACE-unset} alt=${GIT_ALTERNATE_OBJECT_DIRECTORIES-unset}"\n' \
+		> "$r/tools/dev/tests/env_test.sh"
+	out=$(cd "$r" && GIT_NAMESPACE=decoy GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent \
+		tools/dev/check.sh --fast 2>&1)
+	assert_contains "$out" "ns=unset alt=unset"
+}
+
+# Print the ASAN_OPTIONS a shell test sees under check.sh when uname -s
+# reports $1.
+asan_options_on()
+{
+	local r bin
+	r=$(make_dev_repo)
+	bin=$(make_scratch)
+	printf '#!/bin/sh\necho %s\n' "$1" > "$bin/uname"; chmod +x "$bin/uname"
+	printf '#!/usr/bin/env bash\necho "asan=$ASAN_OPTIONS"\n' > "$r/tools/dev/tests/env_test.sh"
+	(cd "$r" && env -u ASAN_OPTIONS PATH="$bin:$PATH" tools/dev/check.sh --fast 2>&1) | grep '^asan='
+}
+
+# Test that LeakSanitizer stays on where it works and is off on macOS.
+test_leak_detection_on_except_macos()
+{
+	assert_contains "$(asan_options_on Linux)" "detect_leaks=1"
+	assert_contains "$(asan_options_on Darwin)" "detect_leaks=0"
+	assert_contains "$(asan_options_on Linux)" "abort_on_error=0"
+}
+
 run_tests
