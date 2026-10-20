@@ -15,16 +15,38 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 ## Working a ticket
 
+The orchestrating session owns the ticket, the merge and every push; an implementer agent owns one
+branch. A prompt that says "follow Working a ticket" adds only the ticket number and the time box.
+
+**Orchestrator**
+
 - **Claim**: assign yourself and comment `started <ISO time>`.
-- **Time box**: a ticket's story points set its expected time. When the work passes twice that,
-  stop and report on the ticket: what is done, what is open, and why it took longer. The overrun is
+- **Time box**: a ticket's story points set its expected time, and the box is twice that. At the
+  box, comment on the ticket what is done, what is open, and why it took longer. The overrun is
   data for the estimates, not a failure.
+- **Merge**: sign the implementer's commits, merge them into `sdl-gpu-port`, push.
 - **Finish**: close with a comment giving review rounds and anything that surprised you.
 - **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
   orchestrating session records each agent run's system-reported duration, tokens and tool calls,
   per ticket, in the metrics log; GitHub timestamps (claim, PR ready, first review, merge, close)
-  give review wait and cycle time. An implementing agent runs `date -u +%FT%TZ` as its first and
-  last command and quotes both in its report as a cross-check.
+  give review wait and cycle time.
+
+**Implementer**
+
+1. **Clock**: run `date -u +%FT%TZ` as your first and last command.
+2. **Worktree**: work in your own worktree on a new branch from `sdl-gpu-port`, and confirm the base
+   (`git merge-base --is-ancestor sdl-gpu-port HEAD`) before the first edit.
+3. **Commits**: unsigned (`git -c commit.gpgsign=false commit`), in the Commits format of
+   `conventions.md`, ending with your model's `Co-Authored-By: ... <noreply@anthropic.com>`
+   trailer. The orchestrator signs them at merge.
+4. **Windowless**: launch binaries with `tools/dev/run.sh` and any other command that may open a
+   window with `tools/dev/no-window.sh`.
+5. **Local**: your output is commits on your branch and the report; pushes and issue writes belong
+   to the orchestrator.
+6. **Time box**: at the box, commit what is green and go to the report.
+7. **Report**, after merging the current `sdl-gpu-port` tip and a passing `tools/dev/check.sh`:
+   start and end times; commits by subject; each item as done (with the command that proves it) or
+   open (with why); anything surprising.
 
 ## Pull requests as a triage surface
 
