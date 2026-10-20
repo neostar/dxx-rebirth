@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Installed by tools/dev/setup.sh (core.hooksPath); runs the fast checks.
+exec "$(git rev-parse --show-toplevel)/tools/dev/check.sh" --fast
