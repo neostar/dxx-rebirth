@@ -52,7 +52,7 @@ step_repo_config()
 	return "$rc"
 }
 
-# Run every tools/dev/tests/*_test.sh.
+# Run every tools/dev/tests/*_test.sh, each under no-window.sh.
 step_shell_tests()
 {
 	local t rc=0
@@ -61,7 +61,7 @@ step_shell_tests()
 		echo "-- ${t#"$dev_dir"/}"
 		# Inside a git hook, git exports GIT_DIR and friends for the
 		# repository being committed to; tests must never see them.
-		(unset "${dev_git_repo_vars[@]}"; bash "$t") ||
+		(unset "${dev_git_repo_vars[@]}"; "$dev_dir/no-window.sh" bash "$t") ||
 			{ echo "FAILED: ${t#"$dev_dir"/}"; rc=1; }
 	done
 	return "$rc"

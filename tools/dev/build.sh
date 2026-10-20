@@ -10,7 +10,8 @@
 #   order, later ones win).
 # Both build D2X only: SConstruct reads d1x and d2x from the command line
 # alone, not from site files, so they are passed here.
-# Pass `check` to build and run the unit tests.
+# Pass `check` to build and run the unit tests; scons then runs under
+# no-window.sh, so a test that takes focus or crashes fails the build.
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 cd "$dev_dir/../.."
@@ -44,4 +45,8 @@ export SDL_MAC_BACKGROUND_APP=1
 jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 sites=("site=$dev_dir/site-dev.py")
 [[ $profile == asan ]] && sites+=("site=$dev_dir/site-asan.py")
-exec scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "$@"
+wrap=()
+for a in "$@"; do
+	[[ $a == check ]] && wrap=("$dev_dir/no-window.sh")
+done
+exec "${wrap[@]}" scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "$@"

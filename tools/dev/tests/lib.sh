@@ -80,6 +80,25 @@ make_repo()
 	printf '%s\n' "$d"
 }
 
+# Write a fake frontmost-app sampler into directory $1 that reports the
+# remaining arguments in turn, one per call (the last repeats), and print
+# its path.
+fake_sampler()
+{
+	local d=$1; shift
+	printf '%s\n' "$@" > "$d/apps"
+	printf '0\n' > "$d/n"
+	cat > "$d/sampler" <<SAMPLER
+#!/usr/bin/env bash
+n=\$(cat "$d/n"); echo \$((n + 1)) > "$d/n"
+total=\$(wc -l < "$d/apps")
+[[ \$n -ge \$total ]] && n=\$((total - 1))
+sed -n "\$((n + 1))p" "$d/apps"
+SAMPLER
+	chmod +x "$d/sampler"
+	printf '%s\n' "$d/sampler"
+}
+
 run_tests()
 {
 	local t rc
