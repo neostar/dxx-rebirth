@@ -39,6 +39,12 @@ reason()
 
 rejected=0
 
+# Print stdin's first four bytes as lowercase hex without spaces.
+magic()
+{
+	head -c 4 | od -An -tx1 | tr -d ' \n'
+}
+
 check()
 {
 	local path=$1 head=$2 why
@@ -51,11 +57,11 @@ check()
 
 if [[ ${1-} == --staged ]]; then
 	while IFS= read -r -d '' path; do
-		check "$path" "$(git cat-file blob ":$path" | head -c 4 | xxd -p)"
+		check "$path" "$(git cat-file blob ":$path" | magic)"
 	done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 else
 	for path in "$@"; do
-		check "$path" "$(head -c 4 "$path" 2>/dev/null | xxd -p)"
+		check "$path" "$(magic 2>/dev/null < "$path")"
 	done
 fi
 

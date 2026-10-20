@@ -48,6 +48,18 @@ test_game_data_magic_rejected()
 	assert_contains "$out" "d.txt"
 }
 
+# Test that magic bytes are read without xxd (part of vim, not POSIX).
+test_magic_detection_needs_no_xxd()
+{
+	local d bin out rc
+	d=$(make_scratch); bin=$(make_scratch)
+	printf '#!/bin/sh\nexit 127\n' > "$bin/xxd"; chmod +x "$bin/xxd"
+	printf 'DHF\0\0\0\0' > "$d/a.bin"
+	out=$(PATH="$bin:$PATH" "$GUARD" "$d/a.bin" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "HOG archive magic"
+}
+
 # Test that captures, traces and goldens are rejected unless synthetic.
 test_captures_and_goldens_rejected_unless_synthetic()
 {
