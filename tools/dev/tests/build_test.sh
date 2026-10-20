@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
 # Command-line behaviour of tools/dev/build.sh and the settings its site
 # files give SCons, checked with a fake scons; nothing is compiled.
+# Single quotes hold scripts expanded by the shells they are written for.
+# shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 
 # Print the arguments build.sh passes to scons for arguments "$@", one per
-# line.
+# line.  With SCONS_PID_FILE set, the fake scons first writes its pid there.
 scons_args()
 {
 	local bin
 	bin=$(make_scratch)
-	printf '#!/bin/sh\nprintf "%%s\\n" "$@"\n' > "$bin/scons"; chmod +x "$bin/scons"
+	printf '#!/bin/sh\n[ -n "${SCONS_PID_FILE-}" ] && echo $$ > "$SCONS_PID_FILE" && sleep 1\nprintf "%%s\\n" "$@"\n' \
+		> "$bin/scons"; chmod +x "$bin/scons"
 	PATH="$bin:$PATH" "$DEV_DIR/build.sh" "$@"
 }
 
-# Test that `check` runs scons under no-window.sh, so a test that takes
-# focus fails the build, and that a plain build is not wrapped.
+# Test that `check` runs scons under no-window.sh, so scons taking focus
+# fails the build, and that a plain build is not wrapped.
 test_check_runs_windowless()
 {
 	local d rc
 	d=$(make_scratch); mkdir "$d/reports"
-	NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal intruder) NO_WINDOW_REPORTS_DIR="$d/reports" \
-		scons_args dev >/dev/null 2>&1
+	NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		SCONS_PID_FILE="$d/pid" scons_args dev >/dev/null 2>&1
 	assert_eq "$?" 0 'plain build'
 	d=$(make_scratch); mkdir "$d/reports"
-	NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal intruder) NO_WINDOW_REPORTS_DIR="$d/reports" \
-		scons_args dev check >/dev/null 2>&1 && rc=0 || rc=$?
+	NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		SCONS_PID_FILE="$d/pid" scons_args dev check >/dev/null 2>&1 && rc=0 || rc=$?
 	assert_eq "$rc" 1 'check'
 }
 

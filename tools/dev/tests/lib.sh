@@ -84,8 +84,8 @@ make_repo()
 }
 
 # Write a fake frontmost-app sampler into directory $1 that reports the
-# remaining arguments in turn, one per call (the last repeats), and print
-# its path.
+# remaining arguments ("PID NAME") in turn, one per call (the last
+# repeats), and print its path.
 fake_sampler()
 {
 	local d=$1; shift
@@ -97,6 +97,20 @@ n=\$(cat "$d/n"); echo \$((n + 1)) > "$d/n"
 total=\$(wc -l < "$d/apps")
 [[ \$n -ge \$total ]] && n=\$((total - 1))
 sed -n "\$((n + 1))p" "$d/apps"
+SAMPLER
+	chmod +x "$d/sampler"
+	printf '%s\n' "$d/sampler"
+}
+
+# Write a fake frontmost-app sampler into directory $1 that reports an
+# app outside the run until the run writes its own pid ($$) into $1/pid,
+# then that pid as app "intruder"; print its path.
+run_sampler()
+{
+	local d=$1
+	cat > "$d/sampler" <<SAMPLER
+#!/usr/bin/env bash
+if [[ -s "$d/pid" ]]; then echo "\$(cat "$d/pid") intruder"; else echo "1 Terminal"; fi
 SAMPLER
 	chmod +x "$d/sampler"
 	printf '%s\n' "$d/sampler"

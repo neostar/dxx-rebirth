@@ -11,35 +11,56 @@ test_unchanged_frontmost_passes()
 {
 	local d out rc
 	d=$(make_scratch); mkdir "$d/reports"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal) NO_WINDOW_REPORTS_DIR="$d/reports" \
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c 'exit 0' 2>&1)
 	assert_eq "$?" 0 "$out"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal) NO_WINDOW_REPORTS_DIR="$d/reports" \
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c 'exit 7' 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 7
 }
 
-# Test that a command that takes focus fails and names the new app.
-test_focus_change_fails()
+# Test that a child of the run taking focus fails and names it.
+test_child_of_run_taking_focus_fails()
 {
 	local d out rc
 	d=$(make_scratch); mkdir "$d/reports"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal probe-tool) NO_WINDOW_REPORTS_DIR="$d/reports" \
-		"$NO_WINDOW" sh -c 'sleep 1' 2>&1) && rc=0 || rc=$?
-	assert_eq "$rc" 1
-	assert_contains "$out" "probe-tool"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c "sleep 2 & echo \$! > '$d/pid'; wait" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "intruder (pid $(cat "$d/pid"))"
+}
+
+# Test that an app outside the run taking focus (the owner switching apps)
+# passes.
+test_unrelated_app_taking_focus_passes()
+{
+	local d out
+	d=$(make_scratch); mkdir "$d/reports"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "$$ Terminal" "1 Google Chrome") \
+		NO_WINDOW_REPORTS_DIR="$d/reports" "$NO_WINDOW" sh -c 'sleep 1' 2>&1)
+	assert_eq "$?" 0 "$out"
 }
 
 # Test that a new crash report (which comes with a CrashReporter dialog)
-# fails the run and is named.
-test_new_crash_report_fails()
+# of a process of the run, or of its child, fails the run and is named.
+test_new_crash_report_of_run_fails()
 {
 	local d out rc
 	d=$(make_scratch); mkdir "$d/reports"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal) NO_WINDOW_REPORTS_DIR="$d/reports" \
-		"$NO_WINDOW" sh -c "touch '$d/reports/probe-2026-10-20-120000.ips'" 2>&1) && rc=0 || rc=$?
-	assert_eq "$rc" 1
-	assert_contains "$out" "probe-2026-10-20-120000.ips"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c "sleep 1; printf '{\"pid\" : 99999, \"parentPid\" : %s}' \$\$ > '$d/reports/probe-1.ips'" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "probe-1.ips"
+}
+
+# Test that a new crash report of a process outside the run passes.
+test_unrelated_crash_report_passes()
+{
+	local d out
+	d=$(make_scratch); mkdir "$d/reports"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c "printf '{\"pid\" : 1, \"parentPid\" : 1}' > '$d/reports/other-1.ips'" 2>&1)
+	assert_eq "$?" 0 "$out"
 }
 
 # Test that a run fails, without running CMD, when the frontmost app cannot

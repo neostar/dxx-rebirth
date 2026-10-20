@@ -27,13 +27,13 @@ test_runs_binary_with_dev_environment()
 	assert_contains "$out" "sdl=1"
 }
 
-# Test that a focus change while the binary runs fails the run.
+# Test that the binary taking focus fails the run.
 test_focus_change_fails()
 {
 	local d out rc
 	d=$(make_scratch); mkdir "$d/reports"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal intruder) NO_WINDOW_REPORTS_DIR="$d/reports" \
-		"$RUN" /bin/sleep 1 2>&1) && rc=0 || rc=$?
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$RUN" /bin/sh -c "echo \$\$ > '$d/pid'; sleep 1" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "intruder"
 }

@@ -3,15 +3,18 @@
 #
 #   no-window.sh CMD [ARG...]
 #
-# The frontmost app is sampled before, every 0.5 s during, and after CMD.
-# Exit status: CMD's own status, or 1 if the frontmost app changed or a new
-# crash report (.ips, shown with a CrashReporter dialog) appeared.  If the
-# frontmost app cannot be read (osascript needs the Automation permission
-# for System Events), it exits 1 without running CMD.  On other
-# systems CMD just runs.  SDL_MAC_BACKGROUND_APP=1 is exported for CMD.
+# Every 0.5 s the run's process tree (CMD and its descendants) and the
+# frontmost app's pid are sampled.  Exit status: CMD's own status, or 1 if
+# a process of the run became the frontmost app or a new crash report (.ips,
+# shown with a CrashReporter dialog) names one of them as its pid or
+# parentPid.  Other apps taking focus, such as the owner switching apps,
+# and other crash reports pass.  If the frontmost app cannot be read
+# (osascript needs the Automation permission for System Events), it exits 1
+# without running CMD.  On other systems CMD just runs.
+# SDL_MAC_BACKGROUND_APP=1 is exported for CMD.
 #
-# NO_WINDOW_FRONTMOST_CMD and NO_WINDOW_REPORTS_DIR replace the sampler and
-# the crash report directory (used by the tests).
+# NO_WINDOW_FRONTMOST_CMD replaces the sampler (it prints "PID NAME") and
+# NO_WINDOW_REPORTS_DIR the crash report directory (used by the tests).
 set -u
 [[ $# -gt 0 ]] || { echo "usage: $0 CMD [ARG...]" >&2; exit 2; }
 export SDL_MAC_BACKGROUND_APP=1
@@ -20,13 +23,24 @@ if [[ $(uname -s) != Darwin && -z ${NO_WINDOW_FRONTMOST_CMD-} ]]; then
 fi
 
 reports=${NO_WINDOW_REPORTS_DIR:-$HOME/Library/Logs/DiagnosticReports}
+# Print the frontmost app as "PID NAME".
 frontmost()
 {
 	if [[ -n ${NO_WINDOW_FRONTMOST_CMD-} ]]; then
 		"$NO_WINDOW_FRONTMOST_CMD"
 	else
-		osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'
+		osascript -e 'tell application "System Events"' \
+			-e 'set p to first process whose frontmost is true' \
+			-e 'return ((unix id of p) as text) & " " & (name of p)' -e 'end tell'
 	fi
+}
+
+# Print the pids of process $1 and its descendants.
+tree_pids()
+{
+	ps -A -o pid=,ppid= | awk -v root="$1" '
+		{ parent[$1] = $2 }
+		END { for (p in parent) for (q = p; q > 1; q = parent[q]) if (q == root) { print p; break } }'
 }
 
 marker=$(mktemp "${TMPDIR:-/tmp}/no-window.XXXXXX")
@@ -40,23 +54,43 @@ seen=()
 
 "$@" &
 pid=$!
+run_pids=" $pid "
+# Add the run's current processes to run_pids, then record the frontmost
+# app if it is one of them.
+sample()
+{
+	local p app_pid app_name
+	for p in $(tree_pids "$pid"); do
+		[[ $run_pids == *" $p "* ]] || run_pids+="$p "
+	done
+	read -r app_pid app_name <<<"$(frontmost)"
+	[[ $run_pids == *" $app_pid "* ]] && seen+=("$app_name (pid $app_pid)")
+	return 0
+}
 while kill -0 "$pid" 2>/dev/null; do
-	app=$(frontmost)
-	[[ $app != "$before" ]] && seen+=("$app")
+	sample
 	sleep 0.5
 done
 wait "$pid"
 rc=$?
-app=$(frontmost)
-[[ $app != "$before" ]] && seen+=("$app")
+sample
 
-new_reports=$(find "$reports" -maxdepth 1 -name '*.ips' -newer "$marker" 2>/dev/null)
+run_reports=()
+while IFS= read -r f; do
+	ips_pids=$(grep -oE '"(pid|parentPid)" *: *[0-9]+' "$f" | grep -oE '[0-9]+$')
+	for p in $ips_pids; do
+		if [[ $run_pids == *" $p "* ]]; then
+			run_reports+=("$f")
+			break
+		fi
+	done
+done < <(find "$reports" -maxdepth 1 -name '*.ips' -newer "$marker" 2>/dev/null)
 if [[ ${#seen[@]} -ne 0 ]]; then
-	echo "no-window.sh: frontmost app changed from $before to: ${seen[*]}" >&2
+	echo "no-window.sh: the run became the frontmost app: ${seen[*]}" >&2
 	rc=1
 fi
-if [[ -n $new_reports ]]; then
-	echo "no-window.sh: new crash report: $new_reports" >&2
+if [[ ${#run_reports[@]} -ne 0 ]]; then
+	echo "no-window.sh: new crash report of the run: ${run_reports[*]}" >&2
 	rc=1
 fi
 exit "$rc"

@@ -58,17 +58,15 @@ test_fast_runs_shell_tests()
 	assert_contains "$out" "zfail_test.sh"
 }
 
-# Test that each shell test runs under no-window.sh: a focus change while
-# one runs fails the check.
+# Test that each shell test runs under no-window.sh: a test taking focus
+# fails the check.
 test_fast_runs_shell_tests_windowless()
 {
 	local r d out rc
 	r=$(make_dev_repo)
 	d=$(make_scratch); mkdir "$d/reports"
-	printf '#!/usr/bin/env bash
-sleep 1
-' > "$r/tools/dev/tests/focus_test.sh"
-	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" Terminal intruder) NO_WINDOW_REPORTS_DIR="$d/reports" \
+	printf '#!/usr/bin/env bash\necho $$ > "%s/pid"; sleep 1\n' "$d" > "$r/tools/dev/tests/focus_test.sh"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "intruder"
