@@ -20,7 +20,7 @@
  * tests are suppressed, allowing the runtime test to be emitted and
  * executed.
  */
-#define OPTIMIZER_HIDE_VARIABLE(V)	asm("" : "=rm" (V) : "0" (V) : "memory")
+#define OPTIMIZER_HIDE_VARIABLE(V)	asm("" : "+m" (V) : : "memory")
 
 /* Convenience function to pass an anonymous value (such as an integer
  * constant) through OPTIMIZER_HIDE_VARIABLE, then return it.  This is
