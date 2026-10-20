@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Fetch the fork's pinned dependencies (SDL3, FluidSynth, SDL3_mixer,
-# SDL3_image, SDL_shadercross, DXC) from tools/dev/toolchain.pins into a
-# verified source cache, the same way on the Mac and for the Linux
+# Build the fork's pinned dependencies (SDL3, FluidSynth, SDL3_mixer,
+# SDL3_image, SDL_shadercross, DXC) from tools/dev/toolchain.pins into
+# the project-local prefix, the same way on the Mac and in the Linux
 # reference container (ticket #57).
 #
-#   deps.sh [--manifest FILE] [--cache DIR] [--platform OS-ARCH] [fetch]
+#   deps.sh [--manifest FILE] [--cache DIR] [--prefix DIR] [--platform OS-ARCH]
+#           [fetch|build|all|stamp]
 #
 # fetch: download each source once into the cache and verify it: a
 #   `source` or `prebuilt` file by its pinned sha256, a `git` checkout by its
@@ -12,31 +13,45 @@
 #   download that does not match is deleted, never cached.  `prebuilt` files
 #   are fetched for --platform only (default: this machine's), so the Mac
 #   can fill the cache for the Linux container.
-# The cache defaults to env.sh's dev_deps_cache.  Exit status 1 means a
-# source was refused, 2 a usage error.
+#   A `fetchcontent` checkout is not built itself: it stands in for the
+#   CMake FetchContent download of that name in every build.
+# build: verify the cache again, then build every source offline into a
+#   fresh prefix, which records the pins and a hash of the build options in
+#   deps.stamp, and remove the build tree.  Never downloads.
+# stamp: print what build records in deps.stamp (doctor.sh compares the
+#   two).
+# all (default): fetch, then build.
+# Cache and prefix default to env.sh's dev_deps_cache and dev_deps_prefix.
+# Exit status 1 means a source was refused or a build failed, 2 a usage
+# error.
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--manifest FILE] [--cache DIR] [--platform OS-ARCH] [fetch]" >&2
+	echo "usage: $0 [--manifest FILE] [--cache DIR] [--prefix DIR]" \
+		"[--platform OS-ARCH] [fetch|build|all|stamp]" >&2
 	exit 2
 }
 
 manifest=$dev_dir/toolchain.pins
 cache=$dev_deps_cache
+prefix=$dev_deps_prefix
+mode=all
 platform=$dev_platform
 while [[ $# -gt 0 ]]; do
 	case $1 in
 	--manifest) [[ $# -ge 2 ]] || usage; manifest=$2; shift 2 ;;
 	--cache) [[ $# -ge 2 ]] || usage; cache=$2; shift 2 ;;
+	--prefix) [[ $# -ge 2 ]] || usage; prefix=$2; shift 2 ;;
 	--platform) [[ $# -ge 2 ]] || usage; platform=$2; shift 2 ;;
-	fetch) shift ;;
+	fetch|build|all|stamp) mode=$1; shift ;;
 	*) usage ;;
 	esac
 done
 [[ -r $manifest ]] || { echo "deps.sh: cannot read $manifest" >&2; exit 2; }
+jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 
 refuse()
 {
@@ -140,4 +155,113 @@ fetch_one()
 	esac
 }
 
-each_dep fetch_one
+verify_one()
+{
+	case $1 in
+	source|prebuilt) verify_file "$2" "$6" "$5" ;;
+	git|fetchcontent) verify_checkout "$2" "$5" "$3" ;;
+	esac
+}
+
+# Unpack prebuilt archive $2 (.tar.gz, .tar.xz or .tar.zst) of dependency
+# $1 into $prefix/opt/$1: only the members prebuilt_members_$1 lists,
+# without the archive's top directory, if that is defined, else all.
+extract_prebuilt()
+{
+	local name=$1 file=$2 top members=()
+	top=$(basename "$file")
+	top=${top#"$name-"} top=${top%.tar.*}
+	if declare -F "prebuilt_members_$name" >/dev/null; then
+		read -ra members <<< "$("prebuilt_members_$name")"
+		members=("${members[@]/#/$top/}")
+	fi
+	mkdir -p "$prefix/opt/$name"
+	# Decompressed here: GNU tar does not detect compression on a pipe.
+	case $file in
+	*.zst) zstd -dcq --long=31 "$file" ;;
+	*.xz) xz -dc "$file" ;;
+	*.gz|*.tgz) gzip -dc "$file" ;;
+	*) cat "$file" ;;
+	esac | tar -xf - -C "$prefix/opt/$name" \
+		${members[0]+--strip-components=1} "${members[@]+"${members[@]}"}" ||
+		refuse "$name: cannot unpack $file"
+}
+
+# Print a hash of everything that shapes a build besides the pins: the
+# generic CMake invocation (build_one) and each dependency's options on
+# this platform.
+build_options_hash()
+{
+	local f
+	{
+		declare -f build_one extract_prebuilt
+		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members)_/ {print $3}'); do
+			echo "$f: $("$f")"
+		done
+	} | dev_sha256
+}
+
+# Print what a build records in deps.stamp.
+stamp()
+{
+	dep_lines
+	echo "options $(build_options_hash)"
+}
+
+build_one()
+{
+	local kind=$1 name=$2 src=$work/src/$2 opts=()
+	case $kind in
+	source) mkdir -p "$src"; tar -xf "$6" -C "$src" --strip-components=1 ;;
+	# Out of source, straight from the verified checkout: a clone would
+	# fetch the submodules from their remotes.
+	git) src=$5 ;;
+	fetchcontent) return 0 ;;
+	prebuilt) extract_prebuilt "$name" "$6"; return 0 ;;
+	esac
+	declare -F "cmake_options_$name" >/dev/null &&
+		read -ra opts <<< "$("cmake_options_$name" | tr '\n' ' ')"
+	echo "build $name"
+	if ! { cmake -S "$src" -B "$work/build/$name" -DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_PREFIX_PATH="$prefix" \
+		-DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_RPATH="$prefix/lib" \
+		-DCMAKE_IGNORE_PREFIX_PATH='/opt/homebrew;/usr/local' \
+		-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=ON "${fetchcontent[@]+"${fetchcontent[@]}"}" \
+		"${opts[@]+"${opts[@]}"}" > "$work/$name.log" 2>&1 &&
+		cmake --build "$work/build/$name" --parallel "$jobs" >> "$work/$name.log" 2>&1 &&
+		cmake --install "$work/build/$name" >> "$work/$name.log" 2>&1; }; then
+		tail -n 30 "$work/$name.log" >&2
+		refuse "$name: build failed; log in $work/$name.log"
+	fi
+}
+
+if [[ $mode == stamp ]]; then
+	stamp
+	exit 0
+fi
+if [[ $mode != build ]]; then
+	each_dep fetch_one
+fi
+if [[ $mode != fetch ]]; then
+	each_dep verify_one
+	# pkg-config sees the prefix only, never Homebrew's or the system's
+	# libraries.
+	export PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=
+	work=$prefix-build
+	rm -rf "$prefix" "$work"
+	mkdir -p "$prefix" "$work"
+	# Every build sees every `fetchcontent` checkout in place of its
+	# download, and may download nothing else.
+	fetchcontent=()
+	add_fetchcontent()
+	{
+		[[ $1 == fetchcontent ]] || return 0
+		fetchcontent+=("-DFETCHCONTENT_SOURCE_DIR_$(echo "$2" | tr '[:lower:]' '[:upper:]')=$5")
+	}
+	each_dep add_fetchcontent
+	each_dep build_one
+	stamp > "$prefix/deps.stamp"
+	rm -rf "$work"
+	echo "deps.sh: built $prefix"
+fi
