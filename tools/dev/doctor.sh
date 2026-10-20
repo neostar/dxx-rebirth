@@ -12,7 +12,7 @@
 # dev_deps_prefix) must have been built by deps.sh from the manifest's
 # current dependency lines and build options; the venv (default: dev_venv)
 # from the `venv python` pin and the requirements.lock next to the
-# manifest.  Either not made
+# manifest, with exactly the locked packages installed.  Either not made
 # yet is a SKIP.  Exit status 1 means drift, 2 a usage error.
 # The probes are called by name, as probe_<name>.
 # shellcheck disable=SC2329
@@ -163,6 +163,19 @@ else
 	echo "ok   deps $prefix"
 fi
 
+# Print the packages locked but not installed in the venv (-name==version)
+# and installed but not locked (+name==version) on one line; nothing when
+# they agree.
+venv_drift()
+{
+	local lock
+	lock=$(dirname "$manifest")/requirements.lock
+	comm -3 \
+		<(sed -n 's/^\([A-Za-z0-9._-]*==[^ ]*\) .*/\1/p' "$lock" | tr '[:upper:]_' '[:lower:]-' | sort) \
+		<(uv pip freeze --python "$venv/bin/python3" 2>/dev/null | tr '[:upper:]_' '[:lower:]-' | sort) |
+		awk '/^\t/ {sub(/^\t/, "+"); print; next} {print "-" $0}' | paste -sd ' ' -
+}
+
 # The venv records the Python and lockfile it was made from, and its
 # Python must still be that version.
 want_python=$(dev_venv_python "$manifest")
@@ -175,6 +188,9 @@ if [[ -n $want_python ]]; then
 		rc=1
 	elif [[ $(dev_venv_pins "$manifest") != "$(cat "$venv/venv.stamp" 2>/dev/null)" ]]; then
 		echo "FAIL venv: $venv was made from another lockfile or Python; run tools/dev/deps.sh venv"
+		rc=1
+	elif extra=$(venv_drift) && [[ -n $extra ]]; then
+		echo "FAIL venv: installed packages differ from requirements.lock: $extra; run tools/dev/deps.sh venv"
 		rc=1
 	else
 		echo "ok   venv python $got_python"

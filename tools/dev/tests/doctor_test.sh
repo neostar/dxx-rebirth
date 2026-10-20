@@ -258,6 +258,20 @@ venv_fixture()
 	fake_tool "$1" uv "${4:-numpy==2.5.4}" shellcheck-py==0.11.0.1
 }
 
+# Test that a venv whose installed packages differ from the lockfile
+# fails, even with a current stamp.
+test_venv_packages_differ_from_lock_fails()
+{
+	local d out rc
+	d=$(make_scratch)
+	venv_fixture "$d" 3.13.16 3.13.16 numpy==2.5.5
+	printf 'python 3.13.16\nlock %s\n' "$(dev_sha256 "$d/requirements.lock")" \
+		> "$d/venv/venv.stamp"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --venv "$d/venv") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "FAIL venv: installed packages differ from requirements.lock: -numpy==2.5.4 +numpy==2.5.5"
+}
+
 # Test that a venv made from the pinned Python and lockfile passes.
 test_current_venv_passes()
 {
