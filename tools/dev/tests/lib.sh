@@ -1,6 +1,6 @@
 # Shared helpers for the shell tests in tools/dev/tests; sourced, not run.
 # Each test file defines functions named test_*; run_tests runs them in
-# order and exits non-zero if any failed.
+# order, reports skipped ones, and exits non-zero if any failed.
 
 DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
@@ -48,6 +48,14 @@ assert_not_contains()
 _scratch_root=$(mktemp -d "${TMPDIR:-/tmp}/dxx-dev-test.XXXXXX")
 trap 'rm -rf "$_scratch_root"' EXIT
 
+# Skip the rest of the current test, with a reason, when a prerequisite is
+# missing.  run_tests reports it as SKIP; it does not fail the file.
+skip()
+{
+	printf '%s\n' "$*" > "$_scratch_root/skip-reason"
+	exit 77
+}
+
 # Make an empty scratch directory removed when the test file exits.
 make_scratch()
 {
@@ -74,12 +82,15 @@ make_repo()
 
 run_tests()
 {
-	local t
+	local t rc
 	for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 		# Asserts record failure in _test_failed, so a later passing
 		# assert cannot hide an earlier failing one.
-		if ( _test_failed=0; "$t"; exit "$_test_failed" ); then
+		( _test_failed=0; "$t"; exit "$_test_failed" ) && rc=0 || rc=$?
+		if [[ $rc -eq 0 ]]; then
 			printf '  ok   %s\n' "$t"
+		elif [[ $rc -eq 77 ]]; then
+			printf '  SKIP %s: %s\n' "$t" "$(cat "$_scratch_root/skip-reason")"
 		else
 			printf '  FAIL %s\n' "$t"
 			_failures=$((_failures + 1))

@@ -15,4 +15,19 @@ test_scratch_dirs_are_removed_on_exit()
 	done
 }
 
+# Test that a test calling skip is reported as skipped with its reason and
+# does not fail the file.
+test_skip_is_reported_and_passes()
+{
+	local d out
+	d=$(make_scratch)
+	printf '%s\n' "source '$DEV_DIR/tests/lib.sh'" \
+		'test_needs_tool() { skip "tool missing"; fail "ran past skip"; }' \
+		'run_tests' > "$d/skip_test.sh"
+	out=$(bash "$d/skip_test.sh" 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP test_needs_tool: tool missing"
+	assert_not_contains "$out" "ran past skip"
+}
+
 run_tests

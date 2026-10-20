@@ -5,8 +5,9 @@
 source "$(dirname "$0")/lib.sh"
 NO_WINDOW="$DEV_DIR/no-window.sh"
 
-# Write a fake frontmost-app sampler that reports the app listed on each
-# line of FILE in turn (the last line repeats), and print its path.
+# Write a fake frontmost-app sampler into directory $1 that reports the
+# remaining arguments in turn, one per call (the last repeats), and print
+# its path.
 fake_sampler()
 {
 	local d=$1; shift
@@ -60,6 +61,19 @@ test_new_crash_report_fails()
 	assert_contains "$out" "probe-2026-10-20-120000.ips"
 }
 
+# Test that a run fails, without running CMD, when the frontmost app cannot
+# be read (osascript without the Automation permission prints nothing).
+test_empty_frontmost_sample_fails()
+{
+	local d out rc
+	d=$(make_scratch); mkdir "$d/reports"
+	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" '') NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c "touch '$d/ran'" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "cannot read the frontmost app"
+	[[ ! -e $d/ran ]] || fail 'CMD ran without a working sampler'
+}
+
 # Test that a real headless SDL3 GPU tool, which sets
 # SDL_HINT_MAC_BACKGROUND_APP, never becomes the frontmost app (macOS only).
 test_headless_sdl_gpu_tool_stays_in_background()
@@ -67,6 +81,7 @@ test_headless_sdl_gpu_tool_stays_in_background()
 	[[ $(uname -s) == Darwin ]] || return 0
 	local d out
 	d=$(make_scratch)
+	pkg-config --exists sdl3 2>/dev/null || skip 'pkg-config finds no sdl3; install SDL3 to run this check'
 	cc -std=c11 "$DEV_DIR/tests/headless_probe.c" -o "$d/headless_probe" \
 		$(pkg-config --cflags --libs sdl3) || { fail 'cannot build headless_probe'; return; }
 	out=$("$NO_WINDOW" "$d/headless_probe" 2>&1)

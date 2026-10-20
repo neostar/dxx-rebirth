@@ -5,7 +5,9 @@
 #
 # The frontmost app is sampled before, every 0.5 s during, and after CMD.
 # Exit status: CMD's own status, or 1 if the frontmost app changed or a new
-# crash report (.ips, shown with a CrashReporter dialog) appeared.  On other
+# crash report (.ips, shown with a CrashReporter dialog) appeared.  If the
+# frontmost app cannot be read (osascript needs the Automation permission
+# for System Events), it exits 1 without running CMD.  On other
 # systems CMD just runs.  SDL_MAC_BACKGROUND_APP=1 is exported for CMD.
 #
 # NO_WINDOW_FRONTMOST_CMD and NO_WINDOW_REPORTS_DIR replace the sampler and
@@ -30,6 +32,10 @@ frontmost()
 marker=$(mktemp "${TMPDIR:-/tmp}/no-window.XXXXXX")
 trap 'rm -f "$marker"' EXIT
 before=$(frontmost)
+if [[ -z $before ]]; then
+	echo "no-window.sh: cannot read the frontmost app; allow this terminal to control System Events (Automation)" >&2
+	exit 1
+fi
 seen=()
 
 "$@" &
