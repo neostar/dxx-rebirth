@@ -78,7 +78,7 @@ run_offline()
 			docker run --rm -i --network none --platform linux/amd64 "$tag" bash -c '
 			set -e
 			mkdir /work && tar -x -C /work && cd /work
-			git init -q -b main && git add -A
+			git init -q -b main && git -c core.safecrlf=false add -A
 			git -c user.name=ci -c user.email=ci@example.invalid commit -q -m worktree
 			tools/dev/setup.sh >/dev/null
 			exec "$@"' bash "$@"
