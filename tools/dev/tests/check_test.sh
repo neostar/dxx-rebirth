@@ -83,7 +83,7 @@ test_pre_commit_hook_blocks_game_data()
 	assert_eq "$?" 0 "$out"
 }
 
-# Test that setup.sh installs the hooks in a fresh clone.
+# Test that setup.sh installs the hooks and enables rerere in a fresh clone.
 test_setup_installs_hooks()
 {
 	local r
@@ -91,6 +91,7 @@ test_setup_installs_hooks()
 	git -C "$r" config --unset core.hooksPath
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	assert_eq "$(git -C "$r" config core.hooksPath)" "tools/dev/hooks"
+	assert_eq "$(git -C "$r" config rerere.enabled)" "true"
 }
 
 # Test that the shell tests and check.sh, run with GIT_DIR and
