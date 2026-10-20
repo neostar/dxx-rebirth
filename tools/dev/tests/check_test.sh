@@ -304,7 +304,11 @@ asan_options_on()
 	bin=$(make_scratch)
 	printf '#!/bin/sh\necho %s\n' "$1" > "$bin/uname"; chmod +x "$bin/uname"
 	printf '#!/usr/bin/env bash\necho "asan=$ASAN_OPTIONS"\n' > "$r/tools/dev/tests/env_test.sh"
-	(cd "$r" && env -u ASAN_OPTIONS PATH="$bin:$PATH" tools/dev/check.sh --fast 2>&1) | grep '^asan='
+	# A faked Darwin on Linux sends no-window.sh to its macOS sampler:
+	# give it a fake one, so the test runs the same on both.
+	(cd "$r" && env -u ASAN_OPTIONS PATH="$bin:$PATH" \
+		NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$bin" '1 Terminal')" \
+		NO_WINDOW_REPORTS_DIR="$bin" tools/dev/check.sh --fast 2>&1) | grep '^asan='
 }
 
 # Test that LeakSanitizer stays on where it works and is off on macOS.
