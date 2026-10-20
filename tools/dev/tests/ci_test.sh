@@ -122,6 +122,52 @@ test_clean_clones_commit_under_test()
 	[[ ! -s $bin/docker.stdin ]] || fail "--clean sent the working tree"
 }
 
+# Test that a successful build removes the older dxx-rebirth-ref images
+# and keeps the new one.
+test_build_removes_older_images()
+{
+	local bin r tag log
+	bin=$(make_scratch)
+	r=$(make_ci_repo "$bin")
+	tag=$("$r/tools/dev/container.sh" tag)
+	FAKE_IMAGES="dxx-rebirth-ref:0123456789ab $tag" PATH="$bin:$PATH" \
+		DXX_DEPS_CACHE="$bin/cache" "$r/tools/dev/container.sh" build >/dev/null 2>&1 ||
+		fail "build failed"
+	log=$(cat "$bin/docker.log")
+	assert_contains "$log" "build "
+	assert_contains "$log" "rmi dxx-rebirth-ref:0123456789ab"
+	assert_not_contains "$log" "rmi $tag"
+}
+
+# Test that prune removes dangling images and unused BuildKit cache.
+test_prune_removes_dangling_images_and_build_cache()
+{
+	local bin r log
+	bin=$(make_scratch)
+	r=$(make_ci_repo "$bin")
+	PATH="$bin:$PATH" "$r/tools/dev/container.sh" prune >/dev/null 2>&1 || fail "prune failed"
+	log=$(cat "$bin/docker.log")
+	assert_contains "$log" "image prune -f"
+	assert_contains "$log" "builder prune -f"
+}
+
+# Test that save keeps exactly one exported image, the current one, under
+# third_party/images, and that load reads it back.
+test_save_keeps_one_image_and_load_reads_it()
+{
+	local bin r tag out
+	bin=$(make_scratch)
+	r=$(make_ci_repo "$bin")
+	tag=$("$r/tools/dev/container.sh" tag)
+	mkdir -p "$r/third_party/images"
+	echo old > "$r/third_party/images/dxx-rebirth-ref-0123456789ab.tar.zst"
+	PATH="$bin:$PATH" "$r/tools/dev/container.sh" save >/dev/null 2>&1 || fail "save failed"
+	assert_eq "$(ls "$r/third_party/images")" "dxx-rebirth-ref-${tag#*:}.tar.zst"
+	out=$(PATH="$bin:$PATH" "$r/tools/dev/container.sh" load 2>&1) || fail "load failed: $out"
+	assert_contains "$(cat "$bin/docker.log")" "load"
+	assert_eq "$(cat "$bin/docker.stdin")" image-bytes
+}
+
 # Test that an unknown option is a usage error.
 test_unknown_option_is_usage_error()
 {
