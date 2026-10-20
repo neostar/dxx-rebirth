@@ -27,7 +27,10 @@ Done when every touched line follows the rules for its kind of code.
 - `[[nodiscard]]` on its own line above the declaration (`common/include/homing.h:20`).
 - `template <typename T>` on its own line, `requires(...)` on the next, one condition per line
   when long (`common/main/d_bit_enum.h:20-43`).
-- Keep new lines under about 100 columns; there is no formatter.
+- Keep new lines under about 100 columns. Upstream code has no formatter. Fork code is formatted
+  by `tools/dev/format.sh` (clang-format with `tools/dev/style/`, `--check` in the pre-commit hook,
+  `--tidy` for clang-tidy), only in the directories listed in `tools/dev/fork-dirs`: add a new
+  fork directory there.
 - C++23 is required (`SConstruct:1229`): `static operator()`, explicit object parameters and
   concepts are in use (52f6389ee, ff8df741e).
 
@@ -123,6 +126,12 @@ in fork code:
 - 588 `extern` globals in `common/` headers: new code takes state as parameters and reads the
   globals only at its boundary.
 - All build logic sits in the 6113-line `SConstruct`.
+
+## Upstream candidates
+
+Fixes to upstream code that upstream would want too are kept as separate, minimal commits so they
+can be offered upstream: `SConstruct` make_unique configure test (265baa94e) and the
+`OPTIMIZER_HIDE_VARIABLE` asm in `valptridx-range` (6a7ca3a9c).
 
 ## Fork rules defined elsewhere
 
