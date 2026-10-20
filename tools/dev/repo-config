@@ -1,0 +1,10 @@
+# The local git config of a fork clone, written by tools/dev/setup.sh and
+# checked by tools/dev/check.sh --fast.  One rule per line:
+#   key=value   the key holds exactly this value
+#   !section    no key of this section (identity and signing stay global)
+core.bare=false
+core.hooksPath=tools/dev/hooks
+rerere.enabled=true
+rerere.autoupdate=true
+!user
+!commit

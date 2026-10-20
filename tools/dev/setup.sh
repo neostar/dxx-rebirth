@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# One-time setup of a clone or worktree for fork development.
+# One-time setup of a clone or worktree for fork development: writes the
+# key=value rules of tools/dev/repo-config (pre-commit hook, rerere) into the
+# clone's local config, which its worktrees share.  check.sh --fast checks
+# them, and that the !section rules hold.
 set -eu
+dev_dir=$(cd "$(dirname "$0")" && pwd)
 cd "$(git rev-parse --show-toplevel)"
-# Pre-commit hook: runs tools/dev/check.sh --fast.
-git config core.hooksPath tools/dev/hooks
-echo "core.hooksPath = tools/dev/hooks"
-# Replay recorded conflict resolutions on every rebase on upstream (ADR 1).
-git config rerere.enabled true
-git config rerere.autoupdate true
-echo "rerere.enabled = true"
+while IFS= read -r rule; do
+	[[ $rule == *=* && $rule != \#* ]] || continue
+	git config "${rule%%=*}" "${rule#*=}"
+	echo "${rule%%=*} = ${rule#*=}"
+done < "$dev_dir/repo-config"

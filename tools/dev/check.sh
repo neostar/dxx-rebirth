@@ -23,6 +23,35 @@ step_guard()
 	"$dev_dir/guard-licensed-data.sh" --staged
 }
 
+# Check the clone's local config against tools/dev/repo-config.  Worktrees
+# share the main clone's config file, read directly so that -c options and
+# global config cannot hide a deviation.  The repository is the one holding
+# this script, wherever check.sh is run from.
+step_repo_config()
+{
+	local config rule key want got rc=0
+	config=$(git -C "$dev_dir" rev-parse --path-format=absolute --git-common-dir)/config
+	while IFS= read -r rule; do
+		case $rule in
+		'#'*|'') ;;
+		'!'*)
+			got=$(git config --file "$config" --name-only --get-regexp "^${rule#!}\\.")
+			for key in $got; do
+				echo "repo config: $key is set; remove it (git config --unset $key)"
+				rc=1
+			done ;;
+		*=*)
+			key=${rule%%=*} want=${rule#*=}
+			got=$(git config --file "$config" --get "$key")
+			if [[ $got != "$want" ]]; then
+				echo "repo config: $key is '${got}', expected '$want' (run tools/dev/setup.sh)"
+				rc=1
+			fi ;;
+		esac
+	done < "$dev_dir/repo-config"
+	return "$rc"
+}
+
 # Run every tools/dev/tests/*_test.sh.
 step_shell_tests()
 {
@@ -56,7 +85,7 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(guard format shell_tests)
+fast_steps=(repo_config guard format shell_tests)
 full_steps=(unit_tests sanitizer_tests)
 
 mode=full

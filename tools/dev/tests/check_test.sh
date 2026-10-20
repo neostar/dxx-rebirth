@@ -11,10 +11,10 @@ make_dev_repo()
 	r=$(make_repo)
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
-	cp "$DEV_DIR/fork-dirs" "$r/tools/dev/"
+	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
-	git -C "$r" config core.hooksPath tools/dev/hooks
+	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	printf '%s\n' "$r"
 }
 
@@ -105,6 +105,39 @@ test_setup_installs_hooks()
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	assert_eq "$(git -C "$r" config core.hooksPath)" "tools/dev/hooks"
 	assert_eq "$(git -C "$r" config rerere.enabled)" "true"
+}
+
+# Test that the fast subset fails, naming the key, when the repository's
+# local config deviates from what setup.sh records.
+test_fast_fails_on_repo_config_deviation()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	git -C "$r" config user.name intruder
+	git -C "$r" config commit.gpgsign false
+	git -C "$r" config --unset rerere.enabled
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "user.name"
+	assert_contains "$out" "commit.gpgsign"
+	assert_contains "$out" "rerere.enabled"
+	assert_contains "$out" "failed: repo_config"
+}
+
+# Test that a worktree's check reads the shared config of its main clone.
+test_fast_checks_repo_config_from_worktree()
+{
+	local r wt out rc
+	r=$(make_dev_repo)
+	tgit -C "$r" add -A && tgit -C "$r" commit -q -m tools >/dev/null 2>&1
+	wt=$(make_scratch)/wt
+	git -C "$r" worktree add -q -b side "$wt"
+	out=$("$wt/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	git -C "$r" config user.email intruder@example.invalid
+	out=$(cd "$wt" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "user.email"
 }
 
 # Test that the shell tests and check.sh, run with GIT_DIR and
