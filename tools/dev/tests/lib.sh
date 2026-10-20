@@ -8,6 +8,13 @@ DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 REPO_ROOT=$(cd "$DEV_DIR/../.." && pwd)
 # shellcheck source=../env.sh
 source "$DEV_DIR/env.sh"
+# A test file sees only the allowlisted environment (env.sh), also when run
+# directly: it runs itself again under env -i, once (exec keeps its pid).
+if [[ ${DXX_TEST_ENV-} != "$$" && -f $0 ]]; then
+	_lib_env=()
+	dev_test_env _lib_env
+	exec env -i "${_lib_env[@]}" DXX_TEST_ENV=$$ bash "$0" "$@"
+fi
 # Scripts run from a throwaway copy of tools/dev use this clone's pinned
 # tools: the dependency prefix (LLVM's among them) and the venv.
 export DXX_DEPS_PREFIX=$dev_deps_prefix DXX_VENV=$dev_venv

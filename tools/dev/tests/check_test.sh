@@ -319,4 +319,16 @@ test_leak_detection_on_except_macos()
 	assert_contains "$(asan_options_on Linux)" "abort_on_error=0"
 }
 
+# Test that shell tests run in a clean environment: a variable outside the
+# allowlist is invisible to them, the allowlisted ones get through.
+test_shell_tests_see_only_allowlisted_environment()
+{
+	local r out
+	r=$(make_dev_repo)
+	printf '#!/usr/bin/env bash\necho "token=${SECRET_TOKEN-unset} dxx=${DXX_DECOY-unset}"\n' \
+		> "$r/tools/dev/tests/env_test.sh"
+	out=$(SECRET_TOKEN=decoy DXX_DECOY=kept "$r/tools/dev/check.sh" --fast 2>&1)
+	assert_contains "$out" "token=unset dxx=kept"
+}
+
 run_tests

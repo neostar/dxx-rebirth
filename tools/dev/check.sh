@@ -105,19 +105,21 @@ step_stale_hashes()
 # in file order, and fail if any failed.
 step_shell_tests()
 {
-	local t i rc=0 out tests=()
+	local t i rc=0 out tests=() test_env
 	for t in "$dev_dir"/tests/*_test.sh; do
 		[[ -e $t ]] && tests+=("$t")
 	done
 	out=$(mktemp -d "${TMPDIR:-/tmp}/check-shell-tests.XXXXXX")
+	dev_test_env test_env
 	for i in "${!tests[@]}"; do
 		while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
 			wait -n
 		done
-		# Inside a git hook, git exports GIT_DIR and friends for the
-		# repository being committed to; tests must never see them.
+		# Each test sees only the allowlisted environment (env.sh):
+		# no caller's secrets, and inside a git hook none of the GIT_DIR
+		# and friends git exports for the repository being committed to.
 		(unset "${dev_git_repo_vars[@]}"
-			"$dev_dir/no-window.sh" bash "${tests[i]}" > "$out/$i" 2>&1
+			"$dev_dir/no-window.sh" env -i "${test_env[@]}" bash "${tests[i]}" > "$out/$i" 2>&1
 			echo "$?" > "$out/$i.rc") &
 	done
 	wait

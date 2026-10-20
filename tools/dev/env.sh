@@ -57,6 +57,20 @@ if [[ -x $dev_venv/bin/python3 && :$PATH: != *":$dev_venv/bin:"* ]]; then
 fi
 unset _dev_root
 
+# Fill array $1 with NAME=VALUE for each variable the shell tests may see
+# (ADR 4): the basics, every DXX_* and the sanitizer options set above;
+# everything else in the caller's environment stays out.
+dev_test_env()
+{
+	local -n _env=$1
+	local v
+	_env=()
+	for v in PATH HOME TMPDIR LANG LC_ALL TZ USER ASAN_OPTIONS UBSAN_OPTIONS \
+		$(compgen -e | grep '^DXX_'); do
+		[[ -v $v ]] && _env+=("$v=${!v}")
+	done
+}
+
 # Print the path of LLVM tool $1 (clangd, clang-format, clang-tidy): the
 # pinned LLVM release that deps.sh installs into the prefix, never
 # Homebrew's or Xcode's.

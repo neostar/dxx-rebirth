@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Behaviour of the shared test helpers in tools/dev/tests/lib.sh.
+# Single quotes hold scripts expanded by the shells they are written for.
+# shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 
 # Test that scratch directories and repositories made through command
@@ -28,6 +30,18 @@ test_skip_is_reported_and_passes()
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP test_needs_tool: tool missing"
 	assert_not_contains "$out" "ran past skip"
+}
+
+# Test that a test file run directly sees only the allowlisted environment.
+test_test_file_sees_only_allowlisted_environment()
+{
+	local d out
+	d=$(make_scratch)
+	printf '%s\n' "source '$DEV_DIR/tests/lib.sh'" \
+		'test_env() { echo "token=${SECRET_TOKEN-unset} home=${HOME:+set}"; }' \
+		'run_tests' > "$d/env_test.sh"
+	out=$(SECRET_TOKEN=decoy bash "$d/env_test.sh" 2>&1)
+	assert_contains "$out" "token=unset home=set"
 }
 
 run_tests
