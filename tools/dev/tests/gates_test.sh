@@ -560,6 +560,118 @@ test_tidy_groups_headers_by_config()
 	assert_contains "$out" "src/a.h:6:24: error: initialization of 'plant_registrar'"
 }
 
+# Write the fixture fork directory common/fixture into clone $1: a source
+# file including an upstream header (maths.h) and its fork header by its
+# path from the top, a Boost.Test file in unittest/, both .clang-tidy
+# copies, its fork-dirs line and the test's SConstruct registration.
+write_fixture()
+{
+	local r=$1
+	mkdir -p "$r/common/fixture/unittest"
+	cp "$DEV_DIR/style/clang-tidy" "$r/common/fixture/.clang-tidy"
+	cp "$DEV_DIR/style/clang-tidy-unittest" "$r/common/fixture/unittest/.clang-tidy"
+	printf 'common/fixture\n' >> "$r/tools/dev/fork-dirs"
+	cat > "$r/common/fixture/fixture.h" <<'EOF'
+#pragma once
+
+#include <cstdint>
+
+namespace dcx::fixture {
+
+[[nodiscard]]
+std::int32_t halve(std::int32_t value);
+
+}
+EOF
+	cat > "$r/common/fixture/fixture.cpp" <<'EOF'
+#include "common/fixture/fixture.h"
+
+#include "maths.h"
+
+namespace dcx::fixture {
+
+std::int32_t halve(const std::int32_t value)
+{
+	const fix halved{value / 2};
+	return halved;
+}
+
+}
+EOF
+	cat > "$r/common/fixture/unittest/fixture.cpp" <<'EOF'
+#include "common/fixture/fixture.h"
+
+#define BOOST_TEST_DYN_LINK
+#define BOOST_TEST_MODULE Rebirth fixture
+#include <boost/test/unit_test.hpp>
+
+/* Test that halve() halves. */
+BOOST_AUTO_TEST_CASE(halve_halves)
+{
+	BOOST_TEST(dcx::fixture::halve(4) == 2);
+}
+EOF
+	awk '$0 == "\t\tRuntimeTest('"'"'test-enumerate'"'"', (" {
+		print "\t\tRuntimeTest('"'"'test-fixture'"'"', ("
+		print "\t\t\t'"'"'common/fixture/unittest/fixture.cpp'"'"',"
+		print "\t\t\t'"'"'common/fixture/fixture.cpp'"'"',"
+		print "\t\t\t)),"
+	} {print}' "$REPO_ROOT/SConstruct" > "$r/SConstruct"
+	grep -qF "'common/fixture/fixture.cpp'," "$r/SConstruct" || die "no test-enumerate registration"
+}
+
+# Run the fork pipeline on clone $1's fixture: build and run the unit tests
+# with the dev profile (the strict warnings) and the compilation database,
+# then format.sh --check and --tidy on common/fixture; print the output.
+fixture_pipeline()
+{
+	local r=$1 rc=0
+	"$r/tools/dev/build.sh" dev check build/dev/compile_commands.json > "$r/build.log" 2>&1 || rc=1
+	grep -E '(: |^)error[: ]|\*\*\* ' "$r/build.log"
+	"$r/tools/dev/format.sh" --check "$r/common/fixture" 2>&1 || rc=1
+	"$r/tools/dev/format.sh" --tidy "$r/common/fixture" 2>&1 || rc=1
+	return "$rc"
+}
+
+# Test the fork pipeline end to end on a realistic fork directory outside
+# tools/ (slow, opt-in with DXX_BUILD_TESTS=1): clean, it passes the strict
+# warnings, the unit tests, clang-format and clang-tidy; one planted defect
+# in the source, the fork header or the test each fails it.  The guard
+# against fork code getting fewer checks than tools/ does.
+test_fork_fixture_pipeline()
+{
+	local d r out
+	[[ ${DXX_BUILD_TESTS-} == 1 ]] || skip "builds D2X objects; set DXX_BUILD_TESTS=1 to run"
+	command -v scons >/dev/null || skip "scons not found"
+	need "${gate_tool[tidy]}"
+	d=$(make_scratch) || die "make_scratch failed"
+	r=$d/clone
+	tgit -C "$d" clone -q --shared "$REPO_ROOT" "$r" || die "clone failed"
+	rm -rf "$r/tools/dev" && cp -R "$DEV_DIR" "$r/tools/dev"
+	write_fixture "$r"
+	out=$(fixture_pipeline "$r") || { fail "clean fixture failed: $out"; return; }
+	# The source: a narrowing conversion (strict warnings).
+	cp "$r/common/fixture/fixture.cpp" "$d/fixture.cpp"
+	perl -pe 's|const fix halved\{value / 2\};|const fix halved = static_cast<long>(value) / 2;|' \
+		"$d/fixture.cpp" > "$r/common/fixture/fixture.cpp"
+	out=$(fixture_pipeline "$r") && fail "narrowing in the source passed"
+	assert_contains "$out" "common/fixture/fixture.cpp:9:"
+	cp "$d/fixture.cpp" "$r/common/fixture/fixture.cpp"
+	# The fork header: a typedef (modernize-use-using), reported in it.
+	cp "$r/common/fixture/fixture.h" "$d/fixture.h"
+	perl -pe 's|^namespace dcx::fixture \{$|typedef int fixture_int;\n\nnamespace dcx::fixture {|' \
+		"$d/fixture.h" > "$r/common/fixture/fixture.h"
+	out=$(fixture_pipeline "$r") && fail "typedef in the fork header passed"
+	assert_contains "$out" "common/fixture/fixture.h:5:1: error: use 'using' instead of 'typedef'"
+	cp "$d/fixture.h" "$r/common/fixture/fixture.h"
+	# The test: a C array (cppcoreguidelines-avoid-c-arrays).
+	perl -pe 's|BOOST_TEST\(dcx::fixture::halve\(4\) == 2\);|const int values[1]{4};\n\tBOOST_TEST(dcx::fixture::halve(values[0]) == 2);|' \
+		"$r/common/fixture/unittest/fixture.cpp" > "$d/test.cpp"
+	cp "$d/test.cpp" "$r/common/fixture/unittest/fixture.cpp"
+	out=$(fixture_pipeline "$r") && fail "C array in the test passed"
+	assert_contains "$out" "[cppcoreguidelines-avoid-c-arrays"
+}
+
 # Test that each gate a planted file names without a runner has an owning
 # ticket, and skip, naming those gates and tickets.
 test_later_gates()
