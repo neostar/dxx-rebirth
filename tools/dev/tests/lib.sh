@@ -289,13 +289,18 @@ SAMPLER
 
 # Write a fake frontmost-app sampler into directory $1 that reports an
 # app outside the run until the run writes its own pid ($$) into $1/pid,
-# then that pid as app "intruder"; print its path.
+# then that pid as app "intruder", adding a line to $1/seen each time;
+# print its path.
 run_sampler()
 {
 	local d=$1
 	cat > "$d/sampler" <<SAMPLER
 #!/usr/bin/env bash
-if [[ -s "$d/pid" ]]; then echo "\$(cat "$d/pid") intruder"; else echo "1 Terminal"; fi
+if [[ -s "$d/pid" ]]; then
+	echo "\$(cat "$d/pid") intruder"; echo >> "$d/seen"
+else
+	echo "1 Terminal"
+fi
 SAMPLER
 	chmod +x "$d/sampler"
 	printf '%s\n' "$d/sampler"

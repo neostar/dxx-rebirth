@@ -19,13 +19,23 @@ test_unchanged_frontmost_passes()
 	assert_eq "$rc" 7
 }
 
-# Test that a child of the run taking focus fails and names it.
+# Test that a child of the run taking focus fails and names it.  The child
+# keeps focus until the sampler has reported it twice: the second sample
+# listed the run's processes while the child was alive, so the result does
+# not depend on how fast samples come under load (about 75 s at most:
+# 600 polls of 0.1 s plus their cost).
 test_child_of_run_taking_focus_fails()
 {
 	local d out rc
 	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	cat > "$d/child" <<'CHILD'
+i=0
+until [ "$(cat "$1/seen" 2>/dev/null | wc -l)" -ge 2 ] || [ "$i" -ge 600 ]; do
+	sleep 0.1; i=$((i + 1))
+done
+CHILD
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
-		"$NO_WINDOW" sh -c "sleep 2 & echo \$! > '$d/pid'; wait" 2>&1) && rc=0 || rc=$?
+		"$NO_WINDOW" sh -c "sh '$d/child' '$d' & echo \$! > '$d/pid'; wait" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "intruder (pid $(cat "$d/pid"))"
 }
