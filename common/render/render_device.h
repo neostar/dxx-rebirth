@@ -13,13 +13,16 @@
 
 #pragma once
 
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace dcx::render {
 
@@ -160,6 +163,40 @@ constexpr std::uint64_t hash(const draw_state &s)
 	detail::fnv1a h;
 	std::apply([&h](const auto &...field) { (h.add(field), ...); }, s.fields());
 	return h.value;
+}
+
+/* One vertex as the front end fills it: position, colour and texture
+ * coordinates.  The colour is not clamped to [0, 1]; adapters clamp it.
+ */
+struct vertex
+{
+	std::array<float, 3> pos;
+	std::array<float, 4> rgba;
+	std::array<float, 2> uv;
+	constexpr bool operator==(const vertex &) const = default;
+};
+
+/* The triangles of a fan as a triangle list, for an adapter without fans.
+ * GL draws fan triangle i as (v0, vi+1, vi+2) and takes its flat colour from
+ * the last of these, vi+2.  Each is emitted rotated, as (vi+2, v0, vi+1):
+ * the winding is unchanged, and GL's provoking vertex comes first, where the
+ * SDL_GPU backends (Vulkan, Metal, D3D12) take it from.  A fan of fewer than
+ * three vertices, which GL draws as nothing, gives an empty list.
+ */
+[[nodiscard]]
+inline std::vector<vertex> fan_to_list(const std::span<const vertex> fan)
+{
+	std::vector<vertex> list;
+	if (fan.size() < 3)
+		return list;
+	list.reserve(3 * (fan.size() - 2));
+	for (std::size_t i{0}; i + 2 < fan.size(); ++i)
+	{
+		list.push_back(fan[i + 2]);
+		list.push_back(fan.front());
+		list.push_back(fan[i + 1]);
+	}
+	return list;
 }
 
 }

@@ -7,8 +7,11 @@
 
 #include "common/render/render_device.h"
 
+#include <array>
 #include <cstdint>
+#include <span>
 #include <unordered_map>
+#include <vector>
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth render_device
@@ -96,4 +99,68 @@ BOOST_AUTO_TEST_CASE(draw_state_is_unordered_key)
 	pipelines[render::draw_state{}] = 3;
 	BOOST_TEST(pipelines.size() == 2u);
 	BOOST_TEST(pipelines.at(render::draw_state{}) == 3);
+}
+
+namespace {
+
+/* Vertex n of a test fan: every field distinct, colours outside [0, 1]
+ * included, since vertex colours are not clamped.
+ */
+constexpr render::vertex fan_vertex(const float n)
+{
+	return {
+	    .pos = {{n, n + 0.25f, -n}},
+	    .rgba = {{n * 0.5f, -n, 1.f + n, 2.f}},
+	    .uv = {{n * 0.125f, 1.f - n}},
+	};
+}
+
+constexpr std::array<render::vertex, 5> pentagon{{
+    fan_vertex(0),
+    fan_vertex(1),
+    fan_vertex(2),
+    fan_vertex(3),
+    fan_vertex(4),
+}};
+
+}
+
+/* Test that a fan of n vertices becomes n - 2 triangles, triangle i as
+ * (vi+2, v0, vi+1): GL's triangle (v0, vi+1, vi+2) rotated so that its
+ * provoking (last) vertex comes first, each vertex copied unchanged.
+ */
+BOOST_AUTO_TEST_CASE(fan_to_list_splits_pentagon)
+{
+	const std::vector<render::vertex> expected{
+	    {.pos = {{2, 2.25f, -2}}, .rgba = {{1, -2, 3, 2}}, .uv = {{0.25f, -1}}},
+	    {.pos = {{0, 0.25f, 0}}, .rgba = {{0, 0, 1, 2}}, .uv = {{0, 1}}},
+	    {.pos = {{1, 1.25f, -1}}, .rgba = {{0.5f, -1, 2, 2}}, .uv = {{0.125f, 0}}},
+	    {.pos = {{3, 3.25f, -3}}, .rgba = {{1.5f, -3, 4, 2}}, .uv = {{0.375f, -2}}},
+	    {.pos = {{0, 0.25f, 0}}, .rgba = {{0, 0, 1, 2}}, .uv = {{0, 1}}},
+	    {.pos = {{2, 2.25f, -2}}, .rgba = {{1, -2, 3, 2}}, .uv = {{0.25f, -1}}},
+	    {.pos = {{4, 4.25f, -4}}, .rgba = {{2, -4, 5, 2}}, .uv = {{0.5f, -3}}},
+	    {.pos = {{0, 0.25f, 0}}, .rgba = {{0, 0, 1, 2}}, .uv = {{0, 1}}},
+	    {.pos = {{3, 3.25f, -3}}, .rgba = {{1.5f, -3, 4, 2}}, .uv = {{0.375f, -2}}},
+	};
+	BOOST_TEST((render::fan_to_list(pentagon) == expected));
+}
+
+/* Test that a fan of one triangle is that triangle, provoking vertex first. */
+BOOST_AUTO_TEST_CASE(fan_to_list_rotates_single_triangle)
+{
+	const std::vector<render::vertex> expected{
+	    {.pos = {{2, 2.25f, -2}}, .rgba = {{1, -2, 3, 2}}, .uv = {{0.25f, -1}}},
+	    {.pos = {{0, 0.25f, 0}}, .rgba = {{0, 0, 1, 2}}, .uv = {{0, 1}}},
+	    {.pos = {{1, 1.25f, -1}}, .rgba = {{0.5f, -1, 2, 2}}, .uv = {{0.125f, 0}}},
+	};
+	BOOST_TEST((render::fan_to_list(std::span(pentagon).first(3)) == expected));
+}
+
+/* Test that a fan of fewer than three vertices, which GL draws as nothing,
+ * becomes an empty list.
+ */
+BOOST_AUTO_TEST_CASE(fan_to_list_drops_degenerate_fan)
+{
+	BOOST_TEST(render::fan_to_list(std::span(pentagon).first(2)).empty());
+	BOOST_TEST(render::fan_to_list(std::span(pentagon).first(0)).empty());
 }

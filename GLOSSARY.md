@@ -11,6 +11,7 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Draw call**: one self-contained `draw` request: topology, vertices, texture slot, draw state,
   viewport and transforms.
 - **Draw state**: blend, depth, cull, alpha reference, wrap and line width of one draw call.
+- **Vertex**: position, unclamped colour and texture coordinates of one point of a draw call.
 - **Transform recipe**: a projection or modelview described by the GL calls that build it
   (`perspective`, `ortho`, `translate_scale`, `identity`), never as a matrix.
 - **Caps**: what an adapter supports beyond the common set (quad-buffer stereo, `copy_region`,
