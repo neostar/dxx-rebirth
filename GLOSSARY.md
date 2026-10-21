@@ -12,6 +12,12 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   viewport and transforms.
 - **Draw state**: blend, depth, cull, alpha reference, wrap and line width of one draw call.
 - **Vertex**: position, unclamped colour and texture coordinates of one point of a draw call.
+- **Topology**: the primitive a draw call's vertices form (fan, strip, triangles, lines, line loop,
+  points), as GL's mode of the same name.
+- **Viewport**: the rectangle of the target a draw call covers, in pixels, origin bottom left.
+- **Texture slot**: a texture's index in the front end's texture pool; slot 0 draws untextured.
+- **Texture image**: the pixels uploaded to a texture slot, RGBA and padded to a power of two,
+  with its size, internal format, filter and `has_transparency`.
 - **Transform recipe**: a projection or modelview described by the GL calls that build it
   (`perspective`, `ortho`, `translate_scale`, `identity`), never as a matrix.
 - **Caps**: what an adapter supports beyond the common set (quad-buffer stereo, `copy_region`,

@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -208,4 +209,116 @@ BOOST_AUTO_TEST_CASE(transform_recipes_of_different_kinds_unequal)
 	BOOST_TEST((a == render::transforms{gl_ortho, none}));
 	BOOST_TEST((a != render::transforms{gl_perspective, none}));
 	BOOST_TEST((a != render::transforms{gl_ortho, unit_scale}));
+}
+
+/* Test that viewports compare by origin and size. */
+BOOST_AUTO_TEST_CASE(viewport_equal_by_fields)
+{
+	const render::viewport v{.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
+	BOOST_TEST((v == render::viewport{0, 0, {640, 480}}));
+	BOOST_TEST((v != render::viewport{1, 0, {640, 480}}));
+	BOOST_TEST((v != render::viewport{0, 1, {640, 480}}));
+	BOOST_TEST((v != render::viewport{0, 0, {320, 480}}));
+	BOOST_TEST((v != render::viewport{0, 0, {640, 240}}));
+}
+
+namespace {
+
+constexpr render::texture_desc two_by_one{
+    .size = {.width = 2, .height = 1},
+    .format = render::texture_format::rgba8,
+    .filter = render::filter::nearest,
+    .anisotropic = false,
+    .has_transparency = true,
+};
+
+}
+
+/* Test that texture images compare by their pixels, not by where the pixels
+ * are stored, and by every description field, has_transparency included.
+ */
+BOOST_AUTO_TEST_CASE(texture_image_equal_by_contents)
+{
+	const std::array<std::uint8_t, 8> pixels{{255, 0, 0, 255, 0, 255, 0, 0}};
+	const std::array<std::uint8_t, 8> copy{pixels};
+	std::array<std::uint8_t, 8> changed{pixels};
+	changed[7] = 255;
+	const render::texture_image image{two_by_one, pixels};
+	BOOST_TEST((image == render::texture_image{two_by_one, copy}));
+	BOOST_TEST((image != render::texture_image{two_by_one, changed}));
+	auto size{two_by_one};
+	size.size = {.width = 1, .height = 2};
+	auto format{two_by_one};
+	format.format = render::texture_format::intensity4;
+	auto filter{two_by_one};
+	filter.filter = render::filter::trilinear;
+	auto anisotropic{two_by_one};
+	anisotropic.anisotropic = true;
+	auto opaque{two_by_one};
+	opaque.has_transparency = false;
+	BOOST_TEST((image != render::texture_image{size, pixels}));
+	BOOST_TEST((image != render::texture_image{format, pixels}));
+	BOOST_TEST((image != render::texture_image{filter, pixels}));
+	BOOST_TEST((image != render::texture_image{anisotropic, pixels}));
+	BOOST_TEST((image != render::texture_image{opaque, pixels}));
+}
+
+/* Test that a texture image refuses pixels that do not fill its size
+ * exactly.
+ */
+BOOST_AUTO_TEST_CASE(texture_image_rejects_wrong_pixel_count)
+{
+	const std::array<std::uint8_t, 12> pixels{};
+	BOOST_CHECK_THROW((render::texture_image{two_by_one, std::span(pixels).first(4)}),
+	                  std::length_error);
+	BOOST_CHECK_THROW((render::texture_image{two_by_one, pixels}), std::length_error);
+	BOOST_CHECK_NO_THROW((render::texture_image{two_by_one, std::span(pixels).first(8)}));
+}
+
+namespace {
+
+render::draw_call quad_call(const std::span<const render::vertex> vertices)
+{
+	return {
+	    .topology = render::topology::fan,
+	    .vertices = vertices,
+	    .texture = render::texture_slot{7},
+	    .state = {.blend = render::blend::additive_a},
+	    .viewport = {0, 0, {640, 480}},
+	    .transforms = {render::ortho{0, 1, 0, 1, -1, 1}, render::identity{}},
+	};
+}
+
+}
+
+/* Test that a draw call is a self-contained value: two calls with equal
+ * vertices in different buffers are equal, and changing any input (topology,
+ * a vertex, texture slot, draw state, viewport or transforms) makes them
+ * unequal.
+ */
+BOOST_AUTO_TEST_CASE(draw_call_equal_by_contents)
+{
+	const std::array<render::vertex, 4> quad{{pentagon[0], pentagon[1], pentagon[2], pentagon[3]}};
+	const std::array<render::vertex, 4> copy{quad};
+	std::array<render::vertex, 4> moved{quad};
+	moved[3].pos[0] = 9;
+	const auto call{quad_call(quad)};
+	BOOST_TEST((call == quad_call(copy)));
+	BOOST_TEST((call != quad_call(moved)));
+	BOOST_TEST((call != quad_call(std::span(quad).first(3))));
+	auto topology{call};
+	topology.topology = render::topology::strip;
+	auto texture{call};
+	texture.texture = render::texture_slot::none;
+	auto state{call};
+	state.state.alpha_ref = 0.8f;
+	auto viewport{call};
+	viewport.viewport.size.width = 320;
+	auto transforms{call};
+	transforms.transforms.modelview = render::translate_scale{{{0, 0, 0}}, {{1, 1, 1}}};
+	BOOST_TEST((call != topology));
+	BOOST_TEST((call != texture));
+	BOOST_TEST((call != state));
+	BOOST_TEST((call != viewport));
+	BOOST_TEST((call != transforms));
 }

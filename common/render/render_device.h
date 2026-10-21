@@ -13,12 +13,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -255,6 +257,153 @@ struct transforms
 	render::modelview modelview;
 	constexpr bool operator==(const transforms &) const = default;
 };
+
+/* The primitive a draw call's vertices form, as GL's mode of the same name. */
+enum class topology : std::uint8_t
+{
+	fan,
+	strip,
+	triangles,
+	lines,
+	line_loop,
+	points,
+};
+
+/* A width and height in pixels, of a viewport or a texture image. */
+struct extent
+{
+	std::uint32_t width;
+	std::uint32_t height;
+	constexpr bool operator==(const extent &) const = default;
+};
+
+/* A rectangle of the target in pixels, as glViewport takes it: origin at
+ * the bottom left.
+ */
+struct viewport
+{
+	std::int32_t x;
+	std::int32_t y;
+	render::extent size;
+	constexpr bool operator==(const viewport &) const = default;
+};
+
+/* The GL internal format a texture keeps, so the GL adapter quantizes as
+ * today and SDL_GPU can replicate it.
+ */
+enum class texture_format : std::uint8_t
+{
+	rgba8,
+	rgb8,
+	intensity4,
+	luminance4_alpha4,
+	rgba2,
+};
+
+/* nearest: GL_NEAREST (with anisotropy, GL_NEAREST_MIPMAP_LINEAR and
+ * mipmaps); trilinear: GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR and mipmaps.
+ */
+enum class filter : std::uint8_t
+{
+	nearest,
+	trilinear,
+};
+
+/* Everything about a texture image but its pixels.  has_transparency says
+ * whether any pixel's alpha is below 255, so an adapter can skip the alpha
+ * discard; the GL adapter ignores it.
+ */
+struct texture_desc
+{
+	render::extent size;
+	texture_format format;
+	render::filter filter;
+	bool anisotropic;
+	bool has_transparency;
+	constexpr bool operator==(const texture_desc &) const = default;
+};
+
+/* A texture's contents for one slot: size.width * size.height RGBA pixels,
+ * already palette-expanded and padded to a power of two by the front end.
+ * The constructor throws std::length_error when the pixel count does not
+ * match the size, so no image breaks that rule.  The pixels are a
+ * non-owning view: a copy of an image is shallow and views the same pixels,
+ * so a recording adapter copies the pixels themselves (ADR 2).  Images
+ * compare by their description and pixel values, not by where the pixels
+ * are stored.
+ */
+class texture_image
+{
+	texture_desc desc_;
+	std::span<const std::uint8_t> rgba_;
+
+  public:
+	texture_image(const texture_desc &desc, const std::span<const std::uint8_t> rgba)
+	    : desc_{desc}, rgba_{rgba}
+	{
+		if (std::uint64_t{desc.size.width} * desc.size.height * 4 != rgba.size())
+			throw std::length_error("texture_image: pixel count does not match size");
+	}
+	[[nodiscard]]
+	const texture_desc &desc() const
+	{
+		return desc_;
+	}
+	[[nodiscard]]
+	std::span<const std::uint8_t> rgba() const
+	{
+		return rgba_;
+	}
+	[[nodiscard]]
+	bool operator==(const texture_image &other) const
+	{
+		return desc_ == other.desc_ && std::ranges::equal(rgba_, other.rgba_);
+	}
+};
+
+/* A texture's place in the front end's texture pool, a strong type over the
+ * pool index; none (index 0) draws untextured.
+ */
+struct texture_slot
+{
+	std::uint32_t index;
+	static const texture_slot none;
+	constexpr bool operator==(const texture_slot &) const = default;
+};
+
+inline constexpr texture_slot texture_slot::none{0};
+
+/* One self-contained draw request (ADR 2): no state carries over from an
+ * earlier draw call.  The vertices are a non-owning view, read during the
+ * call only: a copy of a draw call is shallow and views the same vertices,
+ * so a recording adapter copies the vertices themselves.  Calls compare by
+ * their vertices' values, not by where the vertices are stored, and by every
+ * other field through fields().
+ */
+struct draw_call
+{
+	render::topology topology;
+	std::span<const vertex> vertices;
+	texture_slot texture;
+	draw_state state;
+	render::viewport viewport;
+	render::transforms transforms;
+	/* Every field but the vertices, which compare by value. */
+	[[nodiscard]]
+	constexpr auto fields() const
+	{
+		return std::tie(topology, texture, state, viewport, transforms);
+	}
+	[[nodiscard]]
+	bool operator==(const draw_call &other) const
+	{
+		return fields() == other.fields() && std::ranges::equal(vertices, other.vertices);
+	}
+};
+
+/* fields() leaves out the vertices, compared separately. */
+static_assert(detail::aggregate_size<draw_call>() ==
+              std::tuple_size_v<decltype(std::declval<const draw_call &>().fields())> + 1);
 
 }
 
