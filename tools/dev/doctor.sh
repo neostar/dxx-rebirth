@@ -48,10 +48,10 @@ first_version()
 }
 
 # Each probe prints the version of its tool, or nothing when it is missing.
+have() { command -v "$1" >/dev/null; }
 probe_apple-clang()
 {
-	command -v clang >/dev/null || return 0
-	clang --version 2>/dev/null | sed -n 's/^Apple clang version \([0-9.]*\).*/\1/p' | head -n 1
+	have clang && clang --version 2>/dev/null | sed -n 's/^Apple clang version \([0-9.]*\).*/\1/p' | head -n 1
 }
 
 # clangd, clang-format and clang-tidy from the pinned LLVM release in the
@@ -81,51 +81,18 @@ probe_llvm()
 # Clang beside GCC in the container (Apple clang on the Mac is apple-clang).
 probe_clang()
 {
-	command -v clang >/dev/null || return 0
-	clang --version 2>/dev/null | sed -n 's/.*clang version \([0-9.]*\).*/\1/p' | head -n 1
+	have clang && clang --version 2>/dev/null | sed -n 's/.*clang version \([0-9.]*\).*/\1/p' | head -n 1
 }
 
-probe_gcc()
-{
-	command -v gcc >/dev/null || return 0
-	gcc -dumpfullversion 2>/dev/null
-}
-
-probe_uv()
-{
-	command -v uv >/dev/null || return 0
-	uv --version 2>/dev/null | first_version
-}
-
-probe_cmake()
-{
-	command -v cmake >/dev/null || return 0
-	cmake --version 2>/dev/null | first_version
-}
-
-probe_shellcheck()
-{
-	command -v shellcheck >/dev/null || return 0
-	shellcheck --version 2>/dev/null | sed -n 's/^version: //p'
-}
-
-probe_ccache()
-{
-	command -v ccache >/dev/null || return 0
-	ccache --version 2>/dev/null | head -n 1 | first_version
-}
-
-probe_scons()
-{
-	command -v scons >/dev/null || return 0
-	scons --version 2>/dev/null | grep -i 'SCons:' | first_version
-}
+probe_gcc() { have gcc && gcc -dumpfullversion 2>/dev/null; }
+probe_uv() { have uv && uv --version 2>/dev/null | first_version; }
+probe_cmake() { have cmake && cmake --version 2>/dev/null | first_version; }
+probe_shellcheck() { have shellcheck && shellcheck --version 2>/dev/null | sed -n 's/^version: //p'; }
+probe_ccache() { have ccache && ccache --version 2>/dev/null | head -n 1 | first_version; }
+probe_scons() { have scons && scons --version 2>/dev/null | grep -i 'SCons:' | first_version; }
 
 # The version of pkg-config module $1, or nothing when it is missing.
-probe_pkg()
-{
-	pkg-config --modversion "$1" 2>/dev/null
-}
+probe_pkg() { pkg-config --modversion "$1" 2>/dev/null; }
 
 rc=0
 while read -r kind name where want _; do
