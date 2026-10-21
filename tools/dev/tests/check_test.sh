@@ -268,6 +268,8 @@ test_fast_fails_on_raw_git_in_tests()
 	body+=('x() { \git status; }' 'x() { "git" status; }' "x() { 'git' status; }" 'g=git')
 	# raw git: what test_git must find
 	body+=('cmd=(git status)' 'x() { git -C "$1" status; } # raw git: trailing')
+	# raw git: what test_git must find
+	body+=('x() { /usr/bin/git status; }' 'x() { "${GIT:-git}" status; }' 'G=/usr/bin/git')
 	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '%s\n' '#!/usr/bin/env bash' "${body[@]}" > "$r/tools/dev/tests/raw_test.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?

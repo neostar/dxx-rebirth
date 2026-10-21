@@ -229,8 +229,10 @@ step_shell_tests()
 
 # Fail on a git command in tools/dev/tests outside lib.sh's tgit and
 # real_git, which refuse any repository but a scratch one (tgit) and any
-# change to this clone (real_git): the word git, also quoted, escaped, as
-# a variable ($git) or assigned (g=git), outside a comment line.  A line
+# change to this clone (real_git): any token ending in git, also quoted,
+# escaped, as a path (/usr/bin/git), a variable ($git) or its default
+# (${GIT:-git}), or assigned (g=git), outside a comment line; tgit,
+# real_git and .git are other words.  A line
 # directly below a whole-line comment "# raw git: <why>" is let through.
 # Also fail on a scratch directory or repository assigned without a check
 # (d=$(make_scratch) with no || or && after it): an empty path would
@@ -260,7 +262,7 @@ step_test_git()
 	fi
 	# shellcheck disable=SC2016  # $ and quotes are the regex's
 	hits=$(cd "$dev_dir/tests" && awk -v q="'" '
-		BEGIN { re = "(^|[^[:alnum:]_./-])[\\\"" q "$={(]*git([\"" q "})]|[[:space:];|&]|$)" }
+		BEGIN { re = "(^|[^[:alnum:]_.])git([\"" q "})]|[[:space:];|&]|$)" }
 		FNR == 1 { prev = ""; f = substr(FILENAME, 3) }
 		$0 !~ /^[[:space:]]*#/ && $0 ~ re && prev !~ /^[[:space:]]*# raw git: / {
 			printf "%s:%d:%s\n", f, FNR, $0

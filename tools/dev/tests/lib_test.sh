@@ -46,6 +46,39 @@ test_tgit_refuses_non_scratch_repository()
 	tgit -C "$(make_repo)" status -s || fail "tgit refused a scratch repository"
 }
 
+# Test that tgit refuses every argument reaching outside the scratch root:
+# a push, fetch, pull or remote to a repository there (absolute, file://
+# or climbing out with ..), and core.worktree or core.hooksPath set by
+# config or -c; and that the repository outside is left as it was.  A
+# clone from this clone stays allowed.
+test_tgit_refuses_paths_outside_scratch()
+{
+	local r o outside before a
+	r=$(make_repo) || die "make_repo failed"
+	o=$(make_repo) || die "make_repo failed"
+	outside=$(mktemp -d "${TMPDIR:-/tmp}/dxx-outside.XXXXXX") || die "mktemp failed"
+	mv "$o" "$outside/o" || die "mv failed"
+	o=$outside/o
+	# raw git: the state of the repository outside, read only
+	before=$(git -C "$o" for-each-ref; cat "$o/.git/config")
+	for a in "push $o HEAD:refs/heads/x" "push file://$o HEAD:refs/heads/x" \
+		"fetch $o" "pull $o main" "remote add o $o" "-c remote.o.url=$o push o HEAD" \
+		"config core.worktree $outside" "-c core.worktree=$outside status" \
+		"config core.hooksPath $outside" "-c core.hooksPath=$outside status" \
+		"push ../../../../../../../../..$o HEAD:refs/heads/x" "push ssh://h/x HEAD" \
+		"-c alias.x=!true x" "push $REPO_ROOT HEAD:refs/heads/x"; do
+		# shellcheck disable=SC2086  # split into arguments on purpose
+		tgit -C "$r" $a >/dev/null 2>&1 && fail "tgit ran: $a"
+	done
+	# raw git: the state of the repository outside, read only
+	assert_eq "$(git -C "$o" for-each-ref; cat "$o/.git/config")" "$before"
+	rm -rf "$outside"
+	[[ -e $_scratch_root/refused ]] || fail "no refusal marked the test failed"
+	rm -f "$_scratch_root/refused"
+	tgit -C "$r" clone -q --shared "$REPO_ROOT" "$r/clone" || fail "a clone of this clone was refused"
+	tgit -C "$r" remote add self "$r" || fail "a remote in the scratch root was refused"
+}
+
 # Print the state of repository $1 that a stray git could change: every
 # ref, HEAD and the sha256 of its config.
 repo_state()

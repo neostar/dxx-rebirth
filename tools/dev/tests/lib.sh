@@ -118,34 +118,86 @@ make_scratch()
 	mktemp -d "$_scratch_root/XXXXXX"
 }
 
+# Print path $1, a relative one taken against directory $2, normalized
+# lexically: no empty, . or .. parts, and a trailing slash.
+_tgit_norm()
+{
+	local p=$1 part parts out=()
+	[[ $p == /* ]] || p=$2/$p
+	IFS=/ read -ra parts <<<"$p"
+	for part in "${parts[@]}"; do
+		case $part in
+		''|.) ;;
+		..) out=("${out[@]:0:${#out[@]}-1}") ;;
+		*) out+=("$part") ;;
+		esac
+	done
+	printf '/%s/\n' "$(IFS=/; echo "${out[*]}")"
+}
+# The scratch root as made and with symlinks resolved, normalized.
+_scratch_root_real=$(cd "$_scratch_root" && pwd -P)
+_tgit_roots=("$(_tgit_norm "$_scratch_root")" "$(_tgit_norm "$_scratch_root_real")")
+
+# Succeed if path $1, a relative one taken against directory $2, lies
+# lexically under the scratch root.
+_tgit_in_scratch()
+{
+	local p
+	p=$(_tgit_norm "$1" "$2")
+	[[ $p == "${_tgit_roots[0]}"?* || $p == "${_tgit_roots[1]}"?* ]]
+}
+
 # git with a test identity and no signing, set per command so that no
 # repository's config is ever written.  Every git a test runs goes through
 # tgit or real_git (check.sh's test_git step enforces it).  Always pass
 # -C <throwaway repo>: anything but a path under the scratch root is
 # refused, as `git -C ""` would act on the current directory, and so is
 # any option before the subcommand that names another repository (a second
-# -C, --git-dir, --work-tree) or an argument GIT_DIR=...  A refusal
-# also fails the running test (run_tests), even from a command
-# substitution whose status nobody checks.
+# -C, --git-dir, --work-tree) or an argument GIT_*=...  Nor may any argument
+# reach outside the scratch root: an absolute, ~ or file:// path (also as
+# the value of an option or of -c key=value) or a relative one climbing
+# out with .. is refused, but for the source of a clone from this clone
+# (REPO_ROOT); so is any other URL, setting core.worktree or core.hooksPath,
+# and a !command alias.  A refusal also fails the running test (run_tests),
+# even from a command substitution whose status nobody checks.
 tgit()
 {
-	local a i why=
-	if [[ ${1-} != -C || -z ${2-} ||
-		$(cd "$2" 2>/dev/null && pwd -P) != "$(cd "$_scratch_root" && pwd -P)"/* ]]; then
-		why="'${2-}': pass -C and a scratch repository"
+	local a v i sub why="" dir=${2-}
+	if [[ ${1-} != -C || -z $dir ||
+		$(cd "$dir" 2>/dev/null && pwd -P)/ != "${_tgit_roots[1]}"?* ]]; then
+		why="'$dir': pass -C and a scratch repository"
 	fi
 	for ((i = 3; i <= $#; i++)); do
 		a=${!i}
 		case $a in
-		GIT_DIR=*) why="'$a'" ;;
 		-c) ((i++)) ;;
 		-C|--git-dir|--git-dir=*|--work-tree|--work-tree=*) why="'$a': one -C names the repository" ;;
-		-*) ;;
+		-*|GIT_*=*) ;;
 		*) break ;;
 		esac
 	done
-	for a in "${@:i}"; do
-		[[ $a == GIT_DIR=* ]] && why="'$a'"
+	sub=${!i-}
+	for a in "${@:3}"; do
+		v=$a
+		[[ $a == *=* ]] && v=${a#*=}
+		shopt -s nocasematch
+		case $a in
+		GIT_*=*) why="'$a'" ;;
+		*core.worktree*|*core.hookspath*) why="'$a': names a work tree or hooks" ;;
+		alias.*=!*) why="'$a': a shell alias" ;;
+		esac
+		shopt -u nocasematch
+		for v in "$a" "$v"; do
+			v=${v#file://}
+			[[ $v == "~"* ]] && v=/
+			if [[ $v == *://* ]]; then
+				why="'$a': a URL"
+			elif [[ $v == /* || $v == ../* || $v == */../* || $v == .. || $v == */.. ]] &&
+				! _tgit_in_scratch "$v" "$dir"; then
+				[[ $sub == clone && $v/ == "$REPO_ROOT"/* ]] ||
+					why="'$a': outside the scratch root"
+			fi
+		done
 	done
 	if [[ -n $why ]]; then
 		echo "tgit: refusing $why" >&2
