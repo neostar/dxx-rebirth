@@ -201,7 +201,11 @@ case "${1-}" in
 esac
 
 steps=("${fast_steps[@]}")
-[[ $mode == full ]] && steps+=("${full_steps[@]}")
+if [[ $mode == full ]]; then
+	steps+=("${full_steps[@]}")
+	# The full checks also run the shell tests that build real objects.
+	export DXX_BUILD_TESTS=1
+fi
 
 failed=()
 for s in "${steps[@]}"; do

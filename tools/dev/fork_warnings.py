@@ -1,0 +1,47 @@
+# Strict warnings for fork code (ADR 5): -Wconversion -Wsign-conversion
+# -Wshadow -Werror on every compile whose source lies in a directory listed
+# in tools/dev/fork-dirs; upstream files compile as before.  site-dev.py
+# calls install(), so the build.sh profiles get it and SConstruct stays
+# unchanged.  `python3 fork_warnings.py` prints the flags.
+import os
+
+STRICT_FLAGS = ('-Wconversion', '-Wsign-conversion', '-Wshadow', '-Werror')
+_dev_dir = os.path.dirname(os.path.realpath(__file__))
+_root = os.path.dirname(os.path.dirname(_dev_dir))
+
+
+def fork_dirs():
+	with open(os.path.join(_dev_dir, 'fork-dirs')) as f:
+		lines = (line.strip() for line in f)
+		return tuple(os.path.join(_root, d) + os.sep for d in lines if d and not d.startswith('#'))
+
+
+def _path(node):
+	# A SCons node, or a path relative to the top directory (build.sh runs
+	# SCons from the repository root); resolved, since SCons sees the
+	# physical working directory and this file may lie under a symlink.
+	srcnode = getattr(node, 'srcnode', None)
+	return os.path.realpath(srcnode().get_abspath() if srcnode else str(node))
+
+
+def flags_for(target, source, env, for_signature):
+	"""$_DXX_FORK_WARNINGS: STRICT_FLAGS when a source is fork code."""
+	dirs = fork_dirs()
+	for s in source or ():
+		if _path(s).startswith(dirs):
+			return list(STRICT_FLAGS)
+	return []
+
+
+def install():
+	"""Make every SCons environment expand $_DXX_FORK_WARNINGS after the
+	include flags, after all of SConstruct's own warning options."""
+	import SCons.Defaults
+	env = SCons.Defaults.ConstructionEnvironment
+	env['_DXX_FORK_WARNINGS'] = flags_for
+	if '$_DXX_FORK_WARNINGS' not in env['_CPPINCFLAGS']:
+		env['_CPPINCFLAGS'] += ' $_DXX_FORK_WARNINGS'
+
+
+if __name__ == '__main__':
+	print(' '.join(STRICT_FLAGS))

@@ -132,18 +132,21 @@ test_fast_runs_gate_on_staged_fork_code()
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: staged' "$out"
 }
 
-# Test that the full checks run the tidy step on every fork file, with a
-# fake build.sh: a NOLINT without a reason in a C file, which clang-tidy
-# itself skips, fails the tidy step.
-test_full_runs_tidy()
+# Test that the full checks run the shell tests with DXX_BUILD_TESTS=1 and
+# the tidy step on every fork file, with a fake build.sh: a NOLINT without a
+# reason in a C file, which clang-tidy itself skips, fails the tidy step.
+test_full_runs_build_tests_and_tidy()
 {
 	local r out rc
 	r=$(make_dev_repo)
 	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	printf '#!/usr/bin/env bash\necho "build_tests=${DXX_BUILD_TESTS-}"\n' \
+		> "$r/tools/dev/tests/env_test.sh"
 	printf 'int probe(void); // NOLINT\n' > "$r/tools/probe.c"
 	"$r/tools/dev/format.sh"
 	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "build_tests=1"
 	assert_contains "$out" "tools/probe.c:1: NOLINT without a check and a reason"
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: tidy' "$out"
 }

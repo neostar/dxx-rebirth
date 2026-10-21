@@ -28,6 +28,15 @@ gate_tidy()
 	"$r/tools/dev/format.sh" --staged 2>&1
 }
 
+# The strict warnings (fork_warnings.py) as the build adds them: compile
+# file $1 with them and the pinned SDL3 headers.
+gate_strict()
+{
+	# shellcheck disable=SC2046  # the flags are words
+	"${CXX:-c++}" -std=c++23 $(python3 "$DEV_DIR/fork_warnings.py") \
+		-isystem "$dev_deps_prefix/include" -fsyntax-only -x c++ "$1" 2>&1
+}
+
 # Run gate $2 on planted file $1; $3 is the owning ticket, $4 the expected
 # output or `pass`.
 run_gate()

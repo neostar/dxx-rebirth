@@ -1,5 +1,6 @@
 // The representative fork file: the conventions' idioms, clean on every gate.
 // gate tidy: pass
+// gate strict: pass
 #include <SDL3/SDL.h>
 #include <array>
 #include <cstdint>

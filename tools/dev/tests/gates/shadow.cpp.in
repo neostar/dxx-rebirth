@@ -1,0 +1,11 @@
+// A local that shadows another: a strict warning no clang-tidy check covers.
+// gate tidy: clang-diagnostic-shadow
+// gate strict: shadow
+int outer(const int n)
+{
+	const int x{n};
+	{
+		const int x{n + 1};
+		return x;
+	}
+}

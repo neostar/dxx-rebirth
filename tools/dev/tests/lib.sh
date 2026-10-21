@@ -95,17 +95,20 @@ make_repo()
 
 # Make a throwaway repository holding a copy of tools/dev whose fork-dirs
 # lists src/, with the fork clang-tidy config in src/ and a compilation
-# database for src/ in build/dev (the pinned SDL3 on the include path), and print its path.
+# database for src/ in build/dev (the strict warnings fork files get, the
+# pinned SDL3 on the include path), and print its path.
 fork_repo()
 {
-	local r
+	local r strict args
 	r=$(make_repo)
+	read -ra strict <<<"$(python3 "$DEV_DIR/fork_warnings.py")"
 	mkdir -p "$r/tools" "$r/src" "$r/common" "$r/build/dev"
 	cp -R "$DEV_DIR" "$r/tools/dev"
 	printf 'src\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/src/.clang-tidy"
-	printf '[{"directory": "%s", "file": "src/anchor.cpp", "arguments": ["c++", "-std=c++23", "-isystem", "%s/include", "-c", "src/anchor.cpp"]}]\n' \
-		"$r" "$dev_deps_prefix" > "$r/build/dev/compile_commands.json"
+	args=$(printf '"%s", ' c++ -std=c++23 "${strict[@]}" -isystem "$dev_deps_prefix/include" -c)
+	printf '[{"directory": "%s", "file": "src/anchor.cpp",\n  "arguments": [%s"src/anchor.cpp"]}]\n' \
+		"$r" "$args" > "$r/build/dev/compile_commands.json"
 	printf '%s\n' "$r"
 }
 

@@ -18,3 +18,7 @@ macos_bundle_libs = False
 # deliberate out-of-range calls keep a DXX_ALWAYS_ERROR_FUNCTION reference
 # and fail to link.  Turn the compile-time range checks off for this build.
 sconf_optimize_builtin_constant_p = 'force-failure'
+# Strict warnings for fork code (ADR 5); SCons puts this file's directory
+# on sys.path while it reads it.
+import fork_warnings
+fork_warnings.install()
