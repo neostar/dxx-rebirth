@@ -64,6 +64,9 @@
 
 #include "ogl_sync.h"
 #include <memory>
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/hidden_window.h"
+#endif
 
 using std::min;
 using std::max;
@@ -839,6 +842,10 @@ int gr_init()
 	gr_set_attributes();
 
 #if SDL_MAJOR_VERSION == 1
+#if DXX_USE_DBG_HARNESS
+	if (const auto hidden{read_harness_hidden()}; harness_hidden_requested(hidden))
+		UserError("DXX_DBG_HIDDEN=\"%s\": needs an SDL 2 build", hidden.value);
+#endif
 	if (!CGameCfg.WindowMode && !CGameArg.SysWindow)
 		sdl_video_flags|=SDL_FULLSCREEN;
 
@@ -853,6 +860,19 @@ int gr_init()
 		sdl_window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #if defined(__APPLE__) && defined(__MACH__)
 	sdl_window_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
+#if DXX_USE_DBG_HARNESS
+	/* DXX_DBG_HIDDEN=1: nothing appears on screen.  The game draws into
+	 * the hidden window's back buffer, which the frame hash reads back
+	 * as it would a shown window's.
+	 */
+	if (const auto [value, window]{read_harness_hidden()}; !window)
+		UserError("DXX_DBG_HIDDEN=\"%s\": expected 1", value);
+	else if (window.value() == harness_window::hidden)
+	{
+		sdl_window_flags |= SDL_WINDOW_HIDDEN;
+		con_puts(CON_NORMAL, "DXX_DBG_HIDDEN: the window stays hidden");
+	}
 #endif
 	const auto mode{Game_screen_mode};
 	const auto SDLWindow = SDL_CreateWindow(DESCENT_VERSION, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SM_W(mode), SM_H(mode), sdl_window_flags);

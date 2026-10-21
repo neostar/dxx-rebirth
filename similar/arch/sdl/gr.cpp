@@ -32,6 +32,9 @@
 #include "compiler-range_for.h"
 #include "d_range.h"
 #include <memory>
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/hidden_window.h"
+#endif
 
 using std::min;
 
@@ -170,6 +173,10 @@ int gr_init()
 
 	grd_curscreen = std::make_unique<grs_screen>();
 
+#if DXX_USE_DBG_HARNESS
+	if (const auto hidden{read_harness_hidden()}; harness_hidden_requested(hidden))
+		UserError("DXX_DBG_HIDDEN=\"%s\": needs an SDL 2 OpenGL build", hidden.value);
+#endif
 	if (!CGameCfg.WindowMode && !CGameArg.SysWindow)
 		sdl_video_flags|=SDL_FULLSCREEN;
 

@@ -32,6 +32,9 @@ COPYRIGHT 1993-1998 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "pstypes.h"
 #include "console.h"
 #include "dxxerror.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/hidden_window.h"
+#endif
 
 namespace dcx {
 
@@ -75,6 +78,16 @@ namespace {
 static void print_exit_message(const std::span<const char> exit_message)
 {
 	con_puts(CON_CRITICAL, exit_message);
+#if DXX_USE_DBG_HARNESS
+	/* A run that asked to be hidden opens no dialog: it reports on stderr
+	 * and stops with status 1.
+	 */
+	if (harness_report_for(read_harness_hidden()) == harness_report::standard_error)
+	{
+		write_harness_report(stderr, exit_message);
+		exit(1);
+	}
+#endif
 	msgbox_error(exit_message.data());
 }
 

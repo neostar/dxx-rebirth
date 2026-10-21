@@ -5021,6 +5021,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-hash-log', (
 			'common/debug/unittest/frame_hash_log.cpp',
 			)),
+		RuntimeTest('test-hidden-window', (
+			'common/debug/unittest/hidden_window.cpp',
+			)),
 		RuntimeTest('test-mouse-delta', (
 			'common/unittest/mouse_delta.cpp',
 			)),
