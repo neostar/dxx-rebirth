@@ -101,4 +101,26 @@ test_test_file_sees_only_allowlisted_environment()
 	assert_contains "$out" "token=unset home=set gh=unset jobs=3 sdl=1"
 }
 
+# Print what sourcing env.sh with DXX_JOBS=$1 prints, and its status.
+source_env_with_jobs()
+{
+	DXX_JOBS=$1 bash -c 'source "$1"; echo "jobs=$dev_jobs"' _ "$DEV_DIR/env.sh" 2>&1
+	echo "rc=$?"
+}
+
+# Test that DXX_JOBS must be a positive integer: 0 or a word would make
+# check.sh wait forever for a free job slot.
+test_jobs_must_be_positive_integer()
+{
+	local out
+	out=$(source_env_with_jobs 0)
+	assert_contains "$out" "DXX_JOBS must be a positive integer, got '0'"
+	assert_contains "$out" "rc=2"
+	assert_not_contains "$out" "jobs=0"
+	out=$(source_env_with_jobs many)
+	assert_contains "$out" "DXX_JOBS must be a positive integer, got 'many'"
+	assert_contains "$out" "rc=2"
+	assert_contains "$(source_env_with_jobs 12)" "jobs=12"
+}
+
 run_tests

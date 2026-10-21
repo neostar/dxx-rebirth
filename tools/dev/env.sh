@@ -35,6 +35,12 @@ dev_platform=$dev_os-$(uname -m)
 # shellcheck disable=SC2034  # used by the scripts sourcing this file
 dev_jobs=${DXX_JOBS:-$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null ||
 	sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
+# Anything but a positive integer would make check.sh wait forever for a
+# free job slot; refuse it in every tool that sources this file.
+if [[ ! $dev_jobs =~ ^[1-9][0-9]*$ ]]; then
+	echo "env.sh: DXX_JOBS must be a positive integer, got '$dev_jobs'" >&2
+	exit 2
+fi
 
 # The pinned dependencies (tools/dev/toolchain.pins): deps.sh fetches
 # their sources once into the sha256-verified cache and builds them into the
