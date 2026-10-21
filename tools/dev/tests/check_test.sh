@@ -487,6 +487,8 @@ test_full_fails_on_secret_in_history()
 {
 	local r out rc
 	need_gitleaks
+	# The slowest step, and nothing this test needs: skip shellcheck.
+	export CHECK_SHELLCHECK=no-such-shellcheck
 	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
 	out=$("$r/tools/dev/check.sh" 2>&1)
@@ -661,6 +663,8 @@ test_fast_fails_on_new_github_workflow()
 test_fast_allows_secret_scan_workflow_running_gitleaks_only()
 {
 	local r up fork out rc w=.github/workflows/secret-scan.yml bad
+	# The slowest step, and nothing this test needs: skip shellcheck.
+	export CHECK_SHELLCHECK=no-such-shellcheck
 	read -r r up fork < <(make_forked_dev_repo)
 	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	mkdir -p "$r/.github/workflows"
