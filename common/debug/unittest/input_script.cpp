@@ -7,6 +7,7 @@
 
 #include "common/debug/input_script.h"
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -181,4 +182,33 @@ BOOST_AUTO_TEST_CASE(scene_named_after_script_file)
 	BOOST_TEST(dcx::input_scene_name("s3") == "s3");
 	BOOST_TEST(dcx::input_scene_name("a.d/s4.txt") == "s4");
 	BOOST_TEST(dcx::input_scene_name("a.d/s4") == "s4");
+}
+
+namespace {
+
+/* A stand-in for the game's key_props, with only the key's name. */
+struct named_key
+{
+	// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays): the shape of key_props::key_text
+	char key_text[7];
+};
+
+constexpr std::array<named_key, dcx::input_key_count> named_keys{[]() {
+	std::array<named_key, dcx::input_key_count> keys{};
+	keys[1] = named_key{"ESC"};
+	keys[255] = named_key{"PAUSE"};
+	return keys;
+}()};
+
+}
+
+/* Test that a key is found by its name in a table of key_properties' shape, and that an
+ * empty or unknown name, which unused codes have, finds none.
+ */
+BOOST_AUTO_TEST_CASE(key_found_by_name_in_key_table)
+{
+	BOOST_TEST((dcx::input_key_named(named_keys, "ESC") == input_key{1}));
+	BOOST_TEST((dcx::input_key_named(named_keys, "PAUSE") == input_key{255}));
+	BOOST_TEST(!dcx::input_key_named(named_keys, "Space").has_value());
+	BOOST_TEST(!dcx::input_key_named(named_keys, "").has_value());
 }

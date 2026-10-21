@@ -8,6 +8,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -232,5 +233,30 @@ class input_script_player
 		return rest.first(due);
 	}
 };
+
+/* The code of the key named `name` in `keys`, a table shaped like
+ * key_properties (key.h), whose index is the key's code and whose
+ * key_text the key's name; nullopt for an empty or unknown name.
+ */
+template <typename Key>
+[[nodiscard]]
+std::optional<input_key> input_key_named(const std::array<Key, input_key_count> &keys,
+                                         const std::string_view name)
+{
+	if (name.empty())
+		return std::nullopt;
+	const auto i{std::ranges::find(keys, name, &Key::key_text)};
+	if (i == keys.end())
+		return std::nullopt;
+	return input_key{static_cast<std::uint8_t>(i - keys.begin())};
+}
+
+/* The entry of `keys` for the key `key`; its type keeps the index in range. */
+template <typename Key>
+[[nodiscard]]
+const Key &input_key_entry(const std::array<Key, input_key_count> &keys, const input_key key)
+{
+	return keys[std::to_underlying(key)];
+}
 
 }
