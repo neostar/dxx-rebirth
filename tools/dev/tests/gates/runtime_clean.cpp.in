@@ -4,6 +4,7 @@
 // gate asan: pass
 // gate lsan: pass
 // gate ubsan: pass
+// gate leaks: pass
 #include <array>
 #include <memory>
 #include <span>

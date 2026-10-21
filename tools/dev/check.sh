@@ -187,15 +187,51 @@ step_unit_tests()
 	"$dev_dir/build.sh" dev check
 }
 
-# Run the unit tests under AddressSanitizer and UndefinedBehaviorSanitizer.
+# Run the rtrace tests (#19) built by profile $1, each through the command
+# "${@:2}" (none: directly).  #19 adds tools/dev/rtrace-tests.sh, which takes
+# the same arguments; until then this is a SKIP.
+rtrace_tests()
+{
+	if [[ ! -x $dev_dir/rtrace-tests.sh ]]; then
+		echo "SKIP rtrace tests ($1): none yet; #19 adds tools/dev/rtrace-tests.sh"
+		return 0
+	fi
+	"$dev_dir/rtrace-tests.sh" "$@"
+}
+
+# Run the unit tests and the rtrace tests under AddressSanitizer and
+# UndefinedBehaviorSanitizer, with LeakSanitizer except on macOS.
 step_sanitizer_tests()
 {
-	"$dev_dir/build.sh" asan check
+	"$dev_dir/build.sh" asan check && rtrace_tests asan
+}
+
+# macOS, where LeakSanitizer is unsupported: run the unit tests the
+# unit_tests step built, and the rtrace tests, under leaks.sh.  Elsewhere a
+# SKIP: sanitizer_tests runs LeakSanitizer.
+step_leaks()
+{
+	local t rc=0 tests=()
+	if [[ $dev_os != darwin ]]; then
+		echo "SKIP leaks: macOS only; LeakSanitizer covers $dev_os in sanitizer_tests"
+		return 0
+	fi
+	while IFS= read -r t; do
+		tests+=("$t")
+	done < <(find "$root/build/dev" -maxdepth 2 -type f -perm -u+x -name 'test-*' 2>/dev/null | sort)
+	if [[ ${#tests[@]} -eq 0 ]]; then
+		echo "SKIP leaks: no unit test programs in build/dev; the unit_tests step builds them"
+		return 0
+	fi
+	for t in "${tests[@]}"; do
+		"$dev_dir/no-window.sh" "$dev_dir/leaks.sh" "$t" || rc=1
+	done
+	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/leaks.sh"
 }
 
 pre_commit_steps=(repo_config guard staged)
 fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows shell_tests)
-full_steps=(unit_tests tidy sanitizer_tests)
+full_steps=(unit_tests leaks tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in

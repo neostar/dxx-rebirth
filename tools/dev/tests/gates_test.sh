@@ -27,7 +27,7 @@ need()
 
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++
-	[asan]=c++ [lsan]=c++ [ubsan]=c++)
+	[asan]=c++ [lsan]=c++ [ubsan]=c++ [leaks]=c++)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
@@ -115,6 +115,15 @@ gate_asan() { gate_sanitizers "$@"; }
 gate_lsan() { gate_sanitizers "$@"; }
 gate_ubsan() { gate_sanitizers "$@"; }
 
+# macOS's leak check (leaks.sh, the check tier's leaks step): run file $1,
+# built without sanitizers, under leaks --atExit.
+gate_leaks()
+{
+	local p
+	p=$(build_plant "$1") || return
+	"$DEV_DIR/leaks.sh" "$p" 2>&1
+}
+
 # Run gate $1 on every planted file that names it, and fail unless one does.
 run_planted()
 {
@@ -169,6 +178,12 @@ test_lsan()
 test_ubsan()
 {
 	run_planted ubsan
+}
+
+test_leaks()
+{
+	[[ $dev_os == darwin ]] || skip "leaks is macOS only; gate lsan covers Linux"
+	run_planted leaks
 }
 
 # Test that each gate a planted file names without a runner has an owning

@@ -96,5 +96,7 @@ a later ticket owns shows as a SKIP naming that ticket until it defines the gate
 - The hook runs only the pre-commit tier, so a commit takes seconds. The rest of
   `check.sh --fast`, the shell tests among them, runs in `check.sh` and `ci.sh`, which a
   ticket's report requires; a commit can pass the hook and still fail them.
-- Data races, signed overflow at run time and run-time leaks are caught only once #58 and #59
-  land; the self-test lists them as SKIPs until then.
+- Run-time leaks are found by LeakSanitizer in the container and by `leaks --atExit`
+  (`tools/dev/leaks.sh`) on the Mac, where LeakSanitizer is unsupported on Apple Silicon. `leaks`
+  drops the program's exit status, so the leaks step relies on the unit_tests step for it.
+- Data races are caught only once #59 lands; the self-test lists the gate as a SKIP until then.
