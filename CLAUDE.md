@@ -8,6 +8,7 @@ Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-
 Run every built binary, probe or test program through `tools/dev/run.sh` or
 `tools/dev/no-window.sh`, with `ASAN_OPTIONS=abort_on_error=0`: nothing may open a window, take
 focus or leave a crash report. Never delete files in `~/Library/Logs/DiagnosticReports`.
+Running the game or the D2 demo, and where the licensed data is: `docs/agents/game-data.md`.
 
 ## Dev workflow
 
