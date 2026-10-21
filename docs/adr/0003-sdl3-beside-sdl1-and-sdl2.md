@@ -23,7 +23,9 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
   fullscreen and window handling, and a window/surface module that owns the GL context and hands
   the window to SDL_GPU for the runtime renderer switch.
 - A lint checks that every chain with an SDL2 branch has an SDL3 or `>= 2` branch, instead of an
-  `#else #error` in all 129 chains.
+  `#else #error` in all 129 chains: `tools/dev/check_sdl_arms.py`, `check.sh`'s `sdl_arms` step,
+  with the chains not yet ported counted per file, each with a reason, in
+  `tools/dev/sdl-arms-allow`.
 - Tests drive real SDL on headless drivers: `SDL_PushEvent`, virtual gamepads, the disk audio driver.
 
 ## Consequences
