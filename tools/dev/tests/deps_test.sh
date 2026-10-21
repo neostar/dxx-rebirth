@@ -116,6 +116,37 @@ test_prebuilt_installs_top_level_programs()
 		"$(dev_sha256 "$t/gitleaks")  bin/gitleaks"
 }
 
+# Test that deps.sh marks the clone's third_party/ out of Time Machine
+# backups, once however often it runs.
+test_marks_third_party_out_of_time_machine()
+{
+	local d r tm out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	r=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$r/tools"
+	cp -R "$DEV_DIR" "$r/tools/dev"
+	: > "$d/manifest"
+	tm=$(fake_tmutil "$d")
+	for _ in 1 2; do
+		out=$(DXX_TMUTIL=$tm "$r/tools/dev/deps.sh" --manifest "$d/manifest" \
+			--cache "$d/cache" --prefix "$d/prefix" fetch 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 0 "$out"
+	done
+	assert_eq "$(grep '^addexclusion' "$d/log")" "addexclusion $(cd "$r" && pwd)/third_party"
+	[[ -d $r/third_party ]] || fail "third_party/ not made"
+}
+
+# Test that without tmutil (the container) deps.sh says so and goes on.
+test_skips_time_machine_without_tmutil()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	: > "$d/manifest"
+	out=$(DXX_TMUTIL=$d/no-tmutil run_deps "$d" fetch) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP time machine: $d/no-tmutil not found"
+}
+
 # Test that a download whose sha256 differs from the pin is refused and
 # kept out of the cache and the prefix.
 test_refuses_download_with_wrong_sha256()

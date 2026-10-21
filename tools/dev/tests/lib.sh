@@ -70,6 +70,29 @@ cd "$_scratch_root" || exit 1
 # never looks into a ceiling, which must be a strict ancestor: the parent.
 export GIT_CEILING_DIRECTORIES=${_scratch_root%/*}
 
+# Write a fake tmutil into directory $1 that records each call in $1/log
+# and reports a directory excluded once addexclusion has named it; print
+# its path.
+fake_tmutil()
+{
+	cat > "$1/tmutil" <<FAKE
+#!/bin/sh
+echo "\$*" >> "$1/log"
+if [ "\$1" = isexcluded ]; then
+	grep -qxF "addexclusion \$2" "$1/log" && echo "[Excluded]  \$2" || echo "[Included]  \$2"
+fi
+exit 0
+FAKE
+	chmod +x "$1/tmutil"
+	printf '%s\n' "$1/tmutil"
+}
+
+# No test changes the real Time Machine settings: the tools call
+# $DXX_TMUTIL, here a fake recording into $_scratch_root/tm/log.
+mkdir "$_scratch_root/tm" || exit 1
+DXX_TMUTIL=$(fake_tmutil "$_scratch_root/tm") || exit 1
+export DXX_TMUTIL
+
 # Fail the current test and stop it.  A test runs in a subshell of its own
 # (run_tests), so exit ends the test, not the file.
 die()

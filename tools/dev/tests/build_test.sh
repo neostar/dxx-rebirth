@@ -31,6 +31,15 @@ test_check_runs_windowless()
 	assert_eq "$rc" 1 'check'
 }
 
+# Test that build.sh marks build/ out of Time Machine backups (with lib.sh's
+# fake tmutil), once however often it runs.
+test_marks_build_out_of_time_machine()
+{
+	scons_args dev >/dev/null 2>&1 || fail "first build"
+	scons_args dev >/dev/null 2>&1 || fail "second build"
+	assert_eq "$(grep '^addexclusion' "$_scratch_root/tm/log")" "addexclusion $REPO_ROOT/build"
+}
+
 # Make a fake SCons package whose Defaults holds only the include flags,
 # for the site files to install into, and print the directory holding it.
 fake_scons()

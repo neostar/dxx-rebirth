@@ -9,6 +9,7 @@
 #   site-dev.py, then site-asan.py's overrides (SCons reads site files in
 #   order, later ones win).
 # Both build with the hardened standard library (hardening.py, ADR 5).
+# build/ is kept out of Time Machine backups (env.sh's dev_tm_exclude).
 # Both build D2X only: SConstruct reads d1x and d2x from the command line
 # alone, not from site files, so they are passed here.
 # Pass `check` to build and run the unit tests; scons then runs under
@@ -40,6 +41,8 @@ if [[ $profile == asan && $(uname -s) == Darwin ]] && command -v brew >/dev/null
 		done
 	fi
 fi
+# Build trees are rebuilt, never restored from a backup.
+dev_tm_exclude "$PWD/build"
 # Tests that create an SDL window stay in the background on macOS.
 export SDL_MAC_BACKGROUND_APP=1
 

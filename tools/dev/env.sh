@@ -93,6 +93,23 @@ dev_llvm_tool()
 	echo "$dev_deps_prefix/opt/llvm/bin/$1"
 }
 
+# Keep directory $1 (made if missing) out of Time Machine backups: a
+# sticky exclusion (`tmutil addexclusion` without -p), which needs no sudo
+# and stays with the directory, added once (`tmutil isexcluded`).
+# DXX_TMUTIL names the program (default tmutil); without it (the
+# container) this is a SKIP.
+dev_tm_exclude()
+{
+	local tm=${DXX_TMUTIL:-tmutil}
+	if ! command -v "$tm" >/dev/null; then
+		echo "SKIP time machine: $tm not found; $1 stays in backups"
+		return 0
+	fi
+	mkdir -p "$1" || return 0
+	"$tm" isexcluded "$1" 2>/dev/null | grep -q '^\[Excluded\]' && return 0
+	"$tm" addexclusion "$1" || echo "WARN time machine: $tm addexclusion $1 failed"
+}
+
 # Print the sha256 of file $1, or of the standard input without one:
 # sha256sum on Linux, shasum on the Mac.
 dev_sha256()

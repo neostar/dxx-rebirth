@@ -28,6 +28,8 @@
 #   container) and requirements.lock next to the manifest, every wheel
 #   checked against its hash; it records both in venv.stamp.  Downloads.
 # Cache and prefix default to env.sh's dev_deps_cache and dev_deps_prefix.
+# Every mode but stamp first keeps the clone's third_party/ out of Time
+# Machine backups (env.sh's dev_tm_exclude).
 # Exit status 1 means a source was refused or a build failed, 2 a usage
 # error.
 set -eu
@@ -368,6 +370,9 @@ if [[ $mode == stamp ]]; then
 	stamp
 	exit 0
 fi
+# The cache, prefix, venv and exported images under third_party/ are
+# rebuilt from the pins, never restored from a backup.
+dev_tm_exclude "$(cd "$dev_dir/../.." && pwd)/third_party"
 if [[ $mode == venv ]]; then
 	python=$(dev_venv_python "$manifest")
 	[[ -n $python ]] || refuse "no 'venv python' line in $manifest"
