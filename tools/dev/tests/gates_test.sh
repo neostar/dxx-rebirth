@@ -33,8 +33,7 @@ cxx=g++
 
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
-	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [leaks]=$cxx [gpu]=$cxx)
-gate_tool[ubsanclang]=$cxx gate_tool[gpumetal]=$cxx
+	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [ubsanclang]=$cxx [leaks]=$cxx [gpu]=$cxx [gpumetal]=$cxx)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
 # `// staged as: PATH` line names (a check scoped by file name), in a fork
@@ -171,48 +170,31 @@ in_container()
 # whatever its expectation: a red plant must go red by its diagnostic.
 run_planted()
 {
-	local gate=$1 f line expect out rc n=0 lines
+	local gate=$1 f expect out rc n=0
 	need "${gate_tool[$gate]}"
-	for f in "$GATES"/*.in; do
-		mapfile -t lines < <(grep "^// gate $gate: " "$f")
-		for line in "${lines[@]}"; do
-			expect=${line#"// gate $gate: "}
-			n=$((n + 1))
-			out=$("gate_$gate" "$f") && rc=0 || rc=$?
-			if [[ $out == *"no-window.sh:"* ]]; then
-				fail "gate $gate on ${f##*/} crashed or took focus: $out"
-			elif [[ $expect == pass ]]; then
-				[[ $rc -eq 0 ]] || fail "gate $gate failed ${f##*/}: $out"
-			elif [[ $rc -eq 0 ]]; then
-				fail "gate $gate passed ${f##*/}; expected: $expect"
-			else
-				[[ $out == *"$expect"* ]] ||
-					fail "gate $gate on ${f##*/}: expected '$expect', got: $out"
-			fi
-		done
-	done
+	while IFS= read -r -d '' f && IFS= read -r expect; do
+		expect=${expect#"// gate $gate: "}
+		n=$((n + 1))
+		out=$("gate_$gate" "$f" </dev/null) && rc=0 || rc=$?
+		if [[ $out == *"no-window.sh:"* ]]; then
+			fail "gate $gate on ${f##*/} crashed or took focus: $out"
+		elif [[ $expect == pass ]]; then
+			[[ $rc -eq 0 ]] || fail "gate $gate failed ${f##*/}: $out"
+		elif [[ $rc -eq 0 ]]; then
+			fail "gate $gate passed ${f##*/}; expected: $expect"
+		else
+			[[ $out == *"$expect"* ]] ||
+				fail "gate $gate on ${f##*/}: expected '$expect', got: $out"
+		fi
+	done < <(grep -H --null "^// gate $gate: " "$GATES"/*.in)
 	[[ $n -gt 0 ]] || fail "no planted file names gate $gate"
 }
 
-test_tidy()
-{
-	run_planted tidy
-}
-
-test_strict()
-{
-	run_planted strict
-}
-
-test_hardening()
-{
-	run_planted hardening
-}
-
-test_asan()
-{
-	run_planted asan
-}
+test_tidy() { run_planted tidy; }
+test_strict() { run_planted strict; }
+test_hardening() { run_planted hardening; }
+test_asan() { run_planted asan; }
+test_ubsan() { run_planted ubsan; }
 
 test_lsan()
 {
@@ -221,19 +203,19 @@ test_lsan()
 	run_planted lsan
 }
 
-test_ubsan()
+# Skip the current test, adding $1 to the reason, unless $cxx has every
+# UBSan check site-asan.py adds where the compiler has it.
+need_clang_ubsan()
 {
-	run_planted ubsan
+	local missing
+	need "$cxx"
+	missing=$(asan_site CLANG_UBSAN_MISSING 2>/dev/null) || die "site-asan.py failed"
+	[[ -z $missing ]] || skip "$cxx lacks -fsanitize=${missing// /,}; $1"
 }
 
 test_ubsanclang()
 {
-	local missing
-	need "${gate_tool[ubsanclang]}"
-	missing=$(asan_site CLANG_UBSAN_MISSING 2>/dev/null) ||
-		{ fail "site-asan.py failed"; return; }
-	[[ -z $missing ]] ||
-		skip "$cxx lacks -fsanitize=${missing// /,}; the Mac's Apple clang covers them"
+	need_clang_ubsan "the Mac's Apple clang covers them"
 	run_planted ubsanclang
 }
 
@@ -241,11 +223,8 @@ test_ubsanclang()
 # built with ASan alone it runs unreported, so only local-bounds sees it.
 test_local_bounds_plant_is_past_asan_redzone()
 {
-	local p out missing
-	need "$cxx"
-	missing=$(asan_site CLANG_UBSAN_MISSING 2>/dev/null) ||
-		{ fail "site-asan.py failed"; return; }
-	[[ -z $missing ]] || skip "$cxx lacks -fsanitize=${missing// /,}; gate ubsanclang skips too"
+	local p out
+	need_clang_ubsan "gate ubsanclang skips too"
 	p=$(build_plant "$GATES/local_bounds.cpp.in" -O1 -fsanitize=address) ||
 		{ fail "building the plant failed"; return; }
 	out=$(ASAN_OPTIONS=abort_on_error=0:halt_on_error=1:detect_leaks=0 \
@@ -357,17 +336,15 @@ test_gpu_without_pinned_sdl3_fails_only_in_container()
 test_later_gates()
 {
 	local f line later=() orphans=()
-	for f in "$GATES"/*.in; do
-		while IFS= read -r line; do
-			[[ $line =~ ^//\ gate\ ([a-z]+)(\ \((#[0-9]+)\))?: ]] || continue
-			declare -F "gate_${BASH_REMATCH[1]}" >/dev/null && continue
-			if [[ -z ${BASH_REMATCH[3]} ]]; then
-				orphans+=("${BASH_REMATCH[1]} in ${f##*/}")
-			else
-				later+=("${BASH_REMATCH[1]} (${BASH_REMATCH[3]})")
-			fi
-		done < "$f"
-	done
+	while IFS= read -r -d '' f && IFS= read -r line; do
+		[[ $line =~ ^//\ gate\ ([a-z]+)(\ \((#[0-9]+)\))?: ]] || continue
+		declare -F "gate_${BASH_REMATCH[1]}" >/dev/null && continue
+		if [[ -z ${BASH_REMATCH[3]} ]]; then
+			orphans+=("${BASH_REMATCH[1]} in ${f##*/}")
+		else
+			later+=("${BASH_REMATCH[1]} (${BASH_REMATCH[3]})")
+		fi
+	done < <(grep -H --null '^// gate ' "$GATES"/*.in)
 	[[ ${#orphans[@]} -eq 0 ]] || { fail "no runner and no ticket: ${orphans[*]}"; return; }
 	[[ ${#later[@]} -eq 0 ]] || skip "built later: ${later[*]}"
 }
@@ -380,10 +357,9 @@ test_every_enabled_check_is_planted()
 {
 	local line pat name found n=0 names=() listed
 	while IFS= read -r line; do
-		[[ $line == "// gate tidy: "*"["* ]] || continue
 		IFS=, read -ra listed <<<"${line##*[}"
 		names+=("${listed[@]}")
-	done < <(cat "$GATES"/*.in)
+	done < <(grep -h '^// gate tidy: .*\[' "$GATES"/*.in)
 	while IFS= read -r pat; do
 		n=$((n + 1))
 		found=0
