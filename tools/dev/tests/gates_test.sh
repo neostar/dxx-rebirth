@@ -245,9 +245,10 @@ test_later_gates()
 	[[ ${#later[@]} -eq 0 ]] || skip "built later: ${later[*]}"
 }
 
-# Test that every check the fork clang-tidy config enables is proven by a
+# Test that every pattern the fork clang-tidy config enables is proven by a
 # planted file: some tidy expectation ends with a [check,...] list naming a
-# check the pattern matches.
+# check the pattern matches.  A glob is proven by one check under it, not
+# each (ADR 5, Gate self-test).
 test_every_enabled_check_is_planted()
 {
 	local line pat name found n=0 names=() listed

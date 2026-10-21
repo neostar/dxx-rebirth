@@ -132,7 +132,14 @@ tightening is its own small commit that leaves the tree green and updates the le
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names
 goes red with the expected diagnostic, that `clean.cpp.in` passes them all, and that every
-check the clang-tidy config enables is named by some planted file's expected diagnostic. A gate
+entry of the clang-tidy config's `Checks` (11 patterns) is named by some planted file's expected
+diagnostic. That proves each pattern is on, not each of the 252 checks: the seven single checks
+are planted one by one, but each glob by one check under it (`bugprone-*` by four:
+narrowing-conversions, signed-bitwise, unhandled-code-paths, use-after-move;
+`clang-analyzer-*` by `unix.Malloc`; `clang-diagnostic-*` by `shadow`;
+`cppcoreguidelines-pro-type-*` by `static-cast-downcast`). That the rest of each glob is enabled
+is what the committed `clang-tidy-checks` list and its test show; that they fire is upstream's
+to test. A gate
 a later ticket owns shows as a SKIP naming that ticket until it defines the gate's runner.
 
 ## Consequences
