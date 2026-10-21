@@ -544,6 +544,40 @@ test_full_runs_gpu_programs_under_gpu_validate()
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: gpu_tests' "$out"
 }
 
+# Test that the full checks build the SDL3 unit tests (macOS) and fail
+# when a test program links an SDL3 library from outside the pinned prefix
+# (otool -L): a fake build.sh writes the program, a fake otool prints the
+# libraries it links.
+test_full_fails_on_sdl3_test_linking_outside_pinned_prefix()
+{
+	local r bin out rc pinned
+	[[ $dev_os == darwin ]] || skip "macOS only: otool, and Homebrew's SDL3"
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	bin=$(make_scratch) || die "make_scratch failed"
+	pinned=$dev_deps_prefix
+	printf '#!/bin/sh\ncd "$(dirname "$0")/../.."\necho "build.sh $*" >> calls
+case $* in *sdl3=1*) mkdir -p build/dev-sdl3/common
+	printf "#!/bin/sh\\n" > build/dev-sdl3/common/test-physfsrwops
+	chmod +x build/dev-sdl3/common/test-physfsrwops ;; esac
+exit 0\n' > "$r/tools/dev/build.sh"
+	printf '#!/bin/sh\necho "$2:"\ncat "%s/otool.out"\n' "$r" > "$bin/otool"
+	chmod +x "$bin/otool"
+	printf '\t%s\n' '@rpath/libSDL3_image.0.dylib (compatibility version 409.0.0)' \
+		"$pinned/lib/libSDL3_mixer.0.dylib (compatibility version 205.0.0)" \
+		'/opt/homebrew/opt/physfs/lib/libphysfs.1.dylib (compatibility version 1.0.0)' \
+		> "$r/otool.out"
+	out=$(PATH="$bin:$PATH" DXX_DEPS_PREFIX=$pinned "$r/tools/dev/check.sh" 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$(cat "$r/calls")" "build.sh dev sdl3=1 build/dev-sdl3/common/test-physfsrwops"
+	assert_contains "$out" "-- sdl3_link: "
+	printf '\t%s\n' '/opt/homebrew/opt/sdl3/lib/libSDL3.0.dylib (compatibility version 401.0.0)' \
+		>> "$r/otool.out"
+	out=$(PATH="$bin:$PATH" DXX_DEPS_PREFIX=$pinned "$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "sdl3_link: build/dev-sdl3/common/test-physfsrwops links an SDL3 library outside $pinned: /opt/homebrew/opt/sdl3/lib/libSDL3.0.dylib"
+	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: sdl3_link' "$out"
+}
+
 # Test that an unknown option is a usage error with exit status 2.
 test_unknown_option_is_usage_error()
 {

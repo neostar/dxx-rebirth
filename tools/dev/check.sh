@@ -493,10 +493,45 @@ step_leaks()
 	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/no-window.sh" "$dev_dir/leaks.sh"
 }
 
+# macOS: build the SDL3 unit tests against the pinned SDL3 (build.sh
+# sdl3=1) and fail when a test program links an SDL3 library from outside
+# the pinned prefix (otool -L): Homebrew's SDL3 beside the pinned
+# SDL3_image's would load two SDL3s in one process.  The programs are not
+# run: the pinned SDL3_mixer names libfluidsynth by the absolute path of
+# the clone that built the prefix, so in any other clone it does not load.
+# Elsewhere a SKIP: the container has no second SDL3, and its leg has no
+# budget left for an sdl3=1 configure.
+step_sdl3_link()
+{
+	local t lib rc=0 tests=()
+	if [[ $dev_os != darwin ]]; then
+		echo "SKIP sdl3_link: macOS only; the duplicate SDL3 comes from Homebrew"
+		return 0
+	fi
+	"$dev_dir/build.sh" dev sdl3=1 build/dev-sdl3/common/test-physfsrwops || return 1
+	while IFS= read -r t; do
+		tests+=("$t")
+	done < <(cd "$root" && find build/dev-sdl3 -maxdepth 2 -type f -perm -u+x -name 'test-*' 2>/dev/null |
+		sort)
+	if [[ ${#tests[@]} -eq 0 ]]; then
+		echo "SKIP sdl3_link: no unit test programs in build/dev-sdl3"
+		return 0
+	fi
+	for t in "${tests[@]}"; do
+		while IFS= read -r lib; do
+			echo "sdl3_link: $t links an SDL3 library outside $dev_deps_prefix: $lib"
+			rc=1
+		done < <(otool -L "$root/$t" | sed -n '2,$s/^[[:space:]]*\([^ ]*libSDL3[^ ]*\) .*/\1/p' |
+			grep -v -e '^@rpath/' -e "^$dev_deps_prefix/")
+	done
+	return "$rc"
+}
+
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
 	workflows commit_sizes test_git gpu_gate sdl_arms shell_tests)
-full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests)
+full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests
+	sdl3_link)
 
 mode=full
 case "${1-}" in
