@@ -74,22 +74,6 @@ test_root_tidy_config_enables_no_checks()
 	assert_not_contains "$out" "clang-analyzer-"
 }
 
-# Make a throwaway repository holding a copy of tools/dev whose fork-dirs
-# lists src/, with the fork clang-tidy config in src/ and a compilation
-# database for src/ in build/dev, and print its path.
-fork_repo()
-{
-	local r
-	r=$(make_repo)
-	mkdir -p "$r/tools" "$r/src" "$r/common" "$r/build/dev"
-	cp -R "$DEV_DIR" "$r/tools/dev"
-	printf 'src\n' > "$r/tools/dev/fork-dirs"
-	cp "$DEV_DIR/style/clang-tidy" "$r/src/.clang-tidy"
-	printf '[{"directory": "%s", "file": "src/anchor.cpp", "arguments": ["c++", "-std=c++23", "-c", "src/anchor.cpp"]}]\n' \
-		"$r" > "$r/build/dev/compile_commands.json"
-	printf '%s\n' "$r"
-}
-
 # Test that --staged checks the staged C++ files in fork directories only:
 # a misformatted staged fork file fails and is named; the same file staged
 # in an upstream directory, or unstaged in a fork directory, is ignored.

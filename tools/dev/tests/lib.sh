@@ -93,6 +93,22 @@ make_repo()
 	printf '%s\n' "$d"
 }
 
+# Make a throwaway repository holding a copy of tools/dev whose fork-dirs
+# lists src/, with the fork clang-tidy config in src/ and a compilation
+# database for src/ in build/dev (the pinned SDL3 on the include path), and print its path.
+fork_repo()
+{
+	local r
+	r=$(make_repo)
+	mkdir -p "$r/tools" "$r/src" "$r/common" "$r/build/dev"
+	cp -R "$DEV_DIR" "$r/tools/dev"
+	printf 'src\n' > "$r/tools/dev/fork-dirs"
+	cp "$DEV_DIR/style/clang-tidy" "$r/src/.clang-tidy"
+	printf '[{"directory": "%s", "file": "src/anchor.cpp", "arguments": ["c++", "-std=c++23", "-isystem", "%s/include", "-c", "src/anchor.cpp"]}]\n' \
+		"$r" "$dev_deps_prefix" > "$r/build/dev/compile_commands.json"
+	printf '%s\n' "$r"
+}
+
 # Write a fake frontmost-app sampler into directory $1 that reports the
 # remaining arguments ("PID NAME") in turn, one per call (the last
 # repeats), and print its path.
