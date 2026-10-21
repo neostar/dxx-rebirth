@@ -2657,7 +2657,7 @@ void wake_up_rendered_objects(const object &viewer, window_rendered_data &window
 	auto &Objects = LevelUniqueObjectState.Objects;
 	auto &vmobjptr = Objects.vmptr;
 	//	Make sure that we are processing current data.
-	if (timer_query() != window.time) {
+	if (render_clock() != window.time) {
 		return;
 	}
 

@@ -248,7 +248,7 @@ static void cast_muzzle_flash_light(fvmsegptridx &vmsegptridx, int n_render_vert
 	fix64 current_time;
 	short time_since_flash;
 
-	current_time = timer_query();
+	current_time = render_clock();
 
 	range_for (auto &i, Muzzle_data)
 	{

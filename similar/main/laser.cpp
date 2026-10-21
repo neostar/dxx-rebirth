@@ -276,7 +276,7 @@ static void do_muzzle_stuff(segnum_t segnum, const vms_vector &pos)
 	auto &m{Muzzle_data[i]};
 	m.segnum = segnum;
 	m.pos = pos;
-	m.create_time = timer_query();
+	m.create_time = render_clock();
 }
 
 [[noreturn]]

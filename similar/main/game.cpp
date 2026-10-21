@@ -667,6 +667,11 @@ const frame_time_policy &harness_frame_time_policy()
 }
 
 }
+
+fix64 render_clock()
+{
+	return harness_frame_time_policy().is_fixed() ? GameTime64 : timer_query();
+}
 #endif
 
 }

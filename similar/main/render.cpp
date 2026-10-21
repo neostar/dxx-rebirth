@@ -729,7 +729,7 @@ g3s_codes rotate_list(fvcvertptr &vcvertptr, const std::span<const vertnum_t> po
 	const float f{
 		likely(!cheats_acid)
 			? 0.f /* unused */
-			: (static_cast<float>(timer_query()) / F0_5)
+			: (static_cast<float>(render_clock()) / F0_5)
 	};
 
 	for (const auto pnum : pointnumlist)
@@ -1344,7 +1344,7 @@ void render_frame(grs_canvas &canvas, fix eye_offset, window_rendered_data &wind
 
 window_rendered_data::window_rendered_data()
 #if DXX_BUILD_DESCENT == 2
-	: time(timer_query())
+	: time(render_clock())
 #endif
 {
 }

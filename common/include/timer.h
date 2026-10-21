@@ -23,6 +23,20 @@ fix64 timer_update();
 [[nodiscard]]
 fix64 timer_query();
 
+/* The clock render-path effects read: game time when the debug harness
+ * fixes the frame time, else timer_query().
+ */
+#if DXX_USE_DBG_HARNESS
+[[nodiscard]]
+fix64 render_clock();
+#else
+[[nodiscard]]
+static inline fix64 render_clock()
+{
+	return timer_query();
+}
+#endif
+
 void timer_delay_ms(unsigned milliseconds);
 static inline void timer_delay(fix seconds)
 {
