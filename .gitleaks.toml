@@ -1,8 +1,9 @@
 # gitleaks configuration for the fork: the pre-commit tier scans the staged
-# changes, tools/dev/check.sh the whole history of HEAD, and
-# .github/workflows/secret-scan.yml every push and pull request.
+# changes, the pre-push hook the commits being pushed, and tools/dev/check.sh
+# the whole history of HEAD (ADR 4; no GitHub workflow).
 #
 #   tools/dev/check.sh --pre-commit    gitleaks git --staged
+#   tools/dev/check.sh --pre-push      gitleaks git --log-opts=<pushed range>
 #   tools/dev/check.sh                 gitleaks git --log-opts=HEAD
 #
 # gitleaks' default rules, unchanged.  The fake token the tests plant is

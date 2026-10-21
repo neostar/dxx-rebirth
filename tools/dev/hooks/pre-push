@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Installed by tools/dev/setup.sh (core.hooksPath): gitleaks on exactly the
+# commits being pushed (check.sh --pre-push, which reads git's ref lines
+# from the standard input), at the pinned version; without one it fails,
+# never skips.  It catches a commit made with --no-verify or in a clone
+# without the hooks, before it is public (ADR 4).
+dev_dir=$(git rev-parse --show-toplevel)/tools/dev
+exec "$dev_dir/check.sh" --pre-push

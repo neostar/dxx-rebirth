@@ -483,6 +483,39 @@ test_pre_commit_hook_blocks_staged_secret()
 	assert_contains "$out" "== secrets"
 }
 
+# Test that the pre-push hook scans exactly the commits being pushed: a
+# token committed past the pre-commit hook (--no-verify) is refused on
+# push, to an existing branch and to a new one, without being printed; a
+# clean push and a clean new branch go through.
+test_pre_push_hook_blocks_pushed_secret()
+{
+	local r d out rc
+	need_gitleaks
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	d=$(make_scratch) || die "make_scratch failed"
+	tgit -C "$d" init -q --bare "$d/remote.git" || die "init failed"
+	tgit -C "$r" remote add origin "$d/remote.git"
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
+	out=$(tgit -C "$r" push -q origin main 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "push_secrets: refs/heads/main -> refs/heads/main"
+	printf 'token = "%s"\n' "$(fake_token)" > "$r/settings.txt"
+	tgit -C "$r" add settings.txt
+	tgit -C "$r" commit -q --no-verify -m secret
+	out=$(tgit -C "$r" push -q origin main 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "github-pat"
+	assert_contains "$out" "failed: push_secrets"
+	assert_not_contains "$out" "$(fake_token)"
+	out=$(tgit -C "$r" push -q origin HEAD:refs/heads/new 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "github-pat"
+	assert_not_contains "$(tgit -C "$d/remote.git" for-each-ref)" "refs/heads/new"
+	tgit -C "$r" reset -q --hard HEAD~1
+	out=$(tgit -C "$r" push -q origin HEAD:refs/heads/clean 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 # Test that the full checks scan the whole history of HEAD: a secret
 # committed past the hook fails them, a clean history passes the scan.
 test_full_fails_on_secret_in_history()
@@ -703,35 +736,6 @@ test_fast_fails_on_new_github_workflow()
 	assert_contains "$out" ".github/workflows/fork.yml: a GitHub workflow upstream does not have"
 	assert_not_contains "$out" "ci.yml:"
 	assert_contains "$out" "failed: workflows"
-}
-
-# Test that the fast subset allows the fork's secret-scan workflow (ADR 4)
-# while it runs gitleaks alone, at the pinned version, through actions
-# pinned by commit, with no write permission, and fails it otherwise.
-test_fast_allows_secret_scan_workflow_running_gitleaks_only()
-{
-	local r up fork out rc w=.github/workflows/secret-scan.yml bad
-	# The slowest step, and nothing this test needs: skip shellcheck.
-	export CHECK_SHELLCHECK=no-such-shellcheck
-	read -r r up fork < <(make_forked_dev_repo)
-	[[ -n $fork ]] || die "make_forked_dev_repo failed"
-	mkdir -p "$r/.github/workflows"
-	cp "$REPO_ROOT/$w" "$r/$w"
-	out=$("$r/tools/dev/check.sh" --fast 2>&1)
-	assert_eq "$?" 0 "$out"
-	for bad in '      - run: make' '      - uses: actions/setup-node@v4' \
-		'      - uses: ./local-action' '  contents: write' \
-		'          GITLEAKS_VERSION: "8.24.3"'; do
-		cp "$REPO_ROOT/$w" "$r/$w"
-		if [[ $bad == *GITLEAKS_VERSION* ]]; then
-			sed '/GITLEAKS_VERSION:/d' "$REPO_ROOT/$w" > "$r/$w"
-		fi
-		printf '%s\n' "$bad" >> "$r/$w"
-		out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
-		assert_eq "$rc" 1 "$bad: $out"
-		assert_contains "$out" "$w:"
-		assert_contains "$out" "failed: workflows"
-	done
 }
 
 # Test that the workflow check is a visible SKIP without upstream/master.

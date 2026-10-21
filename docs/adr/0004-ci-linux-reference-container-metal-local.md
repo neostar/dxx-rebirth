@@ -17,15 +17,14 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   container leg on a fresh `git clone` of the commit under test with no build caches; uncommitted
   changes are excluded. Its verdict is the one that counts. Nothing is pushed to a registry.
 - **No GitHub CI.** A GitHub mirror only on the owner's explicit go.
-- **One exception: the secret scan** (owner decision 2026-10-21).
-  `.github/workflows/secret-scan.yml` runs gitleaks, at the version `toolchain.pins` pins, on
-  every push to `sdl-gpu-port`, every pull request and weekly over the whole history, with
-  read-only permissions and actions pinned by commit. It backstops the pre-commit tier, which a
-  commit made with `--no-verify` or in a clone without `setup.sh` skips, and a leaked secret is
-  public the moment it is pushed. GitHub-hosted runners are free for public repositories. It
-  checks no build: `check.sh`'s workflows step allows this one file only while it runs nothing
-  but gitleaks. The workflows inherited from upstream stay in the tree, so rebases do not
-  conflict, and are disabled on the fork one by one in GitHub's settings.
+- **Secret scanning is local too** (owner decision 2026-10-21): no GitHub workflow. The layers
+  are the pre-commit tier (`gitleaks git --staged`), the pre-push hook (`tools/dev/hooks/pre-push`:
+  gitleaks on exactly the commits being pushed, which catches a commit made with `--no-verify`),
+  both at the pinned version and failing, never skipping, without it; the full-history scan in
+  every `ci.sh` run; and GitHub push protection, a repository setting (on), not an Action.
+  `check.sh`'s workflows step fails on any workflow upstream does not have. The workflows
+  inherited from upstream stay in the tree, so rebases do not conflict, and are disabled on the
+  fork one by one in GitHub's settings.
 - **The Linux reference container** (`tools/dev/container/Dockerfile`, built by `container.sh`):
   Ubuntu pinned by digest, apt pinned by an archive snapshot, GCC 14 and Clang 19 from that
   snapshot, the dependencies built offline from the sha256-verified cache, Mesa lavapipe/llvmpipe

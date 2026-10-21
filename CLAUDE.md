@@ -6,8 +6,8 @@ Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-
 ## Dev workflow
 
 Scripts in `tools/dev/`, each documented in its header: `setup.sh` once per clone or worktree
-(pre-commit hook, rerere); `check.sh` (all checks; `--pre-commit` is the hook, `--fast` a
-quick subset); `build.sh [dev|asan]` (D2X profiles, `check` runs the unit tests); `rebase.sh`
+(pre-commit and pre-push hooks, rerere); `check.sh` (all checks; `--pre-commit` and
+`--pre-push` are the hooks, `--fast` a quick subset); `build.sh [dev|asan]` (D2X profiles, `check` runs the unit tests); `rebase.sh`
 (rebase on upstream with per-commit checks); `fetch-docs.sh` (SDL3/SDL_GPU reference docs into
 `docs/reference/`). Launch binaries with `run.sh`; `leaks.sh` runs one under macOS's
 `leaks --atExit`, `gpu-validate.sh` an SDL_GPU one with GPU validation as a gate. Toolchain

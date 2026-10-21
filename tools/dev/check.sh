@@ -3,6 +3,8 @@
 #
 #   check.sh --pre-commit   the pre-commit tier (ADR 5, under 10 s), run
 #                           by the pre-commit hook after the size limit
+#   check.sh --pre-push     gitleaks on the commits being pushed, read from
+#                           the pre-push hook's standard input
 #   check.sh --fast         quick subset: the pre-commit steps and more,
 #                           the shell tests among them
 #   check.sh                everything: the fast subset plus the full steps
@@ -17,7 +19,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--pre-commit|--fast]" >&2
+	echo "usage: $0 [--pre-commit|--pre-push|--fast]" >&2
 	exit 2
 }
 
@@ -103,37 +105,9 @@ step_stale_hashes()
 	return "$rc"
 }
 
-# The one GitHub workflow the fork adds (ADR 4): the secret scan.
-secret_scan_workflow=.github/workflows/secret-scan.yml
-
-# Fail unless the secret-scan workflow runs gitleaks alone: no run step,
-# only actions/checkout and gitleaks-action pinned by commit, no write
-# permission, and GITLEAKS_VERSION the version toolchain.pins pins.
-check_secret_scan_workflow()
-{
-	local f=$root/$secret_scan_workflow w=$secret_scan_workflow pin got hits rc=0
-	hits=$(grep -nE '^[[:space:]]*(-[[:space:]]+)?(run|shell)[[:space:]]*:' "$f")
-	[[ -z $hits ]] || { printf '%s:%s: runs a command\n' "$w" "$hits"; rc=1; }
-	hits=$(grep -nE '(^|[[:space:]])uses[[:space:]]*:' "$f" | grep -vE \
-		'uses: (actions/checkout|gitleaks/gitleaks-action)@[0-9a-f]{40}([[:space:]]|$)')
-	[[ -z $hits ]] || { printf '%s:%s: not checkout or gitleaks-action pinned by commit\n' "$w" "$hits"; rc=1; }
-	hits=$(grep -nE ':[[:space:]]*write([[:space:]]|$)|write-all' "$f")
-	[[ -z $hits ]] || { printf '%s:%s: write permission\n' "$w" "$hits"; rc=1; }
-	pin=$(gitleaks_pin)
-	got=$(sed -nE 's/^[[:space:]]*GITLEAKS_VERSION:[[:space:]]*"?([^"[:space:]]*)"?.*/\1/p' "$f")
-	if [[ -z $pin || $got != "$pin" ]]; then
-		echo "$w: GITLEAKS_VERSION is '$got', toolchain.pins pins gitleaks '$pin'"
-		rc=1
-	fi
-	if [[ $rc -ne 0 ]]; then
-		echo "$w: the fork's one workflow runs gitleaks only (ADR 4); the rest is tools/dev/ci.sh"
-	fi
-	return "$rc"
-}
-
 # Fail on any file under .github/workflows/ that upstream/master does not
-# have, but the secret scan while it runs gitleaks alone: the fork's CI is
-# local (ADR 4), and GitHub must not run a workflow of its own.  Without
+# have: the fork's CI is local (ADR 4), and GitHub must not run a workflow
+# of its own.  Without
 # upstream/master the check is a SKIP.
 step_workflows()
 {
@@ -143,10 +117,6 @@ step_workflows()
 		return 0
 	fi
 	while IFS= read -r f; do
-		if [[ $f == "$secret_scan_workflow" ]]; then
-			check_secret_scan_workflow || rc=1
-			continue
-		fi
 		echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
 		rc=1
 	done < <(comm -23 \
@@ -194,8 +164,8 @@ run_gitleaks()
 		if [[ ${DXX_REFERENCE_IMAGE-} == 1 ]]; then
 			echo "FAIL $step: $why; the reference image must have it"
 			return 1
-		elif [[ $mode == pre-commit ]]; then
-			echo "FAIL $step: $why; no commit without a secret scan: run" \
+		elif [[ $mode == pre-commit || $mode == pre-push ]]; then
+			echo "FAIL $step: $why; nothing goes in or out unscanned: run" \
 				"tools/dev/deps.sh all, or put gitleaks $pin on PATH"
 			return 1
 		fi
@@ -231,6 +201,27 @@ step_gitleaks_allow()
 step_secrets()
 {
 	run_gitleaks secrets --staged
+}
+
+# The pre-push tier: fail on a secret in exactly the commits being pushed,
+# read from the pre-push hook's standard input ("<local ref> <local sha>
+# <remote ref> <remote sha>" per ref): <remote sha>..<local sha>, or, for a
+# ref new on the remote or a remote sha this clone lacks, the commits on no
+# remote-tracking branch.  A deletion has nothing to scan.
+step_push_secrets()
+{
+	local lref lsha rref rsha range rc=0 zero=0000000000000000000000000000000000000000
+	while read -r lref lsha rref rsha; do
+		[[ -z $lsha || $lsha == "$zero" ]] && continue
+		if [[ $rsha != "$zero" ]] && git -C "$root" cat-file -e "$rsha^{commit}" 2>/dev/null; then
+			range="$rsha..$lsha"
+		else
+			range="$lsha --not --remotes"
+		fi
+		echo "push_secrets: $lref -> $rref: $range"
+		run_gitleaks push_secrets --log-opts="$range" || rc=1
+	done
+	return "$rc"
 }
 
 # Fail on a secret anywhere in the history of HEAD, upstream's included;
@@ -448,6 +439,7 @@ full_steps=(secrets_history unit_tests leaks gpu_tests tidy sanitizer_tests)
 mode=full
 case "${1-}" in
 	--pre-commit) mode=pre-commit ;;
+	--pre-push) mode=pre-push ;;
 	--fast) mode=fast ;;
 	'') ;;
 	*) usage ;;
@@ -455,6 +447,7 @@ esac
 
 steps=("${fast_steps[@]}")
 [[ $mode == pre-commit ]] && steps=("${pre_commit_steps[@]}")
+[[ $mode == pre-push ]] && steps=(push_secrets)
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
 	# The full checks also run the shell tests that build real objects.
