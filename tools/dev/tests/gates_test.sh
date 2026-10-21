@@ -349,7 +349,7 @@ test_gpu_without_pinned_sdl3_fails_only_in_container()
 }
 
 # Rewrite the compilation database of fork repository $1 so its entry also
-# has the include flags "${@:2}" before -c.
+# has the flags "${@:2}" before -c.
 add_database_flags()
 {
 	local r=$1
@@ -406,6 +406,27 @@ test_tidy_rejects_includes_through_dotdot()
 	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/x/plant.cpp:1: #include through .."
+}
+
+# Test that the tidy gate reads a GCC compilation database, as in the
+# container: flags only GCC knows are dropped, the clean file passes, and a
+# planted violation is still reported.
+test_tidy_reads_gcc_database()
+{
+	local r out rc
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	add_database_flags "$r" -fstrict-flex-arrays -Wlogical-op -Wduplicated-cond
+	grep -q Wlogical-op "$r/build/dev/compile_commands.json" || die "no GCC flags in the database"
+	cp "$GATES/clean.cpp.in" "$r/src/plant.cpp"
+	tgit -C "$r" add src/plant.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	cp "$GATES/shadow.cpp.in" "$r/src/plant.cpp"
+	tgit -C "$r" add src/plant.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_contains "$out" "declaration shadows a local variable [clang-diagnostic-shadow"
+	assert_not_contains "$out" "unknown"
 }
 
 # Test that each gate a planted file names without a runner has an owning

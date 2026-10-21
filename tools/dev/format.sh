@@ -176,6 +176,7 @@ header_filter()
 # no entry of its own, and the one clang-tidy would borrow may be GCC's
 # (the container), with flags clang rejects; headers are tidied with the
 # fork's own flags instead (fork_warnings.py, the pinned dependencies).
+# Source files keep their database entry, less the flags clang rejects.
 tidy()
 {
 	local f rc=0 cxx=() headers=() flags=() filter
@@ -212,8 +213,39 @@ tidy()
 		staged_database "$database/compile_commands.json" "${cxx[@]}" \
 			> "$db/compile_commands.json" || return 1
 	fi
-	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" -p "$db" --quiet "${cxx[@]}" 2>&1 | strip_tree
+	local flag removed=()
+	while IFS= read -r flag; do
+		removed+=(--removed-arg="$flag")
+	done < <(unknown_flags "$db/compile_commands.json")
+	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
+		"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${cxx[@]}" 2>&1 | strip_tree
 	[[ ${PIPESTATUS[0]} -eq 0 && $rc -eq 0 ]]
+}
+
+# Print, one per line, the warning and code generation flags in compilation
+# database $1 that the pinned clang-tidy rejects: in the container the
+# database is GCC's (-fstrict-flex-arrays, -Wlogical-op, ...), and an
+# unknown flag is an error there.  One clang-tidy run on an empty file with
+# every such flag reports them all.
+unknown_flags()
+{
+	local probe flags=()
+	mapfile -t flags < <(python3 - "$1" <<'PY'
+import json, shlex, sys
+seen = set()
+for e in json.load(open(sys.argv[1])):
+    for a in e.get("arguments") or shlex.split(e["command"]):
+        if a[:2] in ("-W", "-f", "-m") and "," not in a and a not in seen:
+            seen.add(a)
+            print(a)
+PY
+	)
+	[[ ${#flags[@]} -eq 0 ]] && return 0
+	probe=$(mktemp "${TMPDIR:-/tmp}/format-probe.XXXXXX") || return 1
+	"$clang_tidy" --config='{Checks: "-*,modernize-use-nullptr,clang-diagnostic-*"}' "$probe" \
+		-- -x c++ "${flags[@]}" 2>&1 |
+		sed -nE "s/.*unknown (argument:|warning option) '([^']+)'.*/\2/p" | sort -u
+	rm -f "$probe"
 }
 
 # Filter clang-tidy's output: drop its warning counts and name the staged
