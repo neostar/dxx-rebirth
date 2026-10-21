@@ -1,5 +1,5 @@
 // An unchecked downcast.
-// gate tidy: cppcoreguidelines-pro-type-static-cast-downcast
+// gate tidy: [cppcoreguidelines-pro-type-static-cast-downcast
 struct base
 {
 	virtual ~base() = default;

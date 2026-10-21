@@ -1,0 +1,7 @@
+// A local never modified but not declared const.
+// gate tidy: [misc-const-correctness
+int twice(const int n)
+{
+	int x{n * 2};
+	return x;
+}

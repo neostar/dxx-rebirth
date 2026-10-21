@@ -1,5 +1,5 @@
 // Memory read after it was freed, found by the Clang Static Analyzer.
-// gate tidy: Use of memory after it is released
+// gate tidy: Use of memory after it is released [clang-analyzer-unix.Malloc
 #include <cstdlib>
 
 int use_after_free()

@@ -1,5 +1,5 @@
 // A vector used after it was moved from.
-// gate tidy: bugprone-use-after-move
+// gate tidy: [bugprone-use-after-move
 #include <utility>
 #include <vector>
 

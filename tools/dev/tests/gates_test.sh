@@ -8,107 +8,170 @@
 #                                 EXPECT, or passes if EXPECT is `pass`
 #   // gate NAME (#N): EXPECT     the same, for a gate ticket #N builds
 #
-# For each such line this file runs a test that copies the planted file
-# into a throwaway repository and calls gate_NAME on it.  A gate without a
-# gate_NAME runner is a SKIP naming its ticket.  A later ticket adds a gate
-# by writing gate_NAME here; the planted files stay out of the fork gates
-# because they end in .in.
+# test_GATE runs gate_GATE on each planted file that names it, copied into
+# a throwaway place under a neutral name, so that an expectation can match
+# only the diagnostic, never the file's own name.  A gate without a runner
+# is a SKIP naming its ticket.  A later ticket adds a gate by writing
+# gate_NAME and test_NAME here; the planted files stay out of the fork
+# gates because they end in .in.
 source "$(dirname "$0")/lib.sh"
 GATES="$DEV_DIR/tests/gates"
 
-# The pre-commit gate: stage file $1 as src/<name>.cpp in a fork repository
+# Skip the current test, naming tool $1, unless $1 runs.
+need()
+{
+	local hint='tools/dev/deps.sh installs the LLVM tools'
+	[[ $1 == */* ]] || hint='install a C++ compiler'
+	command -v "$1" >/dev/null || skip "$1 not found; $hint"
+}
+
+# The tool each gate runs, which a test needs before running the gate.
+declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++)
+
+# The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
 gate_tidy()
 {
-	local r name
-	name=$(basename "$1" .in)
+	local r
 	r=$(fork_repo)
-	cp "$1" "$r/src/$name"
-	tgit -C "$r" add "src/$name"
+	cp "$1" "$r/src/plant.cpp"
+	tgit -C "$r" add src/plant.cpp
 	"$r/tools/dev/format.sh" --staged 2>&1
 }
 
 # The strict warnings (fork_warnings.py) as the build adds them: compile
-# file $1 with them and the pinned SDL3 headers.
+# file $1 with them and the pinned SDL3 headers.  GCC's [-Werror=NAME] is
+# printed as clang's [-Werror,-WNAME], so one expectation fits both.
 gate_strict()
 {
+	local d rc
+	d=$(make_scratch)
+	cp "$1" "$d/plant.cpp"
 	# shellcheck disable=SC2046  # the flags are words
-	"${CXX:-c++}" -std=c++23 $(python3 "$DEV_DIR/fork_warnings.py") \
-		-isystem "$dev_deps_prefix/include" -fsyntax-only -x c++ "$1" 2>&1
+	"${gate_tool[strict]}" -std=c++23 $(python3 "$DEV_DIR/fork_warnings.py") \
+		-isystem "$dev_deps_prefix/include" -fsyntax-only "$d/plant.cpp" > "$d/out" 2>&1
+	rc=$?
+	sed -E 's/\[-Werror=([a-z0-9-]+)\]/[-Werror,-W\1]/' "$d/out"
+	return "$rc"
 }
 
-# Run gate $2 on planted file $1; $3 is the owning ticket, $4 the expected
-# output or `pass`.
-run_gate()
+# Run gate $1 on every planted file that names it, and fail unless one does.
+run_planted()
 {
-	local file=$1 gate=$2 owner=$3 expect=$4 out rc
-	if ! declare -F "gate_$gate" >/dev/null; then
-		[[ -n $owner ]] || { fail "gate $gate has no runner and no owning ticket"; return; }
-		skip "gate $gate is built by $owner"
-	fi
-	out=$("gate_$gate" "$file") && rc=0 || rc=$?
-	if [[ $expect == pass ]]; then
-		assert_eq "$rc" 0 "$out"
-	else
-		[[ $rc -ne 0 ]] || fail "gate $gate passed $(basename "$file"); expected: $expect"
-		assert_contains "$out" "$expect"
-	fi
-}
-
-# One test per gate line of each planted file: test_<file>_<gate> runs
-# run_gate with the fields gate_line holds for it, separated by tabs.
-declare -A gate_line
-run_gate_line()
-{
-	local file gate owner expect
-	IFS=$'\t' read -r file gate owner expect <<<"${gate_line[$1]}"
-	run_gate "$file" "$gate" "${owner#-}" "$expect"
-}
-for f in "$GATES"/*.in; do
-	base=${f##*/}
-	while IFS= read -r line; do
-		[[ $line =~ ^//\ gate\ ([a-z]+)(\ \((#[0-9]+)\))?:\ (.+)$ ]] || continue
-		t=test_${base%.cpp.in}_${BASH_REMATCH[1]}
-		gate_line[$t]=$f$'\t'${BASH_REMATCH[1]}$'\t'-${BASH_REMATCH[3]}$'\t'${BASH_REMATCH[4]}
-		eval "$t() { run_gate_line $t; }"
-	done < "$f"
-done
-
-# Test that every gate this ticket owns is planted at least once.
-test_every_gate_is_planted()
-{
-	local want
-	for want in pro-type-static-cast-downcast narrowing-conversions owning-memory \
-		use-after-move 'leak of memory' 'after it is released' 'NOLINT without'; do
-		grep -qF "$want" "$GATES"/*.in || fail "no planted file expects '$want'"
+	local gate=$1 f line expect out rc n=0 lines
+	need "${gate_tool[$gate]}"
+	for f in "$GATES"/*.in; do
+		mapfile -t lines < <(grep "^// gate $gate: " "$f")
+		for line in "${lines[@]}"; do
+			expect=${line#"// gate $gate: "}
+			n=$((n + 1))
+			out=$("gate_$gate" "$f") && rc=0 || rc=$?
+			if [[ $expect == pass ]]; then
+				[[ $rc -eq 0 ]] || fail "gate $gate failed ${f##*/}: $out"
+			elif [[ $rc -eq 0 ]]; then
+				fail "gate $gate passed ${f##*/}; expected: $expect"
+			else
+				[[ $out == *"$expect"* ]] ||
+					fail "gate $gate on ${f##*/}: expected '$expect', got: $out"
+			fi
+		done
 	done
+	[[ $n -gt 0 ]] || fail "no planted file names gate $gate"
 }
 
-# Print the seconds between the first and the last timestamp of a clangd
-# log on the standard input (I[HH:MM:SS.mmm] lines).
-clangd_seconds()
+test_tidy()
 {
-	awk -F'[][]' '/^[IEV]\[/ {split($2, t, ":"); s = t[1] * 3600 + t[2] * 60 + t[3];
-		if (first == "") first = s; last = s} END {printf "%.3f\n", last - first}'
+	run_planted tidy
+}
+
+test_strict()
+{
+	run_planted strict
+}
+
+# Test that each gate a planted file names without a runner has an owning
+# ticket, and skip, naming those gates and tickets.
+test_later_gates()
+{
+	local f line later=() orphans=()
+	for f in "$GATES"/*.in; do
+		while IFS= read -r line; do
+			[[ $line =~ ^//\ gate\ ([a-z]+)(\ \((#[0-9]+)\))?: ]] || continue
+			declare -F "gate_${BASH_REMATCH[1]}" >/dev/null && continue
+			if [[ -z ${BASH_REMATCH[3]} ]]; then
+				orphans+=("${BASH_REMATCH[1]} in ${f##*/}")
+			else
+				later+=("${BASH_REMATCH[1]} (${BASH_REMATCH[3]})")
+			fi
+		done < "$f"
+	done
+	[[ ${#orphans[@]} -eq 0 ]] || { fail "no runner and no ticket: ${orphans[*]}"; return; }
+	[[ ${#later[@]} -eq 0 ]] || skip "built later: ${later[*]}"
+}
+
+# Test that every check the fork clang-tidy config enables is proven by a
+# planted file: some tidy expectation ends with a [check,...] list naming a
+# check the pattern matches.
+test_every_enabled_check_is_planted()
+{
+	local line pat name found n=0 names=() listed
+	while IFS= read -r line; do
+		[[ $line == "// gate tidy: "*"["* ]] || continue
+		IFS=, read -ra listed <<<"${line##*[}"
+		names+=("${listed[@]}")
+	done < <(cat "$GATES"/*.in)
+	while IFS= read -r pat; do
+		n=$((n + 1))
+		found=0
+		for name in "${names[@]}"; do
+			# shellcheck disable=SC2053  # $pat is a glob, as in the config
+			[[ $name == $pat ]] && found=1
+		done
+		[[ $found == 1 ]] || fail "no planted file proves $pat"
+	done < <(sed -nE 's/^  ([a-z][a-z0-9.*-]*),?$/\1/p' "$DEV_DIR/style/clang-tidy")
+	[[ $n -gt 0 ]] || fail "no enabled check found in tools/dev/style/clang-tidy"
+}
+
+# Run "$@" up to three times, printing each run's wall clock as $2, until
+# one takes under $1 s; fail if none does.  The shell tests run in
+# parallel, so one slow run can be the load of the others; three are not.
+within_budget()
+{
+	local budget=$1 label=$2 start secs i
+	shift 2
+	for i in 1 2 3; do
+		start=$EPOCHREALTIME
+		"$@" || { fail "$label: $* failed"; return; }
+		secs=$(awk -v a="$start" -v b="$EPOCHREALTIME" 'BEGIN {printf "%.2f", b - a}')
+		echo "    $label, run $i: $secs s"
+		awk -v s="$secs" -v b="$budget" 'BEGIN {exit !(s < b)}' && return 0
+	done
+	fail "$label took over its $budget s budget in three runs"
 }
 
 # Test the editor tier: clangd --check on a fork file reports the fork
-# clang-tidy checks from the fork directory's .clang-tidy, within 1 s; the
-# same file in an upstream directory gets none of them.
+# clang-tidy checks from the fork directory's .clang-tidy, the clangd
+# process taking under 1 s of wall clock; the same file in an upstream
+# directory gets none of them.
 test_editor_tier_clangd_uses_fork_config_within_budget()
 {
-	local r out secs
+	local r clangd
+	clangd=$(dev_llvm_tool clangd)
+	need "$clangd"
 	r=$(fork_repo)
 	cp "$GATES/owning_raw_pointer.cpp.in" "$r/src/owner.cpp"
 	cp "$GATES/owning_raw_pointer.cpp.in" "$r/common/owner.cpp"
 	cp "$REPO_ROOT/.clang-tidy" "$r/.clang-tidy"
-	out=$(cd "$r" && "$(dev_llvm_tool clangd)" --check=src/owner.cpp 2>&1)
-	assert_contains "$out" "[cppcoreguidelines-owning-memory]"
-	secs=$(clangd_seconds <<<"$out")
-	awk -v s="$secs" 'BEGIN {exit !(s < 1)}' || fail "clangd took $secs s, over the 1 s budget"
-	out=$(cd "$r" && "$(dev_llvm_tool clangd)" --check=common/owner.cpp 2>&1)
-	assert_contains "$out" "All checks completed"
-	assert_not_contains "$out" "cppcoreguidelines-"
+	# clangd --check exits non-zero on a file with diagnostics.
+	clangd_check()
+	{
+		(cd "$r" && "$clangd" --check="$1" > "$r/out" 2>&1) || true
+	}
+	within_budget 1 "editor tier (clangd)" clangd_check src/owner.cpp
+	assert_contains "$(cat "$r/out")" "[cppcoreguidelines-owning-memory]"
+	clangd_check common/owner.cpp
+	assert_contains "$(cat "$r/out")" "All checks completed"
+	assert_not_contains "$(cat "$r/out")" "cppcoreguidelines-"
 }
 
 # Test the pre-commit tier: the gate on a typical diff (the representative
@@ -116,6 +179,7 @@ test_editor_tier_clangd_uses_fork_config_within_budget()
 test_precommit_tier_within_budget()
 {
 	local r start secs
+	need "${gate_tool[tidy]}"
 	r=$(fork_repo)
 	cp "$GATES/clean.cpp.in" "$r/src/clean.cpp"
 	printf 'int one()\n{\n\treturn 1;\n}\n' > "$r/src/one.cpp"

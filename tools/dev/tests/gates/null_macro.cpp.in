@@ -1,0 +1,8 @@
+// NULL as a null pointer.
+// gate tidy: [modernize-use-nullptr
+#include <cstddef>
+
+const int *nothing()
+{
+	return NULL;
+}

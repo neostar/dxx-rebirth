@@ -1,0 +1,12 @@
+// An overriding member function without `override`.
+// gate tidy: [modernize-use-override
+struct base
+{
+	virtual ~base() = default;
+	virtual int value() const;
+};
+
+struct derived : base
+{
+	virtual int value() const;
+};

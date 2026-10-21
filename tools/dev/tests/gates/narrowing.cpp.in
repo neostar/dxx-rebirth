@@ -1,6 +1,6 @@
 // A narrowing conversion from double to int.
-// gate tidy: narrowing-conversions
-// gate strict: conversion
+// gate tidy: [bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions
+// gate strict: -Wfloat-conversion]
 int truncate(const double d)
 {
 	int i{0};

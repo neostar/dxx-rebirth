@@ -1,5 +1,5 @@
 // Memory leaked on the early return, found by the Clang Static Analyzer.
-// gate tidy: Potential leak of memory
+// gate tidy: Potential leak of memory pointed to by 'p' [clang-analyzer-unix.Malloc
 #include <cstdlib>
 
 int leak(const bool early)

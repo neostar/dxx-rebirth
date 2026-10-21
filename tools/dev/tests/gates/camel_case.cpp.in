@@ -1,0 +1,6 @@
+// A function name that is not lower snake case.
+// gate tidy: [readability-identifier-naming
+int CountItems()
+{
+	return 0;
+}

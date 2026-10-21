@@ -1,0 +1,8 @@
+// A typedef where the rules want an alias declaration.
+// gate tidy: [modernize-use-using
+typedef int count_type;
+
+count_type one()
+{
+	return 1;
+}
