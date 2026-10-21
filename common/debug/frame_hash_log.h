@@ -18,7 +18,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "frame_hash.h"
+#include "common/debug/frame_hash.h"
 
 namespace dcx {
 

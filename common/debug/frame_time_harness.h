@@ -10,7 +10,7 @@
 #include <cstdlib>
 #include <optional>
 
-#include "frame_time_policy.h"
+#include "common/debug/frame_time_policy.h"
 
 namespace dcx {
 

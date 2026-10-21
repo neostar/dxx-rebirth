@@ -361,7 +361,10 @@ tidy_headers()
 	[[ ${#sel[@]} -eq 0 ]] && return 0
 	read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
 	[[ $dev_os == darwin ]] && flags+=(-isysroot "$(xcrun --show-sdk-path)")
-	# A staged header's own directory, for the includes beside it.
+	# The top, for fork headers included by their path from it
+	# (conventions.md), and a staged header's own directory, for the
+	# includes beside it.
+	flags+=(-I "$root")
 	for f in "${sel[@]}"; do
 		flags+=(-I "$root/$(dirname "$(rel "$f")")")
 	done

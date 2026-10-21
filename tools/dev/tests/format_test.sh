@@ -218,6 +218,22 @@ test_staged_header_is_tidied_without_database_entry()
 	assert_not_contains "$out" "pragma-once"
 }
 
+# Test that a staged fork header that includes another fork header by its
+# path from the top, as conventions.md requires, finds it.
+test_staged_header_includes_by_path_from_top()
+{
+	local r out
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/src/sub"
+	printf '%s\n' '#pragma once' 'inline int one() { return 1; }' > "$r/src/sub/one.h"
+	printf '%s\n' '#pragma once' '#include "src/sub/one.h"' 'inline int two() { return one() + 1; }' \
+		> "$r/src/sub/two.h"
+	"$r/tools/dev/format.sh" "$r/src" || die "format failed"
+	tgit -C "$r" add src/sub/one.h src/sub/two.h
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 # Test that a staged fork header is tidied against the pinned SDL3 the way
 # sdl3=1 builds it (ADR 3): <SDL.h> found in the SDL3 include directory and
 # the SDL2 names compiled through SDL_ENABLE_OLD_NAMES.
