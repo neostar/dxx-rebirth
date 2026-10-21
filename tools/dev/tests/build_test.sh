@@ -127,12 +127,19 @@ test_strict_warnings_fail_fork_file_in_real_build()
 	local r out rc probe='int dxx_strict_probe(long); int dxx_strict_probe(long v) { return v; }'
 	[[ ${DXX_BUILD_TESTS-} == 1 ]] || skip "builds D2X objects; set DXX_BUILD_TESTS=1 to run"
 	command -v scons >/dev/null || skip "scons not found"
+	# A real build needs the whole source tree (SConstruct, common/,
+	# similar/), which make_repo and fork_repo do not hold, so this is a
+	# clone of this repository.  --shared reads its objects in place and
+	# writes nothing to it; every change below is made in the clone, under
+	# the scratch directory.
 	r=$(make_scratch)/clone
 	git clone -q --shared "$REPO_ROOT" "$r"
 	rm -rf "$r/tools/dev" && cp -R "$DEV_DIR" "$r/tools/dev"
 	printf '%s\n' "$probe" > "$r/tools/strictprobe.cpp"
 	printf '%s\n' "$probe" >> "$r/common/misc/strutil.cpp"
-	sed "s|^'common/misc/strutil.cpp',$|&\n'tools/strictprobe.cpp',|" "$REPO_ROOT/SConstruct" > "$r/SConstruct"
+	awk -v anchor="'common/misc/strutil.cpp'," -v probe="'tools/strictprobe.cpp'," \
+		'{print} $0 == anchor {print probe}' "$REPO_ROOT/SConstruct" > "$r/SConstruct"
+	grep -qxF "'tools/strictprobe.cpp'," "$r/SConstruct" || fail "SConstruct has no strutil.cpp line"
 	out=$("$r/tools/dev/build.sh" dev build/dev/common/misc/strutil.o 2>&1)
 	assert_eq "$?" 0 "upstream file: $out"
 	out=$("$r/tools/dev/build.sh" dev build/dev/tools/strictprobe.o 2>&1) && rc=0 || rc=$?
