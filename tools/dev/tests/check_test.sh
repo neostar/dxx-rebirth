@@ -14,22 +14,39 @@ export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
 export CHECK_SHELLCHECK=no-such-shellcheck
 
 # Make a throwaway repo with tools/dev copied in (no tests, so check.sh
-# does not recurse into this file) and the fork's hooks installed.
+# does not recurse into this file) and the fork's hooks installed.  Its
+# fork-dirs lists tools/ alone, whatever the real one lists: the other fork
+# directories are not copied in.
 make_dev_repo()
 {
 	local r
 	r=$(make_repo) || die "make_repo failed"
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
-	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
+	cp "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/commit-size-allow" "$DEV_DIR/gpu-programs" \
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
+	printf 'tools\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
 	cp "$REPO_ROOT/.gitleaks.toml" "$r/"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	printf '%s\n' "$r"
+}
+
+# Test that the throwaway repository does not depend on the real fork-dirs:
+# with a fork directory listed outside tools/, which the throwaway
+# repository does not hold, the fast subset still passes there.
+test_dev_repo_ignores_real_fork_dirs()
+{
+	local d r out
+	d=$(make_scratch) || die "make_scratch failed"
+	cp -R "$DEV_DIR" "$d/dev"
+	printf 'tools\ncommon/debug\n' > "$d/dev/fork-dirs"
+	r=$(DEV_DIR=$d/dev make_dev_repo) || die "make_dev_repo failed"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
 }
 
 # Test that the fast subset passes on a clean index and names its steps.
