@@ -1,0 +1,18 @@
+// A destructor that releases a resource, without the copy and move
+// operations it implies: a copy would release the handle twice.
+// gate tidy: [cppcoreguidelines-special-member-functions
+void release(int id);
+
+class handle_owner
+{
+  public:
+	explicit handle_owner(const int handle) : id{handle}
+	{}
+	~handle_owner()
+	{
+		release(id);
+	}
+
+  private:
+	int id;
+};

@@ -1,0 +1,11 @@
+// Memory from malloc, not a container or std::make_unique.
+// gate tidy: [cppcoreguidelines-no-malloc
+#include <cstdlib>
+
+int allocates()
+{
+	void *const p{std::malloc(16)};
+	const bool ok{p != nullptr};
+	std::free(p);
+	return ok ? 1 : 0;
+}

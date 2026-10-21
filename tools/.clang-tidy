@@ -1,4 +1,4 @@
-# Fork code checks (ADR 5, level 1); a copy is each fork directory's
+# Fork code checks (ADR 5, level 2); a copy is each fork directory's
 # .clang-tidy, which clangd and tools/dev/format.sh read.  clang-diagnostic-*
 # reports the compiler's warnings, the strict ones among them.  Left out at
 # level 1: easily-swappable-parameters (any adjacent same-type parameters) and
@@ -7,7 +7,9 @@
 # fails when they differ.  LLVM 23 moved the hicpp checks into bugprone:
 # unhandled-code-paths stays on without its noisy missing-else mode, and
 # signed-bitwise stays on with literals counted, each proven by a planted
-# file (tools/dev/tests/gates).
+# file (tools/dev/tests/gates).  Left out at level 2: constant-array-index and
+# avoid-unchecked-container-access, which flag every subscript with a run-time
+# index, std::array and std::span included, that the hardened library traps.
 Checks: >
   -*,
   clang-diagnostic-*,
@@ -22,7 +24,14 @@ Checks: >
   modernize-use-nullptr,
   modernize-use-override,
   readability-identifier-naming,
-  misc-const-correctness
+  misc-const-correctness,
+  cppcoreguidelines-use-enum-class,
+  cppcoreguidelines-avoid-c-arrays,
+  cppcoreguidelines-pro-bounds-*,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-special-member-functions
 CheckOptions:
   readability-identifier-naming.FunctionCase: lower_case
   readability-identifier-naming.VariableCase: lower_case
@@ -31,4 +40,5 @@ CheckOptions:
   readability-identifier-naming.NamespaceCase: lower_case
   bugprone-unhandled-code-paths.WarnOnMissingElse: false
   bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: false
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
 WarningsAsErrors: '*'

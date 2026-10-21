@@ -1,0 +1,12 @@
+// A domain value as an unscoped enum, not an enum class.
+// gate tidy: [cppcoreguidelines-use-enum-class
+enum blend
+{
+	opaque,
+	additive,
+};
+
+int is_opaque(const blend b)
+{
+	return b == opaque ? 1 : 0;
+}

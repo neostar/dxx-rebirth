@@ -103,19 +103,29 @@ reason.
 representative fork file `tools/dev/tests/gates/clean.cpp.in` (the conventions' idioms). Each
 tightening is its own small commit that leaves the tree green and updates the level below.
 
-- **Level 1 (active)**: `clang-diagnostic-*`, `clang-analyzer-*`, `bugprone-*` (with
+- **Level 1**: `clang-diagnostic-*`, `clang-analyzer-*`, `bugprone-*` (with
   `bugprone-use-after-move`) except `bugprone-easily-swappable-parameters`,
   `cppcoreguidelines-owning-memory`, `cppcoreguidelines-pro-type-*` except
   `cppcoreguidelines-pro-type-vararg`, `cppcoreguidelines-narrowing-conversions`,
   `modernize-use-using`, `modernize-use-nullptr`,
   `modernize-use-override`, `readability-identifier-naming` (lower snake case),
   `misc-const-correctness`; `WarningsAsErrors: '*'`; strict warnings as above. On LLVM 23.1.3
-  these globs enable the 252 checks `tools/dev/style/clang-tidy-checks` lists, and
-  `gates_test.sh` fails when the two differ, so an LLVM upgrade that adds or moves a check under
-  a glob changes the list in a reviewed commit. LLVM 23 moved the `hicpp` checks into
+  these globs enabled 252 checks. `tools/dev/style/clang-tidy-checks` lists the active level's,
+  and `gates_test.sh` fails when it and the config differ, so an LLVM upgrade that adds or moves
+  a check under a glob changes the list in a reviewed commit. LLVM 23 moved the `hicpp` checks into
   `bugprone`: `bugprone-unhandled-code-paths` (a switch on a non-enum without `default`) stays
   on with its noisy missing-`else` mode off, and `bugprone-signed-bitwise` stays on; both
   options are set in the config, and a planted file proves each.
+- **Level 2 (active)**: level 1, plus, from the spike notes `tooling-capabilities.md` (0 hits
+  on `clean.cpp.in` each): `cppcoreguidelines-use-enum-class`,
+  `cppcoreguidelines-avoid-c-arrays`, `cppcoreguidelines-pro-bounds-*` (pointer arithmetic and
+  array-to-pointer decay), `cppcoreguidelines-no-malloc` and
+  `cppcoreguidelines-special-member-functions` (a sole defaulted destructor allowed, the
+  polymorphic base idiom), each proven by a planted file. The 258 checks are in
+  `clang-tidy-checks`. Left out of `pro-bounds-*` for false alarms: `constant-array-index` and
+  `avoid-unchecked-container-access` flag every subscript with a run-time index, into
+  `std::array` and `std::span` too, which the hardened library traps; `clean.cpp.in` holds one
+  (`x_at`).
 - Left out for the whole config, not suppressed inline: the rule that exceptions are inline
   NOLINTs with a reason is for a single justified site, and these two checks fire on idioms fork
   code uses throughout, so every fork file would carry the same NOLINT and a real exception would
@@ -131,16 +141,16 @@ tightening is its own small commit that leaves the tree green and updates the le
 
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names
-goes red with the expected diagnostic, that `clean.cpp.in` passes them all, and that every
-entry of the clang-tidy config's `Checks` (11 patterns) is named by some planted file's expected
-diagnostic. That proves each pattern is on, not each of the 252 checks: the seven single checks
-are planted one by one, but each glob by one check under it (`bugprone-*` by four:
-narrowing-conversions, signed-bitwise, unhandled-code-paths, use-after-move;
-`clang-analyzer-*` by `unix.Malloc`; `clang-diagnostic-*` by `shadow`;
-`cppcoreguidelines-pro-type-*` by `static-cast-downcast`). That the rest of each glob is enabled
-is what the committed `clang-tidy-checks` list and its test show; that they fire is upstream's
-to test. A gate
-a later ticket owns shows as a SKIP naming that ticket until it defines the gate's runner.
+goes red with the expected diagnostic, that `clean.cpp.in` passes them all, and that every entry of
+the clang-tidy config's `Checks` (16 patterns at level 2) is named by some planted file's expected
+diagnostic. That proves each pattern is on, not each of the checks: the single checks are planted
+one by one, but each glob by one check under it (`bugprone-*` by four: narrowing-conversions,
+signed-bitwise, unhandled-code-paths, use-after-move; `clang-analyzer-*` by `unix.Malloc`;
+`clang-diagnostic-*` by `shadow`; `cppcoreguidelines-pro-type-*` by `static-cast-downcast`;
+`cppcoreguidelines-pro-bounds-*` by `pointer-arithmetic`). That the rest of each glob is enabled is
+what the committed `clang-tidy-checks` list and its test show; that they fire is upstream's to
+test. A gate a later ticket owns shows as a SKIP naming that ticket until it defines the gate's
+runner.
 
 ## Consequences
 

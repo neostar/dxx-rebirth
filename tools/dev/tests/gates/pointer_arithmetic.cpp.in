@@ -1,0 +1,6 @@
+// Pointer arithmetic on a raw pointer, not std::span.
+// gate tidy: [cppcoreguidelines-pro-bounds-pointer-arithmetic
+int third(const int *const values)
+{
+	return *(values + 2);
+}

@@ -1,0 +1,10 @@
+// A raw C array, not std::array.
+// gate tidy: [cppcoreguidelines-avoid-c-arrays
+int sum()
+{
+	const int values[3]{1, 2, 3};
+	int total{0};
+	for (const int v : values)
+		total += v;
+	return total;
+}
