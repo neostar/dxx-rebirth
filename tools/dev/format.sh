@@ -16,9 +16,22 @@
 # staged files are checked out of the index into a temporary tree, and
 # NOLINT and clang-tidy read them there, with the compilation database's
 # flags for the real path; C files get clang-format only.  A file missing
-# from the compilation database gets the flags of its nearest neighbour.  Exit
-# status 1 means a file needs formatting or clang-tidy reported a problem, 2
-# a usage error or a missing or empty fork-dirs.
+# from the compilation database gets the flags of its nearest neighbour.
+#
+# clang-tidy reports findings in fork headers only (--header-filter built
+# from fork-dirs), none in upstream or third-party ones; a header named
+# through `..` may lie outside the fork directory it starts in and is left
+# out, so --tidy and --staged fail on a fork file whose #include "..."
+# climbs through `..`.  Each unittest/ directory in a fork directory holds a
+# copy of tools/dev/style/clang-tidy-unittest, checked like the fork
+# directory's; --staged reads both kinds of config from the index.  Source
+# files keep their database entry, less the flags the pinned clang-tidy
+# rejects (GCC's, in the container), found by one probe run and dropped with
+# --removed-arg.  Files are tidied in one run per .clang-tidy that applies
+# to them: clang-tidy filters every file's findings in a run by the config
+# of the last file, so a unittest/ file would otherwise switch off checks
+# for the others.  Exit status 1 means a file needs formatting or clang-tidy
+# reported a problem, 2 a usage error or a missing or empty fork-dirs.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
@@ -76,20 +89,22 @@ else
 	done < <(find "${dirs[@]}" -type f \( "${names[@]}" \) -print0)
 fi
 
-# Fail unless every fork directory holds a current copy of the tidy config,
-# and every unittest/ directory in one a copy of the unit test config.
+# Fail unless every fork directory under base directory $1 (the repository,
+# or the staged tree, which holds the index's configs) holds a current copy
+# of the tidy config, and every unittest/ directory in one a copy of the
+# unit test config.
 check_tidy_configs()
 {
-	local d u rc=0
+	local base=$1 d u rc=0
 	for d in "${fork_dirs[@]}"; do
-		if ! cmp -s "$tidy_config" "$root/$d/.clang-tidy"; then
+		if ! cmp -s "$tidy_config" "$base/$d/.clang-tidy"; then
 			echo "$d/.clang-tidy: not a copy of tools/dev/style/clang-tidy;" \
 				"run cp tools/dev/style/clang-tidy $d/.clang-tidy"
 			rc=1
 		fi
 		while IFS= read -r -d '' u; do
 			u=${u#"$root"/}
-			cmp -s "$unittest_config" "$root/$u/.clang-tidy" && continue
+			cmp -s "$unittest_config" "$base/$u/.clang-tidy" && continue
 			echo "$u/.clang-tidy: not a copy of tools/dev/style/clang-tidy-unittest;" \
 				"run cp tools/dev/style/clang-tidy-unittest $u/.clang-tidy"
 			rc=1
@@ -98,11 +113,9 @@ check_tidy_configs()
 	return "$rc"
 }
 
-# --staged: the temporary tree holding the staged files, whose paths are
-# reported as the repository's, and clang-tidy's options for it.  The tree
-# gets tidy_config at its top, of which every fork directory's .clang-tidy
-# is a copy, and each .clang-tidy above a staged file (a unittest/
-# directory's), so clang-tidy finds the configs it would in the repository.
+# --staged: the temporary tree holding the staged files and every
+# .clang-tidy in the index, whose paths are reported as the repository's,
+# and clang-tidy's options for it.
 tree=
 # The config's CustomChecks (ADR 5) run only with this flag.
 tidy_opts=(--experimental-custom-checks)
@@ -191,7 +204,7 @@ header_filter()
 # Source files keep their database entry, less the flags clang rejects.
 tidy()
 {
-	local f rc=0 cxx=() headers=() flags=() filter
+	local f c rc=0 cxx=() headers=() configs=() filter
 	filter=(--header-filter="$(header_filter)" --exclude-header-filter='(^|/)\.\./')
 	for f in "$@"; do
 		case $f in
@@ -201,50 +214,81 @@ tidy()
 		*) cxx+=("$f") ;;
 		esac
 	done
-	if [[ ${#headers[@]} -gt 0 ]]; then
-		read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
-		[[ $dev_os == darwin ]] && flags+=(-isysroot "$(xcrun --show-sdk-path)")
-		# A staged header's own directory, for the includes beside it.
-		for f in "${headers[@]}"; do
-			flags+=(-I "$root/$(dirname "$(rel "$f")")")
-		done
-		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "${headers[@]}" -- \
-			-x c++-header -std=c++23 "${flags[@]}" \
-			-isystem "$dev_deps_prefix/include" 2>&1 | strip_tree
-		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
+	mapfile -t configs < <(for f in "${headers[@]}" "${cxx[@]}"; do config_of "$f"; done | sort -u)
+	if [[ ${#cxx[@]} -gt 0 ]]; then
+		if [[ ! -f $database/compile_commands.json ]]; then
+			echo "format.sh: no $database/compile_commands.json; run tools/dev/build.sh first" >&2
+			return 1
+		fi
+		local db=$database flag removed=()
+		if [[ -n $tree ]]; then
+			db=$tree/.database
+			mkdir -p "$db"
+			staged_database "$database/compile_commands.json" "${cxx[@]}" \
+				> "$db/compile_commands.json" || return 1
+		fi
+		while IFS= read -r flag; do
+			removed+=(--removed-arg="$flag")
+		done < <(unknown_flags "$db/compile_commands.json")
 	fi
-	[[ ${#cxx[@]} -eq 0 ]] && return "$rc"
-	if [[ ! -f $database/compile_commands.json ]]; then
-		echo "format.sh: no $database/compile_commands.json; run tools/dev/build.sh first" >&2
-		return 1
-	fi
-	local db=$database
-	if [[ -n $tree ]]; then
-		db=$tree/.database
-		mkdir -p "$db"
-		staged_database "$database/compile_commands.json" "${cxx[@]}" \
-			> "$db/compile_commands.json" || return 1
-	fi
-	local flag removed=()
-	while IFS= read -r flag; do
-		removed+=(--removed-arg="$flag")
-	done < <(unknown_flags "$db/compile_commands.json")
-	# One run per config: clang-tidy filters the findings of every file in a
-	# run by the config of the last one, so a unittest/ file's config
-	# (clang-tidy-unittest) would hide findings in the others.
-	local group sel
-	for group in other unittest; do
-		sel=()
-		for f in "${cxx[@]}"; do
-			[[ $f == */unittest/* ]] && [[ $group == unittest ]] && sel+=("$f")
-			[[ $f != */unittest/* ]] && [[ $group == other ]] && sel+=("$f")
-		done
-		[[ ${#sel[@]} -eq 0 ]] && continue
-		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
-			"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${sel[@]}" 2>&1 | strip_tree
-		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
+	# One run per config (see the header).
+	for c in "${configs[@]+"${configs[@]}"}"; do
+		tidy_headers "$c" "${headers[@]+"${headers[@]}"}" || rc=1
+		tidy_sources "$c" "${cxx[@]+"${cxx[@]}"}" || rc=1
 	done
 	return "$rc"
+}
+
+# Print the .clang-tidy clang-tidy reads for file $1: the nearest one in its
+# directory or above.
+config_of()
+{
+	local d
+	d=$(dirname "$1")
+	while [[ $d == /?* ]]; do
+		[[ -f $d/.clang-tidy ]] && { printf '%s\n' "$d/.clang-tidy"; return; }
+		d=$(dirname "$d")
+	done
+	printf 'none\n'
+}
+
+# Print the files among "${@:2}" whose config is $1.
+with_config()
+{
+	local f
+	for f in "${@:2}"; do
+		[[ $(config_of "$f") == "$1" ]] && printf '%s\n' "$f"
+	done
+}
+
+# clang-tidy the headers among "${@:2}" whose config is $1.
+tidy_headers()
+{
+	local f sel=() flags=()
+	mapfile -t sel < <(with_config "$@")
+	[[ ${#sel[@]} -eq 0 ]] && return 0
+	read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
+	[[ $dev_os == darwin ]] && flags+=(-isysroot "$(xcrun --show-sdk-path)")
+	# A staged header's own directory, for the includes beside it.
+	for f in "${sel[@]}"; do
+		flags+=(-I "$root/$(dirname "$(rel "$f")")")
+	done
+	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "${sel[@]}" -- \
+		-x c++-header -std=c++23 "${flags[@]}" \
+		-isystem "$dev_deps_prefix/include" 2>&1 | strip_tree
+	[[ ${PIPESTATUS[0]} -eq 0 ]]
+}
+
+# clang-tidy the source files among "${@:2}" whose config is $1, with the
+# database $db less the flags clang rejects ($removed).
+tidy_sources()
+{
+	local sel=()
+	mapfile -t sel < <(with_config "$@")
+	[[ ${#sel[@]} -eq 0 ]] && return 0
+	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
+		"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${sel[@]}" 2>&1 | strip_tree
+	[[ ${PIPESTATUS[0]} -eq 0 ]]
 }
 
 # Print, one per line, the warning and code generation flags in compilation
@@ -320,21 +364,28 @@ check)
 	"$clang_format" "$style" --dry-run --Werror "${files[@]}" || exit 1 ;;
 tidy|staged)
 	rc=0
-	check_tidy_configs || rc=1
-	[[ ${#files[@]} -eq 0 ]] && exit "$rc"
-	if [[ $mode == staged ]]; then
+	if [[ $mode == tidy ]]; then
+		check_tidy_configs "$root" || rc=1
+		[[ ${#files[@]} -eq 0 ]] && exit "$rc"
+	else
 		tree=$(mktemp -d "${TMPDIR:-/tmp}/format-staged.XXXXXX") || exit 1
 		trap 'rm -rf "$tree"' EXIT
 		staged=("${files[@]#"$root"/}")
-		git -C "$root" checkout-index --prefix="$tree/" -- "${staged[@]}" || exit 1
-		cp "$tidy_config" "$tree/.clang-tidy"
-		for f in "${staged[@]}"; do
-			d=$(dirname "$f")
-			while [[ $d != . ]]; do
-				[[ -f $root/$d/.clang-tidy ]] && cp "$root/$d/.clang-tidy" "$tree/$d/"
-				d=$(dirname "$d")
-			done
-		done
+		mapfile -d '' -t configs < <(git -C "$root" ls-files -z -- '*.clang-tidy')
+		paths=("${staged[@]}" "${configs[@]+"${configs[@]}"}")
+		if [[ ${#paths[@]} -gt 0 ]]; then
+			git -C "$root" checkout-index --prefix="$tree/" -- "${paths[@]}" || exit 1
+		fi
+		# A config never committed nor staged (a new fork directory's) is
+		# read from the working tree, as clangd reads it.
+		while IFS= read -r -d '' f; do
+			f=${f#"$root"/}
+			[[ -e $tree/$f ]] && continue
+			git -C "$root" cat-file -e "HEAD:$f" 2>/dev/null && continue
+			mkdir -p "$tree/$(dirname "$f")" && cp "$root/$f" "$tree/$f"
+		done < <(cd "$root" && find "${fork_dirs[@]/#/$root/}" -name .clang-tidy -print0 2>/dev/null)
+		check_tidy_configs "$tree" || rc=1
+		[[ ${#files[@]} -eq 0 ]] && exit "$rc"
 		files=("${staged[@]/#/$tree/}")
 		for f in "${staged[@]}"; do
 			"$clang_format" "$style" --assume-filename="$f" --dry-run --Werror < "$tree/$f" ||

@@ -121,15 +121,20 @@ test_nolint_needs_check_and_reason()
 
 # Test that a fork directory without the fork clang-tidy config, or with a
 # stale copy, fails: clangd and clang-tidy read the config from there.
+# --staged reads the configs from the index: an unstaged edit changes
+# nothing, a staged one fails.
 test_fork_dir_needs_current_tidy_config()
 {
 	local r out rc
 	r=$(fork_repo) || die "fork_repo failed"
-	rm "$r/src/.clang-tidy"
+	printf 'Checks: -*\n' > "$r/src/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "unstaged edit: $out"
+	tgit -C "$r" add src/.clang-tidy
 	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/.clang-tidy"
-	printf 'Checks: -*\n' > "$r/src/.clang-tidy"
+	tgit -C "$r" rm -q --cached src/.clang-tidy
 	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/.clang-tidy"

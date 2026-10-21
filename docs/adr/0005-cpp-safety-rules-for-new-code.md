@@ -34,7 +34,7 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 
 | Tier | Budget | Runs | Checked by |
 |---|---|---|---|
-| editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`) | `gates_test.sh` |
+| editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`; in its `unittest/`, of `clang-tidy-unittest`, which inherits it) | `gates_test.sh` |
 | pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files), gitleaks on the staged changes (the pinned one, else one at the pinned version on PATH; without either the tier fails, never skips), no `.gitleaksignore` or `gitleaks:allow` unless `.gitleaks.toml` lists its file with a reason | `gates_test.sh`, timing the real hook |
 | pre-push | seconds | the hook: `check.sh --pre-push`: gitleaks on exactly the commits being pushed (`<remote>..<local>`, or those on no remote-tracking branch for a new ref), the same pinned lookup, failing without it | `check_test.sh` |
 | check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: gitleaks over the whole history of HEAD, unit tests (hardened), `leaks.sh` on them (Mac), the game's `kconfig.udlr.h` generated from clean (the preprocess pass a full game build runs with the hardening flags), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both (below) | `check.sh`, timing its own full run |
@@ -210,8 +210,9 @@ runner.
 
 ## Consequences
 
-- A new fork directory needs a line in `fork-dirs` and a copy of the clang-tidy config; the
-  pre-commit gate says so when one is missing or stale.
+- A new fork directory needs a line in `fork-dirs` and a copy of the clang-tidy config, and each
+  `unittest/` in it a copy of `tools/dev/style/clang-tidy-unittest`; the pre-commit gate says so
+  when one is missing or stale. Its tests live in that `unittest/`.
 - clang-tidy needs `build/dev/compile_commands.json`; a fork file not yet in it gets its
   neighbour's flags, and the pre-commit gate fails with a hint when there is no database.
 - The pre-commit gate tidies the working-tree file, so a partly staged file is checked as it

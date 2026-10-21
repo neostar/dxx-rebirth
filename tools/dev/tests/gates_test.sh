@@ -461,6 +461,7 @@ int plant_value(const std::optional<int> &o)
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/unittest/.clang-tidy: not a copy of tools/dev/style/clang-tidy-unittest"
 	cp "$r/tools/dev/style/clang-tidy-unittest" "$r/src/unittest/.clang-tidy"
+	tgit -C "$r" add src/unittest/.clang-tidy
 	out=$("$r/tools/dev/format.sh" --staged 2>&1)
 	assert_contains "$out" "src/plant.cpp:6:24: error: initialization of 'plant_registrar'"
 	assert_contains "$out" "src/plant.cpp:12:9: error: unchecked access to optional value"
@@ -469,6 +470,25 @@ int plant_value(const std::optional<int> &o)
 	assert_not_contains "$out" "src/unittest/plant.cpp:12:9:"
 	out=$("$r/tools/dev/format.sh" --tidy src/unittest 2>&1)
 	assert_not_contains "$out" "throwing-static-initialization"
+}
+
+# Test that staged headers under different configs are tidied apart:
+# clang-tidy filters every file's findings in a run by the last file's
+# config, so src/unittest/z.h (clang-tidy-unittest) would hide the
+# throwing-static finding in src/a.h.
+test_tidy_groups_headers_by_config()
+{
+	local r out
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/src/unittest"
+	cp "$r/tools/dev/style/clang-tidy-unittest" "$r/src/unittest/.clang-tidy"
+	printf '#pragma once\nstruct registrar\n{\n\tregistrar();\n};\nstatic const registrar plant_registrar;\n' \
+		> "$r/src/a.h"
+	printf '#pragma once\nint helper_value();\n' > "$r/src/unittest/z.h"
+	tgit -C "$r" add src
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_contains "$out" "src/a.h:6:24: error: initialization of 'plant_registrar'"
 }
 
 # Test that each gate a planted file names without a runner has an owning

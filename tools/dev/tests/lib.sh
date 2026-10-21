@@ -245,7 +245,7 @@ make_repo()
 }
 
 # Make a throwaway repository holding a copy of tools/dev whose fork-dirs
-# lists src/, with the fork clang-tidy config in src/ and a compilation
+# lists src/, with the fork clang-tidy config in src/ (staged) and a compilation
 # database for src/ in build/dev (the strict warnings fork files get, the
 # pinned SDL3 on the include path), and print its path.
 fork_repo()
@@ -257,6 +257,8 @@ fork_repo()
 	cp -R "$DEV_DIR" "$r/tools/dev"
 	printf 'src\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/src/.clang-tidy"
+	# format.sh --staged reads the configs from the index.
+	tgit -C "$r" add src/.clang-tidy || die "staging the clang-tidy config failed"
 	args=$(printf '"%s", ' c++ -std=c++23 "${strict[@]}" -isystem "$dev_deps_prefix/include" -c)
 	printf '[{"directory": "%s", "file": "src/anchor.cpp",\n  "arguments": [%s"src/anchor.cpp"]}]\n' \
 		"$r" "$args" > "$r/build/dev/compile_commands.json"

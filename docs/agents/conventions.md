@@ -31,11 +31,13 @@ Done when every touched line follows the rules for its kind of code.
   pre-commit hook, `--tidy` for clang-tidy), only in the directories listed in
   `tools/dev/fork-dirs`: add a new fork directory there, with a copy of `tools/dev/style/clang-tidy`
   as its `.clang-tidy`.
-- Fork code includes fork headers by their path from the top (`"common/debug/frame_time_policy.h"`)
-  and upstream headers by their bare name (`"timer.h"`). The strict warnings and clang-tidy then
-  check fork lines only: a fork compile names upstream and third-party include directories with
-  `-isystem` (`fork_warnings.py`), and clang-tidy reports headers in fork directories only, never
-  through a `..` path (`format.sh`).
+- Fork code includes fork headers by their path from the top (`"common/debug/frame_time_policy.h"`),
+  never through `..` (`format.sh` fails it: clang-tidy reports nothing in such a header), and
+  upstream headers by their bare name (`"timer.h"`). Upstream headers are not system ones, so
+  the strict warnings reach fork code through their macros and templates; one they trip on is
+  included between `tools/dev/upstream_begin.h` and `tools/dev/upstream_end.h`, inside
+  `// clang-format off` and `on` (ADR 5 says what that loses). Third-party headers (Boost) are
+  system ones in fork compiles (`fork_warnings.py`).
 - C++23 is required (`SConstruct:1229`): `static operator()`, explicit object parameters and
   concepts are in use (52f6389ee, ff8df741e).
 
@@ -89,7 +91,8 @@ Done when every touched line follows the rules for its kind of code.
 
 ## Tests
 
-- One Boost.Test module per file in `common/unittest/` (game-only: `d2x-rebirth/unittest/`):
+- One Boost.Test module per file, in `common/unittest/` for upstream code (game-only:
+  `d2x-rebirth/unittest/`) and in the fork directory's `unittest/` for fork code (below):
   `BOOST_TEST_DYN_LINK`, `BOOST_TEST_MODULE Rebirth <name>`, `BOOST_AUTO_TEST_CASE(snake_case_name)`,
   asserting with `BOOST_TEST` (`common/unittest/enumerate.cpp:1-10`).
 - Each case carries a block comment `/* Test that <behaviour>. */` directly above it
@@ -100,7 +103,8 @@ Done when every touched line follows the rules for its kind of code.
 - Each fork `unittest/` holds a copy of `tools/dev/style/clang-tidy-unittest` as its
   `.clang-tidy` (`format.sh` checks it): the fork checks less
   `bugprone-throwing-static-initialization`, which every `BOOST_AUTO_TEST_CASE` trips through its
-  static registrar. No NOLINT for it.
+  static registrar. No NOLINT for it. After `BOOST_REQUIRE(o.has_value())`, read the value with
+  `o.value()`, not `*o` or `o->`, which `bugprone-unchecked-optional-access` flags.
 
 ## Shell scripts
 
