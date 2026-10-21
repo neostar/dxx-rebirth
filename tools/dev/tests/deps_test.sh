@@ -147,6 +147,7 @@ test_builds_pinned_git_commit()
 	tgit -C "$r" commit -q -m project
 	c=$(tgit -C "$r" rev-parse HEAD)
 	tgit -C "$r" commit -q --allow-empty -m 'later commit'
+	# raw git: a manifest line, not a command
 	echo "git gitdemo $c $r" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
@@ -159,6 +160,7 @@ test_refuses_unknown_git_commit()
 	local d r out rc
 	d=$(make_scratch)
 	r=$(make_repo) || die "make_repo failed"
+	# raw git: a manifest line, not a command
 	echo "git gitdemo $(printf 'b%.0s' {1..40}) $r" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
 	assert_eq "$rc" 1

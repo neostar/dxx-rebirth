@@ -160,13 +160,20 @@ step_shell_tests()
 
 # Fail on a git command in tools/dev/tests outside lib.sh's tgit and
 # real_git, which refuse any repository but a scratch one (tgit) and any
-# change to this clone (real_git).  A line ending in "# raw git: <why>" is
-# let through.
+# change to this clone (real_git): the word git, also quoted, escaped, as
+# a variable ($git) or assigned (g=git), outside a comment line.  A line
+# directly below a whole-line comment "# raw git: <why>" is let through.
 step_test_git()
 {
 	local hits lines
-	hits=$(cd "$dev_dir/tests" && grep -nHE '(^|[[:space:];|&(])git[[:space:]]' -- *.sh |
-		grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -v '# raw git: ')
+	# shellcheck disable=SC2016  # $ and quotes are the regex's
+	hits=$(cd "$dev_dir/tests" && awk -v q="'" '
+		BEGIN { re = "(^|[^[:alnum:]_./-])[\\\"" q "$={(]*git([\"" q "})]|[[:space:];|&]|$)" }
+		FNR == 1 { prev = "" }
+		$0 !~ /^[[:space:]]*#/ && $0 ~ re && prev !~ /^[[:space:]]*# raw git: / {
+			printf "%s:%d:%s\n", FILENAME, FNR, $0
+		}
+		{ prev = $0 }' *.sh) || { echo 'test_git: awk failed'; return 1; }
 	[[ -z $hits ]] && return 0
 	mapfile -t lines <<<"$hits"
 	printf 'tools/dev/tests/%s\n' "${lines[@]}"

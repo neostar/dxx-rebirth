@@ -119,6 +119,7 @@ test_clean_clones_commit_under_test()
 	assert_contains "$args" "$common:/src.git:ro"
 	assert_not_contains "$args" "/cache"
 	assert_contains "$args" "CI_COMMIT=$(tgit -C "$r" rev-parse HEAD)"
+	# raw git: the fake docker's arguments
 	assert_contains "$args" "git clone"
 	[[ ! -s $bin/docker.stdin ]] || fail "--clean sent the working tree"
 }

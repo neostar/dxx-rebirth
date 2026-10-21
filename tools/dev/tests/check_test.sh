@@ -253,19 +253,31 @@ test_fast_skips_hash_check_without_upstream()
 }
 
 # Test that the fast subset fails, naming file and line, on a test that
-# runs git outside tgit and real_git, and lets a marked line through.
+# runs git outside tgit and real_git, however it is spelt, also with a
+# trailing marker; and lets a line through below a whole-line marker.
 test_fast_fails_on_raw_git_in_tests()
 {
-	local r out rc body='never() { git -C "$1" status; }' # raw git: what test_git must find
+	local r out rc body i
+	# raw git: what test_git must find
+	body=('never() { git -C "$1" status; }' 'x() { "$git" status; }' 'x() { ${git} status; }')
+	# raw git: what test_git must find
+	body+=('x() { \git status; }' 'x() { "git" status; }' "x() { 'git' status; }" 'g=git')
+	# raw git: what test_git must find
+	body+=('cmd=(git status)' 'x() { git -C "$1" status; } # raw git: trailing')
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	printf '%s\n' '#!/usr/bin/env bash' "$body" > "$r/tools/dev/tests/raw_test.sh"
+	printf '%s\n' '#!/usr/bin/env bash' "${body[@]}" > "$r/tools/dev/tests/raw_test.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "tools/dev/tests/raw_test.sh:2:"
-	assert_contains "$out" "failed: test_git"
-	printf '%s\n' '#!/usr/bin/env bash' "$body # raw git: a test" > "$r/tools/dev/tests/raw_test.sh"
+	for i in "${!body[@]}"; do
+		assert_contains "$out" "tools/dev/tests/raw_test.sh:$((i + 2)):${body[i]}"
+	done
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "test_git"
+	printf '%s\n' '#!/usr/bin/env bash' '# raw git: a test' "${body[0]}" \
+		'y() { tgit -C "$1" status; }' 'echo .git real_git git-dir' \
+		> "$r/tools/dev/tests/raw_test.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
-	assert_eq "$?" 0 "$out"
+	assert_not_contains "$out" "tools/dev/tests/raw_test.sh:"
+	assert_not_contains "$(grep '^check.sh: failed' <<<"$out")" "test_git"
 }
 
 # Test that the fast subset fails on fork code creating an SDL_GPU device

@@ -64,6 +64,11 @@ trap 'rm -rf "$_scratch_root"' EXIT
 # script under test given an empty path acts on the current directory, and
 # there finds no repository to change.
 cd "$_scratch_root" || exit 1
+# Nor may git find one above it: a scratch root under a clone (TMPDIR in a
+# worktree) would otherwise make that clone the repository of every git,
+# here or in a script under test, run outside a scratch repository.  git
+# never looks into a ceiling, which must be a strict ancestor: the parent.
+export GIT_CEILING_DIRECTORIES=${_scratch_root%/*}
 
 # Fail the current test and stop it.  A test runs in a subshell of its own
 # (run_tests), so exit ends the test, not the file.
@@ -103,7 +108,8 @@ tgit()
 		return 1
 	fi
 	local id=(-c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false)
-	git "${id[@]}" "$@" # raw git: the helper
+	# raw git: the helper
+	git "${id[@]}" "$@"
 }
 
 # Read-only git on this clone (REPO_ROOT): only the subcommands that
@@ -117,7 +123,8 @@ real_git()
 		: > "$_scratch_root/refused"
 		return 1 ;;
 	esac
-	git -C "$REPO_ROOT" "$@" # raw git: the helper
+	# raw git: the helper
+	git -C "$REPO_ROOT" "$@"
 }
 
 # Make a throwaway git repository with one empty commit and print its path.
