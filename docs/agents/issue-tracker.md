@@ -27,12 +27,13 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
   data for the estimates, not a failure.
 - **Merge**: sign the implementer's commits, merge them into `sdl-gpu-port`, push.
 - **Finish**: close with a comment giving review rounds and anything that surprised you, and on
-  the board set Status to Done, Done to today, and Agent minutes, Agent tokens and Review rounds
-  from the metrics log.
+  the board set Status to Done, Done to today, and Review rounds; check Agent minutes and Agent
+  tokens against the metrics log.
 - **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
   orchestrating session records each agent run's system-reported duration, tokens and tool calls,
-  per ticket, in the metrics log; GitHub timestamps (claim, PR ready, first review, merge, close)
-  give review wait and cycle time.
+  per ticket, in the metrics log, and adds it to that ticket's Agent minutes and Agent tokens on
+  the board as the run lands, also for work on a ticket that stays open (a spike, a split part);
+  GitHub timestamps (claim, PR ready, first review, merge, close) give review wait and cycle time.
 
 **Implementer**
 
