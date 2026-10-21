@@ -107,7 +107,7 @@ test_container_leg_gets_working_tree()
 # from the working tree.
 test_clean_clones_commit_under_test()
 {
-	local bin r args out
+	local bin r args out common
 	bin=$(make_scratch)
 	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
 	echo draft > "$r/uncommitted.txt"
@@ -115,7 +115,8 @@ test_clean_clones_commit_under_test()
 	assert_contains "$out" "uncommitted changes are excluded"
 	args=$(cat "$bin/docker.args")
 	assert_contains "$args" $'--network\nnone'
-	assert_contains "$args" "$(tgit -C "$r" rev-parse --path-format=absolute --git-common-dir):/src.git:ro"
+	common=$(tgit -C "$r" rev-parse --path-format=absolute --git-common-dir)
+	assert_contains "$args" "$common:/src.git:ro"
 	assert_not_contains "$args" "/cache"
 	assert_contains "$args" "CI_COMMIT=$(tgit -C "$r" rev-parse HEAD)"
 	assert_contains "$args" "git clone"

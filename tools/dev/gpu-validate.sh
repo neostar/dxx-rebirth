@@ -37,10 +37,12 @@ n=$(matches '(^|\] )(WARNING|ERROR|CRITICAL): ' | wc -l)
 n=$(matches '[^ ] Validation$|failed assertion|Validation [A-Za-z ]*(Error|Warning): ' | wc -l)
 [[ $n -gt 0 ]] && problems+=("$((n)) from the driver's validation layer")
 if matches 'SDL_GPU Driver: Metal' >/dev/null; then
-	matches 'Metal API Validation Enabled' >/dev/null || problems+=("Metal API validation was not active")
+	matches 'Metal API Validation Enabled' >/dev/null ||
+		problems+=("Metal API validation was not active")
 elif matches 'SDL_GPU Driver: Vulkan' >/dev/null; then
 	matches 'Validation layers enabled' >/dev/null ||
-		problems+=("the Vulkan validation layer was not active (debug_mode, vulkan-validationlayers)")
+		problems+=("the Vulkan validation layer was not active" \
+			"(debug_mode, vulkan-validationlayers)")
 else
 	problems+=("no SDL_GPU device was created, so nothing was validated")
 fi

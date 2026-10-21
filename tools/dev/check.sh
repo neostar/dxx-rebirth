@@ -271,7 +271,8 @@ step_leaks()
 	fi
 	while IFS= read -r t; do
 		tests+=("$t")
-	done < <(find "$root/build/dev" -maxdepth 2 -type f -perm -u+x -name 'test-*' 2>/dev/null | sort)
+	done < <(find "$root/build/dev" -maxdepth 2 -type f -perm -u+x -name 'test-*' 2>/dev/null |
+		sort)
 	if [[ ${#tests[@]} -eq 0 ]]; then
 		echo "SKIP leaks: no unit test programs in build/dev; the unit_tests step builds them"
 		return 0

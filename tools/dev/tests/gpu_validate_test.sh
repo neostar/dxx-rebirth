@@ -57,7 +57,8 @@ test_inactive_validation_fails()
 {
 	assert_contains "$(validate 'SDL_GPU Driver: Vulkan')" \
 		"probe: the Vulkan validation layer was not active"
-	assert_contains "$(validate 'SDL_GPU Driver: Metal')" "probe: Metal API validation was not active"
+	assert_contains "$(validate 'SDL_GPU Driver: Metal')" \
+		"probe: Metal API validation was not active"
 	assert_contains "$(validate 'hello')" "probe: no SDL_GPU device was created"
 }
 

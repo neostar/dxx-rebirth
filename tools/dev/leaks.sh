@@ -22,5 +22,6 @@ if [[ $rc -eq 0 && $summary == *": 0 leaks for "* ]]; then
 	exit 0
 fi
 cat "$out"
-echo "leaks.sh: ${1##*/}: ${summary:+${summary#*: }}${summary:-leaks could not check it (status $rc)}" >&2
+verdict=${summary:+${summary#*: }}
+echo "leaks.sh: ${1##*/}: ${verdict:-leaks could not check it (status $rc)}" >&2
 exit 1

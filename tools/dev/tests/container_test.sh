@@ -59,7 +59,8 @@ test_clean_clone_has_upstream()
 	need_image
 	real_git rev-parse -q --verify upstream/master >/dev/null ||
 		skip "no upstream/master here"
-	out=$("$CONTAINER" run --clean git rev-parse --verify -q upstream/master 2>&1) # raw git: the clean clone
+	out=$("$CONTAINER" run --clean \
+		git rev-parse --verify -q upstream/master 2>&1) # raw git: the container's clone
 	assert_eq "$out" "$(real_git rev-parse upstream/master)"
 }
 
