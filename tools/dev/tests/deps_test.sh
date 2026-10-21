@@ -92,6 +92,30 @@ test_prebuilt_installs_listed_members()
 			echo "$(dev_sha256 "$f")  $f"; done)"
 }
 
+# Test that a prebuilt archive whose programs sit at its top level, as
+# gitleaks ships them, installs only the listed programs into bin/ and
+# records their hashes.
+test_prebuilt_installs_top_level_programs()
+{
+	local d t out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	t=$d/src
+	mkdir -p "$t"
+	printf '#!/bin/sh\necho gitleaks\n' > "$t/gitleaks"
+	chmod +x "$t/gitleaks"
+	echo license > "$t/LICENSE"
+	tar -czf "$d/gitleaks_1.0_any.tar.gz" -C "$t" gitleaks LICENSE
+	echo "prebuilt gitleaks $dev_platform file://$d/gitleaks_1.0_any.tar.gz" \
+		"$(dev_sha256 "$d/gitleaks_1.0_any.tar.gz")" > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$("$d/prefix/opt/gitleaks/bin/gitleaks" 2>&1)" gitleaks
+	[[ ! -e $d/prefix/opt/gitleaks/LICENSE && ! -e $d/prefix/opt/gitleaks/bin/LICENSE ]] ||
+		fail "unlisted members installed"
+	assert_eq "$(cat "$d/prefix/opt/gitleaks/bin.sha256" 2>&1)" \
+		"$(dev_sha256 "$t/gitleaks")  bin/gitleaks"
+}
+
 # Test that a download whose sha256 differs from the pin is refused and
 # kept out of the cache and the prefix.
 test_refuses_download_with_wrong_sha256()

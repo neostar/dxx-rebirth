@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the fork's pinned dependencies (SDL3, FluidSynth, SDL3_mixer,
-# SDL3_image, SDL_shadercross, DXC, LLVM's clangd, clang-format and
+# SDL3_image, SDL_shadercross, DXC, gitleaks, LLVM's clangd, clang-format and
 # clang-tidy) from tools/dev/toolchain.pins into
 # the project-local prefix, the same way on the Mac and in the Linux
 # reference container (ticket #57).
@@ -233,28 +233,40 @@ prebuilt_members_llvm()
 	echo bin/clangd bin/clang-format bin/clang-tidy lib/clang
 }
 
+# gitleaks' release archive holds its program at the top level, beside the
+# licence and readme: install the program alone, into bin/.
+prebuilt_programs_gitleaks()
+{
+	echo gitleaks
+}
+
 # Unpack prebuilt archive $2 (.tar.gz, .tar.xz or .tar.zst) of dependency
 # $1 into $prefix/opt/$1: only the members prebuilt_members_$1 lists,
-# without the archive's top directory, if that is defined, else all.  Its
-# programs' hashes go into $prefix/opt/$1/bin.sha256.
+# without the archive's top directory, if that is defined; else only the
+# top-level programs prebuilt_programs_$1 lists, into bin/, if that is
+# defined; else all.  Its programs' hashes go into
+# $prefix/opt/$1/bin.sha256.
 extract_prebuilt()
 {
-	local name=$1 file=$2 top members=()
+	local name=$1 file=$2 top dest=$prefix/opt/$1 members=() strip=()
 	top=$(basename "$file")
 	top=${top#"$name-"} top=${top%.tar.*}
 	if declare -F "prebuilt_members_$name" >/dev/null; then
 		read -ra members <<< "$("prebuilt_members_$name")"
-		members=("${members[@]/#/$top/}")
+		members=("${members[@]/#/$top/}") strip=(--strip-components=1)
+	elif declare -F "prebuilt_programs_$name" >/dev/null; then
+		read -ra members <<< "$("prebuilt_programs_$name")"
+		dest=$dest/bin
 	fi
-	mkdir -p "$prefix/opt/$name"
+	mkdir -p "$dest"
 	# Decompressed here: GNU tar does not detect compression on a pipe.
 	case $file in
 	*.zst) zstd -dcq --long=31 "$file" ;;
 	*.xz) xz -dc "$file" ;;
 	*.gz|*.tgz) gzip -dc "$file" ;;
 	*) cat "$file" ;;
-	esac | tar -xf - -C "$prefix/opt/$name" \
-		${members[0]+--strip-components=1} "${members[@]+"${members[@]}"}" ||
+	esac | tar -xf - -C "$dest" \
+		"${strip[@]+"${strip[@]}"}" "${members[@]+"${members[@]}"}" ||
 		refuse "$name: cannot unpack $file"
 	# The sha256 of each program as unpacked from the pinned archive:
 	# doctor.sh checks that the programs are still these.
@@ -272,7 +284,7 @@ build_options_hash()
 	local f
 	{
 		declare -f build_one reproducible_options extract_prebuilt
-		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members)_/ {print $3}'); do
+		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members|prebuilt_programs)_/ {print $3}'); do
 			echo "$f: $("$f")"
 		done
 	} | dev_sha256
