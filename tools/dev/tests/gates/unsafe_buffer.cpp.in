@@ -1,0 +1,8 @@
+// A raw pointer indexed past what the compiler can bound, not std::span.
+// gate tidy: [clang-diagnostic-unsafe-buffer-usage
+#include <cstddef>
+
+int at(const int *const values, const std::size_t i)
+{
+	return *(values + i);
+}

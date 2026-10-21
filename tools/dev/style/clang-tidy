@@ -11,11 +11,16 @@
 # avoid-unchecked-container-access, which flag every subscript with a run-time
 # index, std::array and std::span included, that the hardened library traps.
 # ExtraArgs turns on LLVM 23 analyses that clang-diagnostic-* then reports:
-# -Wlifetime-safety-permissive (a pointer or view used after its owner dies).
-# Apple clang 21 accepts the flag but reports nothing, so it lives here, not in
-# the build's flags.
+# -Wlifetime-safety-permissive (a pointer or view used after its owner dies),
+# which Apple clang 21 accepts but reports nothing for, so it lives here, not in
+# the build's flags; and -Wunsafe-buffer-usage (pointer arithmetic, subscripts
+# and pointer-plus-length constructions where std::span belongs) without its
+# libc-call part for now: that fires on hardening-exit.h's vdprintf, a
+# justified site whose NOLINT waits for the runtime ratchet's edits there.
 ExtraArgs:
   - -Wlifetime-safety-permissive
+  - -Wunsafe-buffer-usage
+  - -Wno-unsafe-buffer-usage-in-libc-call
 Checks: >
   -*,
   clang-diagnostic-*,

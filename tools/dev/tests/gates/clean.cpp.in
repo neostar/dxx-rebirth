@@ -79,7 +79,9 @@ static std::span<const std::byte> pixel_bytes(const SDL_Surface &surface)
 {
 	const auto size{static_cast<std::size_t>(surface.pitch) * static_cast<std::size_t>(surface.h)};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): SDL hands pixels as void *
-	return {reinterpret_cast<const std::byte *>(surface.pixels), size};
+	const auto *const pixels{reinterpret_cast<const std::byte *>(surface.pixels)};
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): size is pitch * h
+	return {pixels, size};
 }
 
 [[nodiscard]]

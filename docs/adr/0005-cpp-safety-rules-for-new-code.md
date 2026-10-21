@@ -130,6 +130,12 @@ tightening is its own small commit that leaves the tree green and updates the le
   after its owner dies), which `clang-diagnostic-*` reports, proven by `dangling_view.cpp.in`;
   Apple clang 21 accepts the flag but reports nothing, so it is not a build flag. clangd reads
   `ExtraArgs` too, so the editor tier shows it.
+  `ExtraArgs` also add `-Wunsafe-buffer-usage` (pointer arithmetic, raw subscripts and
+  pointer-plus-length constructions), proven by `unsafe_buffer.cpp.in`; code on `std::span` and
+  `std::array` stays clean, range-for and subscript alike, and `clean.cpp.in`'s pixel wrapper,
+  which builds its span from SDL's pointer and size, carries a second NOLINT. Its libc-call part
+  (`-Wunsafe-buffer-usage-in-libc-call`) is off until `tools/dev/hardening-exit.h`'s `vdprintf`,
+  libc++'s printf-shaped abort hook, has its NOLINT.
 - Left out for the whole config, not suppressed inline: the rule that exceptions are inline
   NOLINTs with a reason is for a single justified site, and these two checks fire on idioms fork
   code uses throughout, so every fork file would carry the same NOLINT and a real exception would
