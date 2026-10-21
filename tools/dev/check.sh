@@ -79,6 +79,14 @@ step_shellcheck()
 	(cd "$root" && "$shellcheck" -x --source-path=SCRIPTDIR "${files[@]}")
 }
 
+# Succeed if upstream/master exists; else print step $1's SKIP and fail.
+need_upstream()
+{
+	git -C "$root" rev-parse -q --verify upstream/master >/dev/null && return 0
+	echo "SKIP $1: no upstream/master; fetch upstream to run this check"
+	return 1
+}
+
 # Fail on commit hashes in docs/, CLAUDE.md and GLOSSARY.md that are not in
 # upstream/master: fork-only hashes go stale on every rebase or re-sign, so
 # fork commits are cited by subject.  Only 7-40 digit hex tokens that name
@@ -87,10 +95,7 @@ step_shellcheck()
 step_stale_hashes()
 {
 	local f tok rc=0 files=()
-	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
-		echo "SKIP stale_hashes: no upstream/master; fetch upstream to run this check"
-		return 0
-	fi
+	need_upstream stale_hashes || return 0
 	while IFS= read -r -d '' f; do
 		files+=("$f")
 	done < <(cd "$root" && find docs CLAUDE.md GLOSSARY.md -type f -name '*.md' -print0 2>/dev/null)
@@ -107,15 +112,11 @@ step_stale_hashes()
 
 # Fail on any file under .github/workflows/ that upstream/master does not
 # have: the fork's CI is local (ADR 4), and GitHub must not run a workflow
-# of its own.  Without
-# upstream/master the check is a SKIP.
+# of its own.  Without upstream/master the check is a SKIP.
 step_workflows()
 {
 	local f rc=0
-	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
-		echo "SKIP workflows: no upstream/master; fetch upstream to run this check"
-		return 0
-	fi
+	need_upstream workflows || return 0
 	while IFS= read -r f; do
 		echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
 		rc=1
@@ -358,10 +359,7 @@ step_gpu_tests()
 # runs no pre-commit hook.  Without upstream/master the check is a SKIP.
 step_commit_sizes()
 {
-	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
-		echo "SKIP commit_sizes: no upstream/master; fetch upstream to run this check"
-		return 0
-	fi
+	need_upstream commit_sizes || return 0
 	(cd "$root" && "$dev_dir/commit-size.sh" --history upstream/master)
 }
 
