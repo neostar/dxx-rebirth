@@ -5115,6 +5115,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-hidden-window', (
 			'common/debug/unittest/hidden_window.cpp',
 			)),
+		RuntimeTest('test-input-script', (
+			'common/debug/unittest/input_script.cpp',
+			)),
 		RuntimeTest('test-mouse-delta', (
 			'common/unittest/mouse_delta.cpp',
 			)),
