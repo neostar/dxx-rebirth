@@ -21,7 +21,11 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <optional>
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -66,5 +70,45 @@ class writer
 	[[nodiscard]]
 	std::vector<std::uint8_t> take();
 };
+
+enum class read_error : std::uint8_t
+{
+	bad_magic,
+	unsupported_version,
+	/* The bytes end inside the header or a record. */
+	truncated,
+	unknown_kind,
+	/* A payload length that does not match what the record holds. */
+	bad_length,
+	/* A field outside its range: an enum, a flag, a size over its bound. */
+	bad_value,
+};
+
+/* Reads the records of a trace held in memory, one at a time.  The bytes
+ * are viewed, not copied, and must outlive the reader; records own their
+ * contents.  The first error is final: every later next() returns it.
+ */
+class reader
+{
+	std::span<const std::uint8_t> bytes_;
+	std::size_t offset_{0};
+	std::optional<read_error> error_;
+
+  public:
+	explicit reader(std::span<const std::uint8_t> bytes);
+	/* The next record, or nullopt at the end of the trace. */
+	[[nodiscard]]
+	std::expected<std::optional<record>, read_error> next();
+	/* Where the next record starts, or where the error was found. */
+	[[nodiscard]]
+	std::size_t offset() const
+	{
+		return offset_;
+	}
+};
+
+/* Every record of a trace, or the first error. */
+[[nodiscard]]
+std::expected<std::vector<record>, read_error> read_all(std::span<const std::uint8_t> bytes);
 
 }
