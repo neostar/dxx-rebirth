@@ -47,7 +47,8 @@ first_version()
 	grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1
 }
 
-# Each probe prints the version of its tool, or nothing when it is missing.
+# Each probe prints the version of its tool, or nothing (and a failing status) when it is
+# missing; callers read the output, never the status.
 have() { command -v "$1" >/dev/null; }
 probe_apple-clang()
 {

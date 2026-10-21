@@ -135,7 +135,9 @@ def main(root):
 				text = f.read()
 		except FileNotFoundError:
 			continue
-		# Stripping only blanks text out, so a file without the name has no call.
+		# A file that never spells the name has no call this gate can see (stripping
+		# only blanks text out). A line splice, ## pasting or a lookup by string can still
+		# hide a call from this text scan, as before.
 		if 'SDL_CreateGPUDevice' not in text:
 			continue
 		text = strip_comments(text)
