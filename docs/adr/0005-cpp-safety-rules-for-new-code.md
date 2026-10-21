@@ -35,7 +35,7 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 |---|---|---|---|
 | editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`) | `gates_test.sh` |
 | pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files) | `gates_test.sh`, timing the real hook |
-| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds them | `check.sh`, timing its own full run |
+| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds `tools/dev/rtrace-tests.sh` | `check.sh`, timing its own full run |
 | nightly | none | #59 | #59 |
 
 clangd skips `clang-analyzer-*`, `bugprone-use-after-move` and slow checks by design, so the
@@ -68,6 +68,11 @@ the gate self-test prove it on Metal natively and on lavapipe in the container.
 leg of `ci.sh --clean` took 307 s (shell tests 223 s, unit tests 34 s, sanitizer build and tests
 35 s, under amd64 emulation), the native leg 154 s on a warm build (shell tests 122 s, leaks 23 s).
 `check.sh` prints each step's time and fails the full run as `budget` when it takes longer.
+
+**The rtrace tests** are #19's to provide: it must add `tools/dev/rtrace-tests.sh`, which takes
+the build profile and a wrapper command (`rtrace-tests.sh asan no-window.sh`, `rtrace-tests.sh dev
+no-window.sh leaks.sh`) and runs every rtrace test built by that profile through it. Until then
+`check.sh`'s sanitizer and leaks steps print a SKIP naming that script.
 
 **Justified exceptions** are inline only, `// NOLINT(check): reason` or
 `// NOLINTNEXTLINE(check): reason`; `format.sh` fails on a NOLINT without a check list and a
