@@ -103,9 +103,39 @@ step_stale_hashes()
 	return "$rc"
 }
 
+# The one GitHub workflow the fork adds (ADR 4): the secret scan.
+secret_scan_workflow=.github/workflows/secret-scan.yml
+
+# Fail unless the secret-scan workflow runs gitleaks alone: no run step,
+# only actions/checkout and gitleaks-action pinned by commit, no write
+# permission, and GITLEAKS_VERSION the version toolchain.pins pins.
+check_secret_scan_workflow()
+{
+	local f=$root/$secret_scan_workflow w=$secret_scan_workflow pin got hits rc=0
+	hits=$(grep -nE '^[[:space:]]*(-[[:space:]]+)?(run|shell)[[:space:]]*:' "$f")
+	[[ -z $hits ]] || { printf '%s:%s: runs a command\n' "$w" "$hits"; rc=1; }
+	hits=$(grep -nE '(^|[[:space:]])uses[[:space:]]*:' "$f" | grep -vE \
+		'uses: (actions/checkout|gitleaks/gitleaks-action)@[0-9a-f]{40}([[:space:]]|$)')
+	[[ -z $hits ]] || { printf '%s:%s: not checkout or gitleaks-action pinned by commit\n' "$w" "$hits"; rc=1; }
+	hits=$(grep -nE ':[[:space:]]*write([[:space:]]|$)|write-all' "$f")
+	[[ -z $hits ]] || { printf '%s:%s: write permission\n' "$w" "$hits"; rc=1; }
+	pin=$(awk '$1 == "prebuilt" && $2 == "gitleaks" {print $4; exit}' "$dev_dir/toolchain.pins" |
+		sed -nE 's|.*/download/v([0-9.]+)/.*|\1|p')
+	got=$(sed -nE 's/^[[:space:]]*GITLEAKS_VERSION:[[:space:]]*"?([^"[:space:]]*)"?.*/\1/p' "$f")
+	if [[ -z $pin || $got != "$pin" ]]; then
+		echo "$w: GITLEAKS_VERSION is '$got', toolchain.pins pins gitleaks '$pin'"
+		rc=1
+	fi
+	if [[ $rc -ne 0 ]]; then
+		echo "$w: the fork's one workflow runs gitleaks only (ADR 4); the rest is tools/dev/ci.sh"
+	fi
+	return "$rc"
+}
+
 # Fail on any file under .github/workflows/ that upstream/master does not
-# have: the fork's CI is local (ADR 4), and GitHub must not run a workflow
-# of its own.  Without upstream/master the check is a SKIP.
+# have, but the secret scan while it runs gitleaks alone: the fork's CI is
+# local (ADR 4), and GitHub must not run a workflow of its own.  Without
+# upstream/master the check is a SKIP.
 step_workflows()
 {
 	local f rc=0
@@ -114,6 +144,10 @@ step_workflows()
 		return 0
 	fi
 	while IFS= read -r f; do
+		if [[ $f == "$secret_scan_workflow" ]]; then
+			check_secret_scan_workflow || rc=1
+			continue
+		fi
 		echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
 		rc=1
 	done < <(comm -23 \

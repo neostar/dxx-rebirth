@@ -655,6 +655,33 @@ test_fast_fails_on_new_github_workflow()
 	assert_contains "$out" "failed: workflows"
 }
 
+# Test that the fast subset allows the fork's secret-scan workflow (ADR 4)
+# while it runs gitleaks alone, at the pinned version, through actions
+# pinned by commit, with no write permission, and fails it otherwise.
+test_fast_allows_secret_scan_workflow_running_gitleaks_only()
+{
+	local r up fork out rc w=.github/workflows/secret-scan.yml bad
+	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
+	mkdir -p "$r/.github/workflows"
+	cp "$REPO_ROOT/$w" "$r/$w"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	for bad in '      - run: make' '      - uses: actions/setup-node@v4' \
+		'      - uses: ./local-action' '  contents: write' \
+		'          GITLEAKS_VERSION: "8.24.3"'; do
+		cp "$REPO_ROOT/$w" "$r/$w"
+		if [[ $bad == *GITLEAKS_VERSION* ]]; then
+			sed '/GITLEAKS_VERSION:/d' "$REPO_ROOT/$w" > "$r/$w"
+		fi
+		printf '%s\n' "$bad" >> "$r/$w"
+		out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$bad: $out"
+		assert_contains "$out" "$w:"
+		assert_contains "$out" "failed: workflows"
+	done
+}
+
 # Test that the workflow check is a visible SKIP without upstream/master.
 test_fast_skips_workflow_check_without_upstream()
 {
