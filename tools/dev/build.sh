@@ -32,7 +32,7 @@ source "$dev_dir/env.sh"
 # and DYLD_* variables are stripped by /bin/sh (SIP), through which SCons runs
 # the tests.  Its next candidate, @executable_path/libSDL3.dylib, is put next
 # to the test programs.
-if [[ $profile == asan && $(uname -s) == Darwin ]] && command -v brew >/dev/null; then
+if [[ $profile == asan && $dev_os == darwin ]] && command -v brew >/dev/null; then
 	sdl3=$(brew --prefix)/lib/libSDL3.dylib
 	if [[ -e $sdl3 ]]; then
 		for d in build/asan/common build/asan/d2x-rebirth; do

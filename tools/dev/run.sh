@@ -42,7 +42,7 @@ unresolved_macho()
 	done < <(otool -L "$1" | awk 'NR > 1 { print $1 }')
 }
 
-if [[ $(uname -s) == Darwin ]] && command -v otool >/dev/null; then
+if [[ $dev_os == darwin ]] && command -v otool >/dev/null; then
 	missing=$(unresolved_macho "$bin")
 elif command -v ldd >/dev/null; then
 	missing=$(ldd "$bin" 2>/dev/null | awk '/not found/ { print $1 }')
