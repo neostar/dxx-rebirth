@@ -20,6 +20,9 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#if SDL_MAJOR_VERSION == 3
+#include <string_view>
+#endif
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth PhysicsFS RWops
@@ -118,6 +121,152 @@ public:
 #endif
 };
 
+#if SDL_MAJOR_VERSION == 3
+/* A PhysicsFS archiver whose one file, `unreadable`, fails every read, for
+ * the read error path: a real file read fails only on an I/O error.
+ * Mounted from memory under the name `unreadable.dxxfail`, it owns that
+ * memory stream and destroys it when unmounted.
+ */
+constexpr char unreadable_file[]{"unreadable"};
+
+PHYSFS_sint64 unreadable_read(PHYSFS_Io *, void *, PHYSFS_uint64)
+{
+	PHYSFS_setErrorCode(PHYSFS_ERR_IO);
+	return -1;
+}
+
+PHYSFS_sint64 unreadable_write(PHYSFS_Io *, const void *, PHYSFS_uint64)
+{
+	PHYSFS_setErrorCode(PHYSFS_ERR_READ_ONLY);
+	return -1;
+}
+
+int unreadable_seek(PHYSFS_Io *, const PHYSFS_uint64 offset)
+{
+	return offset == 0;
+}
+
+PHYSFS_sint64 unreadable_tell(PHYSFS_Io *)
+{
+	return 0;
+}
+
+PHYSFS_sint64 unreadable_length(PHYSFS_Io *)
+{
+	return 7;
+}
+
+PHYSFS_Io *unreadable_duplicate(PHYSFS_Io *const io)
+{
+	return io;
+}
+
+int unreadable_flush(PHYSFS_Io *)
+{
+	return 1;
+}
+
+void unreadable_destroy(PHYSFS_Io *)
+{
+}
+
+PHYSFS_Io unreadable_io{
+	.version = 0,
+	.opaque = nullptr,
+	.read = unreadable_read,
+	.write = unreadable_write,
+	.seek = unreadable_seek,
+	.tell = unreadable_tell,
+	.length = unreadable_length,
+	.duplicate = unreadable_duplicate,
+	.flush = unreadable_flush,
+	.destroy = unreadable_destroy,
+};
+
+void *unreadable_open_archive(PHYSFS_Io *const io, const char *, const int for_write, int *const claimed)
+{
+	*claimed = 1;
+	if (for_write)
+	{
+		PHYSFS_setErrorCode(PHYSFS_ERR_READ_ONLY);
+		return nullptr;
+	}
+	return io;
+}
+
+PHYSFS_EnumerateCallbackResult unreadable_enumerate(void *, const char *, PHYSFS_EnumerateCallback, const char *, void *)
+{
+	return PHYSFS_ENUM_OK;
+}
+
+PHYSFS_Io *unreadable_open_read(void *, const char *const name)
+{
+	if (name != std::string_view{unreadable_file})
+	{
+		PHYSFS_setErrorCode(PHYSFS_ERR_NOT_FOUND);
+		return nullptr;
+	}
+	return &unreadable_io;
+}
+
+PHYSFS_Io *unreadable_open_write(void *, const char *)
+{
+	PHYSFS_setErrorCode(PHYSFS_ERR_READ_ONLY);
+	return nullptr;
+}
+
+int unreadable_modify(void *, const char *)
+{
+	PHYSFS_setErrorCode(PHYSFS_ERR_READ_ONLY);
+	return 0;
+}
+
+int unreadable_stat(void *, const char *const name, PHYSFS_Stat *const stat)
+{
+	const std::string_view n{name};
+	if (!n.empty() && n != unreadable_file)
+	{
+		PHYSFS_setErrorCode(PHYSFS_ERR_NOT_FOUND);
+		return 0;
+	}
+	*stat = {
+		.filesize = n.empty() ? 0 : 7,
+		.modtime = 0,
+		.createtime = 0,
+		.accesstime = 0,
+		.filetype = n.empty() ? PHYSFS_FILETYPE_DIRECTORY : PHYSFS_FILETYPE_REGULAR,
+		.readonly = 1,
+	};
+	return 1;
+}
+
+void unreadable_close_archive(void *const opaque)
+{
+	const auto io{static_cast<PHYSFS_Io *>(opaque)};
+	io->destroy(io);
+}
+
+constexpr PHYSFS_Archiver unreadable_archiver{
+	.version = 0,
+	.info = {
+		.extension = "dxxfail",
+		.description = "Rebirth test archive whose file fails every read",
+		.author = "",
+		.url = "",
+		.supportsSymlinks = 0,
+	},
+	.openArchive = unreadable_open_archive,
+	.enumerate = unreadable_enumerate,
+	.openRead = unreadable_open_read,
+	.openWrite = unreadable_open_write,
+	.openAppend = unreadable_open_write,
+	.remove = unreadable_modify,
+	.mkdir = unreadable_modify,
+	.stat = unreadable_stat,
+	.closeArchive = unreadable_close_archive,
+};
+#endif
+
 }
 
 #if SDL_MAJOR_VERSION >= 2
@@ -191,6 +340,22 @@ BOOST_FIXTURE_TEST_CASE(seek_from_end, physfsrwops_test_fixture)
 	BOOST_TEST(SDL_SeekIO(rwops.get(), -2, SDL_IO_SEEK_END) == 5);
 	BOOST_TEST(SDL_ReadIO(rwops.get(), &byte, 1) == 1u);
 	BOOST_TEST(byte == 6u);
+}
+
+/* Test that a failing PhysicsFS read reports an error, with its message
+ * through SDL_GetError, and not end of file.
+ */
+BOOST_FIXTURE_TEST_CASE(read_error_sets_error, physfsrwops_test_fixture)
+{
+	constexpr std::array<uint8_t, 1> archive{};
+	BOOST_REQUIRE(PHYSFS_registerArchiver(&unreadable_archiver));
+	BOOST_REQUIRE(PHYSFS_mountMemory(archive.data(), archive.size(), nullptr, "unreadable.dxxfail", nullptr, 1));
+	auto &&[rwops, error]{PHYSFSRWOPS_openRead(unreadable_file)};
+	BOOST_REQUIRE(rwops);
+	std::array<uint8_t, 4> buffer{};
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 0u);
+	BOOST_TEST(SDL_GetIOStatus(rwops.get()) == SDL_IO_STATUS_ERROR);
+	BOOST_TEST(std::string_view{SDL_GetError()}.starts_with("PhysicsFS error: "));
 }
 #endif
 
