@@ -508,20 +508,66 @@ test_full_fails_on_secret_in_history()
 	assert_not_contains "$out" "$(fake_token)"
 }
 
-# Test that a missing gitleaks is a SKIP naming it, except in the reference
-# image (DXX_REFERENCE_IMAGE=1), which must have it: there it fails.
-test_secrets_skip_without_gitleaks_except_in_image()
+# Test that without the pinned gitleaks or one at its version on PATH
+# the pre-commit tier fails, naming how to install it (no commit goes in
+# unscanned), the fast checks SKIP, and the reference image
+# (DXX_REFERENCE_IMAGE=1), which must have it, fails.
+test_secrets_without_gitleaks_fail_pre_commit_skip_elsewhere()
 {
 	local r out rc
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	out=$(CHECK_GITLEAKS=no-such-gitleaks "$r/tools/dev/check.sh" --pre-commit 2>&1)
-	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "SKIP secrets: gitleaks not found (no-such-gitleaks)"
-	out=$(CHECK_GITLEAKS=no-such-gitleaks DXX_REFERENCE_IMAGE=1 \
-		"$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	export CHECK_GITLEAKS=no-such-gitleaks CHECK_GITLEAKS_FALLBACK=no-such-gitleaks
+	out=$("$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "FAIL secrets: gitleaks not found (no-such-gitleaks)"
-	assert_contains "$out" "failed: secrets"
+	assert_contains "$out" "tools/dev/deps.sh all"
+	out=$(CHECK_SHELLCHECK=no-such-shellcheck "$r/tools/dev/check.sh" --fast 2>&1)
+	assert_contains "$out" "SKIP secrets: gitleaks not found (no-such-gitleaks)"
+	out=$(DXX_REFERENCE_IMAGE=1 "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "the reference image must have it"
+}
+
+# Test that the pre-commit tier falls back to a gitleaks on PATH at the
+# pinned version, and fails on one at another version.
+test_secrets_fall_back_to_pinned_gitleaks_on_path()
+{
+	local r d out rc pin
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	d=$(make_scratch) || die "make_scratch failed"
+	pin=$(awk '$2 == "gitleaks" {print $4; exit}' "$DEV_DIR/toolchain.pins" |
+		sed -nE 's|.*/download/v([0-9.]+)/.*|\1|p')
+	printf '#!/bin/sh\n[ "$1" = version ] && { echo "$FAKE_VERSION"; exit 0; }\necho fake-gitleaks-ran\n' \
+		> "$d/fake-gitleaks"
+	chmod +x "$d/fake-gitleaks"
+	export CHECK_GITLEAKS=no-such-gitleaks CHECK_GITLEAKS_FALLBACK=$d/fake-gitleaks
+	out=$(FAKE_VERSION=$pin "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "fake-gitleaks-ran"
+	out=$(FAKE_VERSION=1.0.0 "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "is '1.0.0', not the pinned $pin"
+}
+
+# Test that a .gitleaksignore file or an inline allow comment fails both
+# tiers unless .gitleaks.toml lists its file with a reason.
+test_gitleaks_allow_needs_a_listed_reason()
+{
+	local r out rc marker='gitleaks'':allow'
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	export CHECK_GITLEAKS=no-such-gitleaks CHECK_GITLEAKS_FALLBACK=no-such-gitleaks
+	printf 'x = 1 # %s\n' "$marker" > "$r/a.txt"
+	printf 'abc:rule:1\n' > "$r/.gitleaksignore"
+	tgit -C "$r" add a.txt .gitleaksignore
+	out=$(DXX_REFERENCE_IMAGE= "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "a.txt: a .gitleaksignore or $marker comment"
+	assert_contains "$out" ".gitleaksignore: a .gitleaksignore"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gitleaks_allow"
+	printf '# allowed: a.txt -- a fixture\n# allowed: .gitleaksignore --\n' >> "$r/.gitleaks.toml"
+	out=$("$r/tools/dev/check.sh" --pre-commit 2>&1)
+	assert_not_contains "$out" "a.txt: a .gitleaksignore"
+	assert_contains "$out" ".gitleaksignore: a .gitleaksignore"
 }
 
 # Test that setup.sh installs the hooks and enables rerere in a fresh clone.

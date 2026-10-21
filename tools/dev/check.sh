@@ -119,8 +119,7 @@ check_secret_scan_workflow()
 	[[ -z $hits ]] || { printf '%s:%s: not checkout or gitleaks-action pinned by commit\n' "$w" "$hits"; rc=1; }
 	hits=$(grep -nE ':[[:space:]]*write([[:space:]]|$)|write-all' "$f")
 	[[ -z $hits ]] || { printf '%s:%s: write permission\n' "$w" "$hits"; rc=1; }
-	pin=$(awk '$1 == "prebuilt" && $2 == "gitleaks" {print $4; exit}' "$dev_dir/toolchain.pins" |
-		sed -nE 's|.*/download/v([0-9.]+)/.*|\1|p')
+	pin=$(gitleaks_pin)
 	got=$(sed -nE 's/^[[:space:]]*GITLEAKS_VERSION:[[:space:]]*"?([^"[:space:]]*)"?.*/\1/p' "$f")
 	if [[ -z $pin || $got != "$pin" ]]; then
 		echo "$w: GITLEAKS_VERSION is '$got', toolchain.pins pins gitleaks '$pin'"
@@ -156,26 +155,76 @@ step_workflows()
 	return "$rc"
 }
 
-# Run gitleaks (the pinned one in the prefix; CHECK_GITLEAKS overrides it)
-# with the repository's .gitleaks.toml (without one, gitleaks' default
-# rules) and the remaining arguments, redacted, from the repository root.  A missing gitleaks is a SKIP naming
-# it, except in the reference image (DXX_REFERENCE_IMAGE=1), which has
-# every pinned tool: there it fails.  $1 names the step.
+# Print the gitleaks version toolchain.pins pins.
+gitleaks_pin()
+{
+	awk '$1 == "prebuilt" && $2 == "gitleaks" {print $4; exit}' "$dev_dir/toolchain.pins" |
+		sed -nE 's|.*/download/v([0-9.]+)/.*|\1|p'
+}
+
+# Run gitleaks with the repository's .gitleaks.toml (without one,
+# gitleaks' default rules) and the remaining arguments, redacted, from the
+# repository root: the pinned one in the prefix (CHECK_GITLEAKS overrides
+# it), else a gitleaks on PATH (CHECK_GITLEAKS_FALLBACK names it) at the
+# pinned version.  Without either, the pre-commit tier and the reference
+# image (DXX_REFERENCE_IMAGE=1, which has every pinned tool) fail, naming
+# how to install it: no commit goes in unscanned.  Elsewhere it is a SKIP.
+# $1 names the step.
 run_gitleaks()
 {
-	local step=$1 gitleaks=${CHECK_GITLEAKS:-$dev_deps_prefix/opt/gitleaks/bin/gitleaks} config=()
+	local step=$1 gitleaks=${CHECK_GITLEAKS:-$dev_deps_prefix/opt/gitleaks/bin/gitleaks}
+	local fallback=${CHECK_GITLEAKS_FALLBACK:-gitleaks} pin got why config=()
 	shift
 	[[ -f $root/.gitleaks.toml ]] && config=(--config .gitleaks.toml)
 	if ! command -v "$gitleaks" >/dev/null; then
+		pin=$(gitleaks_pin)
+		why="gitleaks not found ($gitleaks)"
+		if command -v "$fallback" >/dev/null; then
+			got=$("$fallback" version 2>/dev/null)
+			got=${got#v}
+			if [[ -n $pin && $got == "$pin" ]]; then
+				gitleaks=$fallback
+				why=
+			else
+				why="$why, and $fallback on PATH is '$got', not the pinned $pin"
+			fi
+		fi
+	fi
+	if [[ -n ${why-} ]]; then
 		if [[ ${DXX_REFERENCE_IMAGE-} == 1 ]]; then
-			echo "FAIL $step: gitleaks not found ($gitleaks); the reference image must have it"
+			echo "FAIL $step: $why; the reference image must have it"
+			return 1
+		elif [[ $mode == pre-commit ]]; then
+			echo "FAIL $step: $why; no commit without a secret scan: run" \
+				"tools/dev/deps.sh all, or put gitleaks $pin on PATH"
 			return 1
 		fi
-		echo "SKIP $step: gitleaks not found ($gitleaks); run tools/dev/deps.sh build"
+		echo "SKIP $step: $why; run tools/dev/deps.sh build"
 		return 0
 	fi
 	(cd "$root" && env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML "$gitleaks" git "$@" \
 		"${config[@]+"${config[@]}"}" --redact --verbose --no-banner --no-color --log-level warn .)
+}
+
+# Fail on a way past the secret scan in the index: a .gitleaksignore file
+# or an inline allow comment (gitleaks plus ":allow"), unless .gitleaks.toml lists the file
+# with a reason, as a line "# allowed: <path> -- <reason>".  .gitleaks.toml
+# itself is the list.
+step_gitleaks_allow()
+{
+	local f hits allowed rc=0 marker='gitleaks'':allow'
+	allowed=$(sed -nE 's/^# allowed: ([^[:space:]]+) -- [^[:space:]].*/\1/p' \
+		"$root/.gitleaks.toml" 2>/dev/null)
+	hits=$(cd "$root" && { git ls-files --cached -- .gitleaksignore '*/.gitleaksignore'
+		git grep --cached -l -I -F "$marker" -- . ':!.gitleaks.toml'; } | sort -u)
+	while IFS= read -r f; do
+		[[ -z $f ]] && continue
+		grep -qxF "$f" <<<"$allowed" && continue
+		echo "$f: a .gitleaksignore or $marker comment; list it in .gitleaks.toml" \
+			"(# allowed: $f -- <reason>) or remove it"
+		rc=1
+	done <<<"$hits"
+	return "$rc"
 }
 
 # Fail on a secret in the staged changes (the pre-commit tier).
@@ -391,9 +440,9 @@ step_leaks()
 	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/no-window.sh" "$dev_dir/leaks.sh"
 }
 
-pre_commit_steps=(repo_config guard staged secrets)
-fast_steps=(repo_config doctor guard format staged secrets shellcheck stale_hashes workflows test_git
-	gpu_gate shell_tests)
+pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
+fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
+	workflows test_git gpu_gate shell_tests)
 full_steps=(secrets_history unit_tests leaks gpu_tests tidy sanitizer_tests)
 
 mode=full

@@ -10,6 +10,12 @@
 # one and nothing is allowlisted.  An allowlist entry ([[allowlists]]) is
 # for a proven test fixture only; upstream's history (upstream/master)
 # had no findings at 8.30.1 (2026-10-21), so it needs none either.
+#
+# A .gitleaksignore file or an inline gitleaks:allow comment in the fork is
+# refused (check.sh's gitleaks_allow step) unless its file is listed here
+# with a reason, one line each:
+#   "# allowed: <path> -- <reason>"
+# allowed: docs/adr/0005-cpp-safety-rules-for-new-code.md -- names the marker, allows nothing
 
 [extend]
 useDefault = true
