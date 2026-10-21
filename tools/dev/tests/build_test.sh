@@ -141,25 +141,59 @@ for source in sources:
 # g++ has it (Apple clang, not GCC), and says so where it does not.
 test_site_files_add_strict_warnings_to_fork_sources_only()
 {
-	local out fork='-Wconversion -Wsign-conversion -Wshadow -Werror' note=''
+	local out fork='-Wconversion -Wsign-conversion -Wshadow -Werror' note='' missing
 	out=$(site_fork_warnings "$DEV_DIR/site-dev.py" 2>&1)
 	assert_eq "$out" "\$INC \$_DXX_FORK_WARNINGS
 dev: $fork
 tools: $fork
 main: 
 toolsx: "
-	if g++ -fsanitize=implicit-conversion -x c++ -fsyntax-only - </dev/null 2>/dev/null; then
+	# site-asan.py's own probe decides; this test checks what it does with it.
+	missing=$(site_asan_twice "$PATH" | sed -n 's/^missing=//p')
+	if [[ $missing != *implicit-conversion* ]]; then
 		fork+=' -fsanitize=implicit-conversion -fno-sanitize-recover=implicit-conversion'
-	else
-		note='site-asan.py: g++ lacks -fsanitize=implicit-conversion,local-bounds,nullability; skipped
-'
 	fi
+	[[ -z $missing ]] || note="site-asan.py: g++ lacks -fsanitize=$missing; skipped
+"
 	out=$(site_fork_warnings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" 2>&1)
 	assert_eq "$out" "$note\$INC \$_DXX_FORK_WARNINGS
 dev: $fork
 tools: $fork
 main: 
 toolsx: "
+}
+
+# Exec site-asan.py twice in one python3, as SCons may read a site file
+# more than once, with PATH $1, and print CLANG_UBSAN_MISSING; stderr too.
+site_asan_twice()
+{
+	PATH=$1 "$(command -v python3)" -I -c 'import sys, os
+sys.path.insert(0, os.path.dirname(sys.argv[1]))
+for _ in range(2):
+	v = {}
+	exec(open(sys.argv[1]).read(), {}, v)
+print("missing=" + ",".join(v["CLANG_UBSAN_MISSING"]))' "$DEV_DIR/site-asan.py" 2>&1
+}
+
+# Test that site-asan.py probes g++ once per process, and that without g++
+# it lists every Clang-only check as missing, with its note, no traceback.
+test_site_asan_probes_gxx_once_and_survives_without_it()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir "$d/bin" "$d/none"
+	printf '#!/bin/sh
+echo probe >> "%s/calls"
+exit 1
+' "$d" > "$d/bin/g++"
+	chmod +x "$d/bin/g++"
+	out=$(site_asan_twice "$d/bin")
+	assert_contains "$out" "missing=implicit-conversion,local-bounds,nullability"
+	assert_eq "$(wc -l < "$d/calls" | tr -d ' ')" 3 "g++ probes: $(cat "$d/calls")"
+	out=$(site_asan_twice "$d/none")
+	assert_not_contains "$out" "Traceback"
+	assert_contains "$out" "site-asan.py: g++ lacks -fsanitize=implicit-conversion,local-bounds,nullability"
+	assert_contains "$out" "missing=implicit-conversion,local-bounds,nullability"
 }
 
 # Test, in a real build of a throwaway clone (slow, opt-in with

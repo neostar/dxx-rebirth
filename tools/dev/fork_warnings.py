@@ -6,11 +6,29 @@
 # its own fork-only flags to FORK_ONLY_FLAGS (site-asan.py: UBSan's
 # implicit-conversion, which upstream code trips).
 import os
+import subprocess
 
 STRICT_FLAGS = ('-Wconversion', '-Wsign-conversion', '-Wshadow', '-Werror')
 FORK_ONLY_FLAGS = []
 _dev_dir = os.path.dirname(os.path.realpath(__file__))
 _root = os.path.dirname(os.path.dirname(_dev_dir))
+
+
+_gxx_accepts = {}
+
+
+def gxx_accepts(flags):
+	"""Whether g++, SCons' default CXX, compiles with flags; False without
+	g++.  Probed once per process: SCons may read a site file twice."""
+	key = tuple(flags)
+	if key not in _gxx_accepts:
+		try:
+			probe = subprocess.run(['g++', *flags, '-x', 'c++', '-fsyntax-only', '-'],
+				input=b'', capture_output=True)
+			_gxx_accepts[key] = probe.returncode == 0
+		except OSError:
+			_gxx_accepts[key] = False
+	return _gxx_accepts[key]
 
 
 def fork_dirs():
