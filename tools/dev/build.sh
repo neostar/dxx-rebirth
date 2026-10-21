@@ -8,6 +8,7 @@
 # asan: build/asan with AddressSanitizer and UndefinedBehaviorSanitizer;
 #   site-dev.py, then site-asan.py's overrides (SCons reads site files in
 #   order, later ones win).
+# Both build with the hardened standard library (hardening.py, ADR 5).
 # Both build D2X only: SConstruct reads d1x and d2x from the command line
 # alone, not from site files, so they are passed here.
 # Pass `check` to build and run the unit tests; scons then runs under

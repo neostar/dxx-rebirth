@@ -1,0 +1,14 @@
+// A program that uses the standard library within its bounds, frees what it
+// allocates and stays in range: clean on every run-time gate.
+// gate hardening: pass
+#include <array>
+#include <memory>
+#include <span>
+
+int main(const int argc, char **)
+{
+	const std::array<int, 4> values{1, 2, 3, 4};
+	const std::span<const int> view{values};
+	const auto owned{std::make_unique<int>(view[static_cast<std::size_t>(argc) - 1])};
+	return *owned - 1;
+}

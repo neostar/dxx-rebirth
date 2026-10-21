@@ -46,6 +46,11 @@ editor tier shows the fast checks and the pre-commit tier is the first to run th
 lies in a fork directory. `SConstruct` is unchanged; upstream files compile as before. The flags
 reach the compilation database, and clang-tidy's `clang-diagnostic-*` reports them before a build.
 
+**Hardened standard library** in every `build.sh` profile (dev and asan), for upstream and fork
+code alike: `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` (libc++, the Mac) and
+`_GLIBCXX_ASSERTIONS` (libstdc++, the container), from `tools/dev/hardening.py` through
+`site-dev.py`, so container bounds, iterator and optional misuse trap at run time.
+
 **Justified exceptions** are inline only, `// NOLINT(check): reason` or
 `// NOLINTNEXTLINE(check): reason`; `format.sh` fails on a NOLINT without a check list and a
 reason.

@@ -22,3 +22,6 @@ sconf_optimize_builtin_constant_p = 'force-failure'
 # on sys.path while it reads it.
 import fork_warnings
 fork_warnings.install()
+# Hardened standard library (ADR 5).
+import hardening
+CPPFLAGS = ' '.join(hardening.HARDENING_FLAGS)

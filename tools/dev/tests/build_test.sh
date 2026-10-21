@@ -58,11 +58,15 @@ for path in sys.argv[2:]:
 	values.update(file_values)
 '
 
+# The CPPFLAGS setting of a hardened profile, as site_settings prints it.
+hardened='CPPFLAGS=-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG -D_GLIBCXX_ASSERTIONS'
+
 # Print the settings SCons reads from site files "$@" as key=value.
 site_settings()
 {
 	python3 -I -c "$read_sites"'
-for k in ("builddir", "compilation_database", "debug", "lto", "macos_add_frameworks", "sconf_optimize_builtin_constant_p"):
+for k in ("builddir", "compilation_database", "debug", "lto", "macos_add_frameworks",
+		"sconf_optimize_builtin_constant_p", "CPPFLAGS"):
 	print(f"{k}={values.get(k)}")
 ' "$(fake_scons)" "$@"
 }
@@ -83,7 +87,18 @@ test_asan_profile_layers_site_asan_over_site_dev()
 	out=$(scons_args asan check | tr '\n' ' ')
 	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-asan.py check "
 	out=$(site_settings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" | tr '\n' ' ')
-	assert_eq "$out" 'builddir=build/asan compilation_database=build/asan/compile_commands.json debug=True lto=0 macos_add_frameworks=False sconf_optimize_builtin_constant_p=force-failure '
+	assert_eq "$out" "builddir=build/asan compilation_database=build/asan/compile_commands.json debug=True lto=0 macos_add_frameworks=False sconf_optimize_builtin_constant_p=force-failure $hardened "
+}
+
+# Test that both profiles build with the hardened standard library
+# (ADR 5): libc++'s debug hardening mode and libstdc++'s assertions.
+test_profiles_harden_the_standard_library()
+{
+	local out
+	out=$(site_settings "$DEV_DIR/site-dev.py" | tail -1)
+	assert_eq "$out" "$hardened"
+	out=$(site_settings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" | tail -1)
+	assert_eq "$out" "$hardened"
 }
 
 # Read site files "$@" as SCons reads them (each exec'd with its directory

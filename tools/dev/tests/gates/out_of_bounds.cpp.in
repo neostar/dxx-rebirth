@@ -1,0 +1,11 @@
+// A span indexed past its end, trapped by the hardened standard library.
+// gate hardening: __idx < size()
+#include <array>
+#include <span>
+
+int main(const int argc, char **)
+{
+	const std::array<int, 4> values{1, 2, 3, 4};
+	const std::span<const int> view{values};
+	return view[static_cast<std::size_t>(argc) + 3];
+}

@@ -26,7 +26,7 @@ need()
 }
 
 # The tool each gate runs, which a test needs before running the gate.
-declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++)
+declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
@@ -53,6 +53,48 @@ gate_strict()
 	rc=$?
 	sed -E 's/\[-Werror=([a-z0-9-]+)\]/[-Werror,-W\1]/' "$d/out"
 	return "$rc"
+}
+
+# libc++ ends a hardening trap in abort(), which on macOS leaves a crash
+# report; this definition of its abort hook, linked into each run-time
+# plant, prints the message and exits 1 instead.  libstdc++ (Linux) aborts.
+trap_exit='#include <cstdarg>
+#include <cstdio>
+#include <unistd.h>
+#ifdef _LIBCPP_VERSION
+namespace std { inline namespace __1 {
+[[noreturn]] void __libcpp_verbose_abort(const char *format, ...) noexcept
+{
+	va_list ap;
+	va_start(ap, format);
+	std::vfprintf(stderr, format, ap);
+	va_end(ap);
+	_exit(1);
+}
+} }
+#endif'
+
+# Build file $1 as a program with the compiler flags "${@:2}" and the
+# hardened standard library, and print its path.
+build_plant()
+{
+	local d
+	d=$(make_scratch)
+	cp "$1" "$d/plant.cpp"
+	printf '%s\n' "$trap_exit" > "$d/trap_exit.cpp"
+	# shellcheck disable=SC2046  # the flags are words
+	c++ -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") "${@:2}" \
+		"$d/plant.cpp" "$d/trap_exit.cpp" -o "$d/plant" >&2 || return
+	printf '%s\n' "$d/plant"
+}
+
+# The hardened standard library (hardening.py) as the dev profile builds
+# it: run file $1, built with it.
+gate_hardening()
+{
+	local p
+	p=$(build_plant "$1") || return
+	"$p" 2>&1
 }
 
 # Run gate $1 on every planted file that names it, and fail unless one does.
@@ -87,6 +129,11 @@ test_tidy()
 test_strict()
 {
 	run_planted strict
+}
+
+test_hardening()
+{
+	run_planted hardening
 }
 
 # Test that each gate a planted file names without a runner has an owning
