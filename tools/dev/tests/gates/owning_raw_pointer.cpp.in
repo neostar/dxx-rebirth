@@ -1,0 +1,9 @@
+// An owning raw pointer from new.
+// gate tidy: cppcoreguidelines-owning-memory
+int answer()
+{
+	const int *const p{new int{42}};
+	const int v{*p};
+	delete p;
+	return v;
+}

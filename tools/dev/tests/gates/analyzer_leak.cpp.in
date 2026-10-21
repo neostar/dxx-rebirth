@@ -1,0 +1,14 @@
+// Memory leaked on the early return, found by the Clang Static Analyzer.
+// gate tidy: Potential leak of memory
+#include <cstdlib>
+
+int leak(const bool early)
+{
+	void *const p{std::malloc(16)};
+	if (!p)
+		return 0;
+	if (early)
+		return 1;
+	std::free(p);
+	return 2;
+}

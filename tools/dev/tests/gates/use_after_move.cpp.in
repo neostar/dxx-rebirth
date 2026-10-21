@@ -1,0 +1,11 @@
+// A vector used after it was moved from.
+// gate tidy: bugprone-use-after-move
+#include <utility>
+#include <vector>
+
+std::size_t sizes()
+{
+	std::vector<int> a{1, 2};
+	const auto b{std::move(a)};
+	return a.size() + b.size();
+}

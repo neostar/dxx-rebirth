@@ -1,0 +1,13 @@
+// Memory read after it was freed, found by the Clang Static Analyzer.
+// gate tidy: Use of memory after it is released
+#include <cstdlib>
+
+int use_after_free()
+{
+	int *const p{static_cast<int *>(std::malloc(sizeof(int)))};
+	if (!p)
+		return 0;
+	*p = 1;
+	std::free(p);
+	return *p;
+}

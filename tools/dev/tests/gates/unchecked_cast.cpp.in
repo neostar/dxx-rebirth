@@ -1,0 +1,16 @@
+// An unchecked downcast.
+// gate tidy: cppcoreguidelines-pro-type-static-cast-downcast
+struct base
+{
+	virtual ~base() = default;
+};
+
+struct derived : base
+{
+	int value{0};
+};
+
+int value_of(base &b)
+{
+	return static_cast<derived &>(b).value;
+}

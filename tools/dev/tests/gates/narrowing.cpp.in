@@ -1,0 +1,8 @@
+// A narrowing conversion from double to int.
+// gate tidy: narrowing-conversions
+int truncate(const double d)
+{
+	int i{0};
+	i += d;
+	return i;
+}

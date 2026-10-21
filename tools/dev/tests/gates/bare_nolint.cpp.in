@@ -1,0 +1,3 @@
+// A suppression without a check and a reason.
+// gate tidy: NOLINT without a check and a reason
+int unexplained(); // NOLINT
