@@ -42,7 +42,22 @@ Checks: >
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   cppcoreguidelines-no-malloc,
-  cppcoreguidelines-special-member-functions
+  cppcoreguidelines-special-member-functions,
+  custom-void-pointer-cast
+# A query-based check (LLVM 23, experimental: format.sh passes
+# --experimental-custom-checks): a cast from void * (static_cast,
+# reinterpret_cast, C-style) only in the SDL wrapper layer, the files named
+# sdl_wrap* (ADR 5).
+CustomChecks:
+  - Name: void-pointer-cast
+    Query: |
+      match explicitCastExpr(
+        hasSourceExpression(hasType(pointerType(pointee(voidType())))),
+        unless(isExpansionInFileMatching("(^|/)sdl_wrap[^/]*$"))).bind("cast")
+    Diagnostic:
+      - BindName: cast
+        Message: "cast from void * outside the SDL wrapper layer (files named sdl_wrap*)"
+        Level: Warning
 CheckOptions:
   readability-identifier-naming.FunctionCase: lower_case
   readability-identifier-naming.VariableCase: lower_case

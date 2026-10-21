@@ -7,6 +7,8 @@
 #   // gate NAME: EXPECT          gate NAME fails with output containing
 #                                 EXPECT, or passes if EXPECT is `pass`
 #   // gate NAME (#N): EXPECT     the same, for a gate ticket #N builds
+#   // staged as: PATH            gate tidy stages the file at PATH, not
+#                                 src/plant.cpp (a check scoped by file name)
 #
 # test_GATE runs gate_GATE on each planted file that names it, copied into
 # a throwaway place under a neutral name, so that an expectation can match
@@ -33,14 +35,17 @@ cxx=g++
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
 	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [leaks]=$cxx [gpu]=$cxx)
 
-# The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
-# and run format.sh --staged.
+# The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
+# `// staged as: PATH` line names (a check scoped by file name), in a fork
+# repository and run format.sh --staged.
 gate_tidy()
 {
-	local r
+	local r path
 	r=$(fork_repo) || die "fork_repo failed"
-	cp "$1" "$r/src/plant.cpp"
-	tgit -C "$r" add src/plant.cpp
+	path=$(sed -n 's|^// staged as: ||p' "$1")
+	path=${path:-src/plant.cpp}
+	cp "$1" "$r/$path"
+	tgit -C "$r" add "$path"
 	"$r/tools/dev/format.sh" --staged 2>&1
 }
 
@@ -278,7 +283,7 @@ test_enabled_checks_match_committed_list()
 	local tidy out
 	tidy=$(dev_llvm_tool clang-tidy)
 	need "$tidy"
-	out=$(diff <("$tidy" --list-checks --config-file="$DEV_DIR/style/clang-tidy" 2>/dev/null |
+	out=$(diff <("$tidy" --experimental-custom-checks --list-checks --config-file="$DEV_DIR/style/clang-tidy" 2>/dev/null |
 		sed -n 's/^    //p') "$DEV_DIR/style/clang-tidy-checks" 2>&1) ||
 		fail "enabled checks (<) differ from style/clang-tidy-checks (>); review each, then" \
 			"update the list: $out"

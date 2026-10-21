@@ -92,7 +92,8 @@ check_tidy_configs()
 # reported as the repository's, and clang-tidy's options for it: the tree
 # has no .clang-tidy, but every fork directory's is a copy of tidy_config.
 tree=
-tidy_opts=()
+# The config's CustomChecks (ADR 5) run only with this flag.
+tidy_opts=(--experimental-custom-checks)
 # Print path $1 relative to the repository (or the staged tree).
 rel()
 {
@@ -229,7 +230,7 @@ tidy|staged)
 	if [[ $mode == staged ]]; then
 		tree=$(mktemp -d "${TMPDIR:-/tmp}/format-staged.XXXXXX") || exit 1
 		trap 'rm -rf "$tree"' EXIT
-		tidy_opts=(--config-file="$tidy_config")
+		tidy_opts+=(--config-file="$tidy_config")
 		staged=("${files[@]#"$root"/}")
 		git -C "$root" checkout-index --prefix="$tree/" -- "${staged[@]}" || exit 1
 		files=("${staged[@]/#/$tree/}")

@@ -1,0 +1,11 @@
+// SDL's void * cast to a type outside the SDL wrapper layer.
+// gate tidy: [custom-void-pointer-cast
+struct vertex
+{
+	float x{0};
+};
+
+float userdata_x(const void *const userdata)
+{
+	return static_cast<const vertex *>(userdata)->x;
+}

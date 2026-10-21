@@ -22,7 +22,8 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 - No `new` or `delete`: `std::make_unique`, containers, `RAIIdmem`.
 - No unchecked casts: no C-style casts, `reinterpret_cast`, `const_cast` or `static_cast`
   downcasts. A `static_cast` from SDL's `void *` happens only in the one wrapper layer that turns
-  SDL userdata into a type; SDL's `void *` goes no further.
+  SDL userdata into a type; SDL's `void *` goes no further. The wrapper layer is the fork files
+  named `sdl_wrap*` (`sdl_wrap.cpp`, `sdl_wrap.h`, `sdl_wrap_audio.cpp`), and a check enforces it.
 - Domain values are `enum class` with an explicit underlying type or strong types
   (`valptridx`), never bare integers.
 - Fixed collections are `std::array` or `enumerated_array`, views `std::span`; no raw arrays and
@@ -121,21 +122,27 @@ tightening is its own small commit that leaves the tree green and updates the le
   `cppcoreguidelines-avoid-c-arrays`, `cppcoreguidelines-pro-bounds-*` (pointer arithmetic and
   array-to-pointer decay), `cppcoreguidelines-no-malloc` and
   `cppcoreguidelines-special-member-functions` (a sole defaulted destructor allowed, the
-  polymorphic base idiom), each proven by a planted file. The 258 checks are in
-  `clang-tidy-checks`. Left out of `pro-bounds-*` for false alarms: `constant-array-index` and
-  `avoid-unchecked-container-access` flag every subscript with a run-time index, into
-  `std::array` and `std::span` too, which the hardened library traps; `clean.cpp.in` holds one
-  (`x_at`).
+  polymorphic base idiom), each proven by a planted file. Its 259 checks, the custom one
+  below among them, are in `clang-tidy-checks`. Left out of `pro-bounds-*` for false alarms:
+  `constant-array-index` and `avoid-unchecked-container-access` flag every subscript with a
+  run-time index, into `std::array` and `std::span` too, which the hardened library traps;
+  `clean.cpp.in` holds one (`x_at`).
   The config's `ExtraArgs` add LLVM 23's `-Wlifetime-safety-permissive` (a pointer or view used
   after its owner dies), which `clang-diagnostic-*` reports, proven by `dangling_view.cpp.in`;
   Apple clang 21 accepts the flag but reports nothing, so it is not a build flag. clangd reads
   `ExtraArgs` too, so the editor tier shows it.
   `ExtraArgs` also add `-Wunsafe-buffer-usage` (pointer arithmetic, raw subscripts and
   pointer-plus-length constructions), proven by `unsafe_buffer.cpp.in`; code on `std::span` and
-  `std::array` stays clean, range-for and subscript alike, and `clean.cpp.in`'s pixel wrapper,
-  which builds its span from SDL's pointer and size, carries a second NOLINT. Its libc-call part
+  `std::array` stays clean, range-for and subscript alike, and the pixel wrapper, which builds its
+  span from SDL's pointer and size, carries a second NOLINT. Its libc-call part
   (`-Wunsafe-buffer-usage-in-libc-call`) is off until `tools/dev/hardening-exit.h`'s `vdprintf`,
-  libc++'s printf-shaped abort hook, has its NOLINT.
+  libc++'s printf-shaped abort hook, has its NOLINT. A query-based custom check (LLVM 23
+  `CustomChecks`, experimental: `format.sh` passes `--experimental-custom-checks`),
+  `custom-void-pointer-cast`, fails any cast from `void *` (`static_cast`, `reinterpret_cast`,
+  C-style) outside the `sdl_wrap*` files, proven red by `void_cast.cpp.in` and clean by
+  `void_cast_wrapper.cpp.in`, the same casts staged as `src/sdl_wrap.cpp`; that file now holds
+  the userdata and pixel wrappers `clean.cpp.in` had. clangd does not run custom checks, so it
+  is a pre-commit check.
 - Left out for the whole config, not suppressed inline: the rule that exceptions are inline
   NOLINTs with a reason is for a single justified site, and these two checks fire on idioms fork
   code uses throughout, so every fork file would carry the same NOLINT and a real exception would
@@ -152,7 +159,7 @@ tightening is its own small commit that leaves the tree green and updates the le
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names
 goes red with the expected diagnostic, that `clean.cpp.in` passes them all, and that every entry of
-the clang-tidy config's `Checks` (16 patterns at level 2) is named by some planted file's expected
+the clang-tidy config's `Checks` (17 patterns at level 2) is named by some planted file's expected
 diagnostic. That proves each pattern is on, not each of the checks: the single checks are planted
 one by one, but each glob by one check under it (`bugprone-*` by four: narrowing-conversions,
 signed-bitwise, unhandled-code-paths, use-after-move; `clang-analyzer-*` by `unix.Malloc`;

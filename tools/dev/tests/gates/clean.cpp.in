@@ -1,4 +1,5 @@
 // The representative fork file: the conventions' idioms, clean on every gate.
+// SDL's void * is cast only in the SDL wrapper layer, void_cast_wrapper.cpp.in.
 // gate tidy: pass
 // gate strict: pass
 #include <SDL3/SDL.h>
@@ -66,24 +67,6 @@ static sdl_surface_ptr make_surface(const int w, const int h)
 	return sdl_surface_ptr{SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA8888)};
 }
 
-/* SDL's void * stays here: the one wrapper that turns userdata into a type. */
-[[nodiscard]]
-static vertex *userdata_vertex(void *userdata)
-{
-	return static_cast<vertex *>(userdata);
-}
-
-/* The one place SDL's pixels become bytes; a justified, named exception. */
-[[nodiscard]]
-static std::span<const std::byte> pixel_bytes(const SDL_Surface &surface)
-{
-	const auto size{static_cast<std::size_t>(surface.pitch) * static_cast<std::size_t>(surface.h)};
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): SDL hands pixels as void *
-	const auto *const pixels{reinterpret_cast<const std::byte *>(surface.pixels)};
-	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): size is pitch * h
-	return {pixels, size};
-}
-
 [[nodiscard]]
 static std::size_t count_moved(std::array<vertex, 3> vertices)
 {
@@ -99,9 +82,9 @@ int main()
 	const std::array<vertex, 3> vertices{{{1, 2}, {3, 4}, {5, 6}}};
 	const auto surface{make_surface(4, 4)};
 	const sdl_window_ptr window{};
-	vertex v{};
-	const auto total{sum_x(vertices) + x_at(vertices, 2) + userdata_vertex(&v)->x};
-	const auto bytes{surface ? pixel_bytes(*surface).size() : 0};
+	const vertex v{};
+	const auto total{sum_x(vertices) + x_at(vertices, 2) + v.x};
+	const auto bytes{surface ? static_cast<std::size_t>(surface->pitch) : 0};
 	con_printf(0, "%zu bytes, %zu moved", bytes, count_moved(vertices));
 	const bool ok{pick(total > 0) == blend_mode::additive && !window};
 	return ok ? 0 : 1;

@@ -251,6 +251,7 @@ cppcoreguidelines-pro-type-static-cast-downcast
 cppcoreguidelines-pro-type-union-access
 cppcoreguidelines-special-member-functions
 cppcoreguidelines-use-enum-class
+custom-void-pointer-cast
 misc-const-correctness
 modernize-use-nullptr
 modernize-use-override

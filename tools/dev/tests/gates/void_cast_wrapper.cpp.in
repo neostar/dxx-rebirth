@@ -1,0 +1,34 @@
+// The SDL wrapper layer, the files named sdl_wrap*: the one place SDL's
+// void * becomes a type (ADR 5), clean on every gate.
+// staged as: src/sdl_wrap.cpp
+// gate tidy: pass
+#include <SDL3/SDL.h>
+#include <cstddef>
+#include <span>
+
+namespace dcx {
+
+struct vertex
+{
+	float x{0};
+};
+
+/* SDL userdata as the type it holds. */
+[[nodiscard]]
+const vertex *userdata_vertex(const void *const userdata)
+{
+	return static_cast<const vertex *>(userdata);
+}
+
+/* SDL's pixels as bytes; justified, named exceptions. */
+[[nodiscard]]
+std::span<const std::byte> pixel_bytes(const SDL_Surface &surface)
+{
+	const auto size{static_cast<std::size_t>(surface.pitch) * static_cast<std::size_t>(surface.h)};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): SDL hands pixels as void *
+	const auto *const pixels{reinterpret_cast<const std::byte *>(surface.pixels)};
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): size is pitch * h
+	return {pixels, size};
+}
+
+}
