@@ -18,6 +18,7 @@ validate()
 }
 
 metal='2026-10-21 03:39:30.424 probe[1:2] Metal API Validation Enabled
+2026-10-21 03:39:30.424 probe[1:2] Metal GPU Validation Enabled
 2026-10-21 03:39:30.438 probe[1:2] SDL_GPU Driver: Metal'
 vulkan='Validation layers enabled, expect debug level performance!
 SDL_GPU Driver: Vulkan'
@@ -43,6 +44,29 @@ status 1"
 Validation Performance Warning: [ BestPractices-x ] slow")" "status 1"
 }
 
+# Test that a Metal shader validation report, which names the shader
+# function it stopped, fails a run that exits 0.
+test_metal_shader_validation_report_fails()
+{
+	assert_contains "$(validate "$metal
+Invalid device store at offset 4096, executing kernel function: \"plant_main\"
+buffer: <unnamed>, length:16, resident:Read Write")" "probe: 1 from the driver's validation layer
+status 1"
+}
+
+# Test that the program runs with Metal shader validation on, reporting to
+# stderr, not to os_log, where the wrapper would not see it.
+test_metal_shader_validation_reports_to_stderr()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	printf '#!/bin/sh\necho "shader validation $MTL_SHADER_VALIDATION,%s"\n' \
+		'$MTL_SHADER_VALIDATION_REPORT_TO_STDERR' > "$d/probe"
+	chmod +x "$d/probe"
+	out=$("$DEV_DIR/gpu-validate.sh" "$d/probe" 2>&1)
+	assert_contains "$out" "shader validation 1,1"
+}
+
 # Test that an SDL warning, such as a failed debug-mode assertion, fails.
 test_sdl_warning_fails()
 {
@@ -59,6 +83,8 @@ test_inactive_validation_fails()
 		"probe: the Vulkan validation layer was not active"
 	assert_contains "$(validate 'SDL_GPU Driver: Metal')" \
 		"probe: Metal API validation was not active"
+	assert_contains "$(validate "${metal/GPU Validation/}")" \
+		"probe: Metal shader validation was not active"
 	assert_contains "$(validate 'hello')" "probe: no SDL_GPU device was created"
 }
 

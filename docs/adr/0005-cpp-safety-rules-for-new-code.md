@@ -71,11 +71,12 @@ crash report.
 
 **GPU validation is a gate**: every SDL_GPU run in a check runs under `tools/dev/gpu-validate.sh`,
 with SDL's GPU debug mode (the program creates its device with `debug_mode` true), Metal API
-validation (`MTL_DEBUG_LAYER=1`) and the Vulkan validation layer
-(`VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf`). Neither SDL nor the layer changes the exit
-status (spike #55, K4), so the wrapper scans the output and fails on any validation message, and
-on a run whose validation was not active. Until the fork has GPU code (#24), headless probes in
-the gate self-test prove it on Metal natively and on lavapipe in the container.
+validation (`MTL_DEBUG_LAYER=1`), Metal shader validation (Level 2 below) and the Vulkan
+validation layer (`VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf`). Neither SDL nor the layer
+changes the exit status (spike #55, K4), so the wrapper scans the output and fails on any
+validation message, and on a run whose validation was not active. Until the fork has GPU code
+(#24), headless probes in the gate self-test prove it on Metal natively and on lavapipe in the
+container.
 `check.sh`'s `gpu_gate` step (`tools/dev/gpu_debug_mode.py`) scans every C, C++ and
 Objective-C(++) source outside `third_party/`, game code included, with comments stripped: a
 device is created as `SDL_CreateGPUDevice(formats, DEBUG, name)`, or by
@@ -161,7 +162,12 @@ tightening is its own small commit that leaves the tree green and updates the le
   on every file, `implicit-conversion` on fork files only (`fork_warnings.py`), because
   upstream's unit tests convert -1 to unsigned on purpose. site-asan.py adds each where `g++`
   has it: Apple clang on the Mac; GCC 14 in the container has none, so the build prints a note
-  and the gate `ubsanclang` is a SKIP there.
+  and the gate `ubsanclang` is a SKIP there. In `gpu-validate.sh`, Metal shader validation
+  (`MTL_SHADER_VALIDATION=1`, reporting to stderr, `MTL_SHADER_VALIDATION_REPORT_TO_STDERR=1`,
+  not to os_log): its reports name the shader function they stopped ("executing kernel
+  function"), and a Metal run without "Metal GPU Validation Enabled" fails. The gate `gpumetal`
+  (macOS only) proves it with a compute shader writing past its buffer; on the probe it costs
+  nothing measurable (1.3 s either way).
 
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names

@@ -1,0 +1,59 @@
+// A headless SDL_GPU compute dispatch (no window) whose Metal shader writes
+// past the end of its 16-byte storage buffer: only Metal shader validation
+// (MTL_SHADER_VALIDATION) sees it, inside the shader.
+// gate gpumetal: from the driver's validation layer
+#include <SDL3/SDL.h>
+#include <cstdio>
+
+static constexpr char shader[]{R"(#include <metal_stdlib>
+using namespace metal;
+kernel void plant_main(device uint *values [[buffer(0)]],
+	uint id [[thread_position_in_grid]])
+{
+	values[id + 1024] = id;
+}
+)"};
+
+int main()
+{
+	SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+	if (!SDL_Init(SDL_INIT_VIDEO))
+	{
+		std::fprintf(stderr, "probe: SDL_Init: %s\n", SDL_GetError());
+		return 1;
+	}
+	SDL_GPUDevice *const dev{SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, true, nullptr)};
+	if (!dev)
+	{
+		std::fprintf(stderr, "probe: SDL_CreateGPUDevice: %s\n", SDL_GetError());
+		return 1;
+	}
+	SDL_GPUComputePipelineCreateInfo info{};
+	info.code = reinterpret_cast<const Uint8 *>(shader);
+	info.code_size = sizeof(shader) - 1;
+	info.entrypoint = "plant_main";
+	info.format = SDL_GPU_SHADERFORMAT_MSL;
+	info.num_readwrite_storage_buffers = 1;
+	info.threadcount_x = 1;
+	info.threadcount_y = 1;
+	info.threadcount_z = 1;
+	SDL_GPUComputePipeline *const pipeline{SDL_CreateGPUComputePipeline(dev, &info)};
+	SDL_GPUBufferCreateInfo buffer_info{};
+	buffer_info.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+	buffer_info.size = 16;
+	SDL_GPUBuffer *const buffer{SDL_CreateGPUBuffer(dev, &buffer_info)};
+	SDL_GPUCommandBuffer *const cmd{SDL_AcquireGPUCommandBuffer(dev)};
+	SDL_GPUStorageBufferReadWriteBinding binding{};
+	binding.buffer = buffer;
+	SDL_GPUComputePass *const pass{SDL_BeginGPUComputePass(cmd, nullptr, 0, &binding, 1)};
+	SDL_BindGPUComputePipeline(pass, pipeline);
+	SDL_DispatchGPUCompute(pass, 4, 1, 1);
+	SDL_EndGPUComputePass(pass);
+	SDL_SubmitGPUCommandBuffer(cmd);
+	SDL_WaitForGPUIdle(dev);
+	SDL_ReleaseGPUBuffer(dev, buffer);
+	SDL_ReleaseGPUComputePipeline(dev, pipeline);
+	SDL_DestroyGPUDevice(dev);
+	SDL_Quit();
+	return 0;
+}

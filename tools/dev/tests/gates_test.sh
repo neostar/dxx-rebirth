@@ -34,7 +34,7 @@ cxx=g++
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
 	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [leaks]=$cxx [gpu]=$cxx)
-gate_tool[ubsanclang]=$cxx
+gate_tool[ubsanclang]=$cxx gate_tool[gpumetal]=$cxx
 
 # The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
 # `// staged as: PATH` line names (a check scoped by file name), in a fork
@@ -151,6 +151,9 @@ gate_gpu()
 	env "${video[@]}" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
 }
 
+# The GPU validation gate's Metal-only half (shader validation).
+gate_gpumetal() { gate_gpu "$@"; }
+
 # Succeed inside a container: Docker's or Podman's marker file.
 in_container()
 {
@@ -239,6 +242,12 @@ test_gpu()
 		skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
 	fi
 	run_planted gpu
+}
+
+test_gpumetal()
+{
+	[[ $dev_os == darwin ]] || skip "Metal is macOS only; gate gpu covers Vulkan here"
+	run_planted gpumetal
 }
 
 # Test that the GPU gate fails without the pinned SDL3 in the container,
