@@ -2,6 +2,7 @@
 // void * becomes a type (ADR 5), clean on every gate.
 // staged as: src/sdl_wrap.cpp
 // gate tidy: pass
+// gate strict: pass
 #include <SDL3/SDL.h>
 #include <cstddef>
 #include <span>
