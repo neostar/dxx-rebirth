@@ -1,0 +1,14 @@
+// SDL's void * under a typedef (SDL_MetalView is void *) cast to a type
+// outside the SDL wrapper layer: the check matches the canonical type.
+// gate tidy: [custom-void-pointer-cast
+#include <SDL3/SDL.h>
+
+struct vertex
+{
+	float x{0};
+};
+
+float view_x(const SDL_MetalView view)
+{
+	return static_cast<const vertex *>(view)->x;
+}

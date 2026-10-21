@@ -47,12 +47,13 @@ Checks: >
 # A query-based check (LLVM 23, experimental: format.sh passes
 # --experimental-custom-checks): a cast from void * (static_cast,
 # reinterpret_cast, C-style) only in the SDL wrapper layer, the files named
-# sdl_wrap* (ADR 5).
+# sdl_wrap* (ADR 5).  The canonical type catches typedefs of void *, such as
+# SDL_MetalView.
 CustomChecks:
   - Name: void-pointer-cast
     Query: |
       match explicitCastExpr(
-        hasSourceExpression(hasType(pointerType(pointee(voidType())))),
+        hasSourceExpression(hasType(hasCanonicalType(pointerType(pointee(voidType()))))),
         unless(isExpansionInFileMatching("(^|/)sdl_wrap[^/]*$"))).bind("cast")
     Diagnostic:
       - BindName: cast
