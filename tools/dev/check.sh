@@ -371,11 +371,11 @@ step_staged()
 	"$dev_dir/format.sh" --staged
 }
 
-# clang-format and clang-tidy on every fork file, with the compilation
-# database the dev build (unit_tests) writes.
+# clang-tidy on every fork file, with the compilation database the dev
+# build (unit_tests) writes; the format step has run clang-format.
 step_tidy()
 {
-	"$dev_dir/format.sh" --check && "$dev_dir/format.sh" --tidy
+	"$dev_dir/format.sh" --tidy
 }
 
 # Build D2X with the dev profile and run the unit tests, under

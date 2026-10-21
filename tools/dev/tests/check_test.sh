@@ -7,6 +7,11 @@ source "$(dirname "$0")/lib.sh"
 # check.sh's doctor step reads free disk in Docker's VM from a running
 # daemon; these tests leave the real one alone.
 export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
+# shellcheck over the copy of tools/dev is the slowest fast step (9 s in
+# the container, per run) and only the shellcheck test needs it: the
+# others run check.sh with it a SKIP.  check.sh's own shellcheck step
+# still covers these scripts.
+export CHECK_SHELLCHECK=no-such-shellcheck
 
 # Make a throwaway repo with tools/dev copied in (no tests, so check.sh
 # does not recurse into this file) and the fork's hooks installed.
@@ -179,6 +184,7 @@ test_fast_fails_on_shellcheck_finding()
 {
 	local r out rc
 	command -v shellcheck >/dev/null || skip 'shellcheck not installed'
+	export CHECK_SHELLCHECK=shellcheck
 	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\ncd "$1"\n' > "$r/tools/bad.sh"
 	printf '#!/bin/sh\ncd "$1"\n' > "$r/tools/noext"
@@ -522,8 +528,6 @@ test_full_fails_on_secret_in_history()
 {
 	local r out rc
 	need_gitleaks
-	# The slowest step, and nothing this test needs: skip shellcheck.
-	export CHECK_SHELLCHECK=no-such-shellcheck
 	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
 	out=$("$r/tools/dev/check.sh" 2>&1)
@@ -554,7 +558,7 @@ test_secrets_without_gitleaks_fail_pre_commit_skip_elsewhere()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "FAIL secrets: gitleaks not found (no-such-gitleaks)"
 	assert_contains "$out" "tools/dev/deps.sh all"
-	out=$(CHECK_SHELLCHECK=no-such-shellcheck "$r/tools/dev/check.sh" --fast 2>&1)
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_contains "$out" "SKIP secrets: gitleaks not found (no-such-gitleaks)"
 	out=$(DXX_REFERENCE_IMAGE=1 "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
