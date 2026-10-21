@@ -237,6 +237,23 @@ test_ubsanclang()
 	run_planted ubsanclang
 }
 
+# Test that the local-bounds plant reads past AddressSanitizer's redzone:
+# built with ASan alone it runs unreported, so only local-bounds sees it.
+test_local_bounds_plant_is_past_asan_redzone()
+{
+	local p out missing
+	need "$cxx"
+	missing=$(asan_site CLANG_UBSAN_MISSING 2>/dev/null) ||
+		{ fail "site-asan.py failed"; return; }
+	[[ -z $missing ]] || skip "$cxx lacks -fsanitize=${missing// /,}; gate ubsanclang skips too"
+	p=$(build_plant "$GATES/local_bounds.cpp.in" -O1 -fsanitize=address) ||
+		{ fail "building the plant failed"; return; }
+	out=$(ASAN_OPTIONS=abort_on_error=0:halt_on_error=1:detect_leaks=0 \
+		"$DEV_DIR/no-window.sh" "$p" 2>&1)
+	assert_not_contains "$out" "AddressSanitizer"
+	assert_not_contains "$out" "no-window.sh:"
+}
+
 test_leaks()
 {
 	[[ $dev_os == darwin ]] || skip "leaks is macOS only; gate lsan covers Linux"

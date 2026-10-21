@@ -1,6 +1,7 @@
-// A local array read past its end through a pointer, where the array's
-// bounds are not in the indexing expression's type: UBSan's bounds check
-// misses it, its local-bounds check reports it.
+// A local array read far past its end through a pointer: beyond
+// AddressSanitizer's redzone, so ASan misses it, and with the array's bounds
+// not in the indexing expression's type, so UBSan's bounds check misses it
+// too; only its local-bounds check, which knows the array, reports it.
 // gate ubsanclang: access out of bounds
 static int element(const int *values, const int index)
 {
@@ -10,5 +11,5 @@ static int element(const int *values, const int index)
 int main(const int argc, char **)
 {
 	const int values[4]{1, 2, 3, 4};
-	return element(values, argc + 3);
+	return element(values, argc + 63);
 }
