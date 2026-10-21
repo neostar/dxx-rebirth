@@ -5134,6 +5134,10 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-device', (
 			'common/render/unittest/render_device.cpp',
 			)),
+		RuntimeTest('test-trace', (
+			'common/render/unittest/trace.cpp',
+			'common/render/trace.cpp',
+			)),
 		RuntimeTest('test-shader-blobs', (
 			'shaders/unittest/shader_blobs.cpp',
 			)),
