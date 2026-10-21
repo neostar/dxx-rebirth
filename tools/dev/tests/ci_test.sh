@@ -45,7 +45,9 @@ DOCKER
 run_ci()
 {
 	local r=$1 bin=$2; shift 2
-	(cd "$r" && PATH="$bin:$PATH" DXX_DEPS_CACHE="$bin/cache" tools/dev/ci.sh "$@" 2>&1)
+	mkdir -p "$bin/tm"
+	(cd "$r" && PATH="$bin:$PATH" DXX_DEPS_CACHE="$bin/cache" DXX_TMUTIL="$(fake_tmutil "$bin/tm")" \
+		tools/dev/ci.sh "$@" 2>&1)
 }
 
 # Test that ci.sh runs the native and the container leg at once, and
@@ -65,6 +67,181 @@ test_runs_legs_concurrently()
 	assert_eq "$rc" 0 "$out"
 	assert_contains "$out" $'== ci: native check.sh --fast\nnative check --fast'
 	assert_contains "$out" $'container ran\nci.sh: passed'
+}
+
+# Test that ci.sh writes its whole output to build/ci/ci.log, kept out of
+# Time Machine and replaced by each run, and prints the path at the start
+# and the end, also when a leg fails.
+test_writes_its_own_log()
+{
+	local bin r out rc log
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	log=$(cd "$r" && pwd)/build/ci/ci.log
+	out=$(run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$(head -1 <<<"$out")" "ci.sh: log: $log"
+	assert_eq "$(tail -1 <<<"$out")" "ci.sh: log: $log"
+	assert_eq "$(cat "$log")" "$out"
+	assert_contains "$(cat "$bin/tm/log")" "addexclusion $(cd "$r" && pwd)/build"
+	out=$(FAKE_CHECK_RC=1 run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_eq "$(tail -1 <<<"$out")" "ci.sh: log: $log"
+	assert_eq "$(cat "$log")" "$out"
+}
+
+# Test that a second ci.sh, while one runs, fails at once, naming the
+# running one, and leaves its log alone; the lock is gone after a run.
+test_second_run_fails_fast()
+{
+	local bin r out rc log first
+	bin=$(make_scratch) || die "make_scratch failed"
+	FAKE_CHECK_WAIT="for _ in \$(seq 1200); do [[ -e $bin/release ]] && break; sleep 0.1; done" \
+		r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	log=$(cd "$r" && pwd)/build/ci/ci.log
+	run_ci "$r" "$bin" --fast > "$bin/first.out" &
+	first=$!
+	# A bound that only ends a broken run.
+	for _ in $(seq 1200); do [[ -e $bin/container-started ]] && break; sleep 0.1; done
+	out=$(run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: another ci.sh (pid "
+	assert_contains "$(cat "$log")" "ci.sh: log: $log"
+	assert_not_contains "$(cat "$log")" "another ci.sh"
+	touch "$bin/release"
+	wait "$first" || fail "the first run failed: $(cat "$bin/first.out")"
+	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived the run"
+}
+
+# Test that a lock left by a ci.sh that no longer runs does not stop the
+# next run.
+test_stale_lock_is_taken_over()
+{
+	local bin r out dead
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	sh -c 'exit 0' &
+	dead=$!
+	wait "$dead"
+	mkdir -p "$r/build/ci/lock"
+	echo "$dead" > "$r/build/ci/lock/pid"
+	out=$(run_ci "$r" "$bin" --fast)
+	assert_eq "$?" 0 "$out"
+	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived the run"
+}
+
+# Make a repo for start_blocked_ci in scratch directory $1: its native
+# check waits for $1/release.
+blocked_ci_repo()
+{
+	FAKE_CHECK_WAIT="for _ in \$(seq 1200); do [[ -e $1/release ]] && break; sleep 0.1; done" \
+		make_ci_repo "$1"
+}
+
+# Start ci.sh of repo $1 with the fake docker in $2, with job control, so
+# INT is not ignored as in a background command; return once the run holds
+# the lock and its container leg started.  The job's pid is $2/ci.job.
+start_blocked_ci()
+{
+	local r=$1 bin=$2
+	set -m
+	run_ci "$r" "$bin" --fast > "$bin/ci.out" 2>&1 &
+	echo "$!" > "$bin/ci.job"
+	set +m
+	# A bound that only ends a broken run.
+	for _ in $(seq 1200); do
+		[[ -e $bin/container-started && -s $r/build/ci/lock/pid ]] && break
+		sleep 0.1
+	done
+}
+
+# Stop ci.sh by signal $1 while it runs, and fail if it still runs or its
+# lock outlived it.
+signal_removes_the_lock()
+{
+	local sig=$1 bin r ci
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(blocked_ci_repo "$bin") || die "make_ci_repo failed"
+	start_blocked_ci "$r" "$bin"
+	ci=$(cat "$r/build/ci/lock/pid" 2>/dev/null)
+	[[ -n $ci ]] || { fail "ci.sh never took the lock"; return; }
+	kill -"$sig" "$ci"
+	for _ in $(seq 600); do kill -0 "$ci" 2>/dev/null || break; sleep 0.1; done
+	kill -0 "$ci" 2>/dev/null && fail "ci.sh still runs after $sig"
+	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived ci.sh after $sig"
+	touch "$bin/release"
+	wait "$(cat "$bin/ci.job")" 2>/dev/null
+}
+
+# Test that the lock is gone when ci.sh is stopped by TERM.
+test_term_removes_the_lock()
+{
+	signal_removes_the_lock TERM
+}
+
+# Test that the lock is gone when ci.sh is stopped by HUP.
+test_hup_removes_the_lock()
+{
+	signal_removes_the_lock HUP
+}
+
+# Test that the lock is gone when ci.sh is stopped by INT (Ctrl-C).  A
+# test file run as a background command (check.sh) ignores INT, and so
+# does every ci.sh it starts: there INT cannot stop ci.sh, and the test
+# is skipped.
+test_int_removes_the_lock()
+{
+	[[ $(trap -p INT) != "trap -- '' SIGINT" ]] || skip 'INT is ignored here (background command)'
+	signal_removes_the_lock INT
+}
+
+# Test that ci.sh leaves a lock it no longer owns: one taken over while it
+# ran (here its pid file names another process) is not removed at its exit.
+test_exit_leaves_a_lock_it_no_longer_owns()
+{
+	local bin r
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(blocked_ci_repo "$bin") || die "make_ci_repo failed"
+	start_blocked_ci "$r" "$bin"
+	[[ -s $r/build/ci/lock/pid ]] || { fail "ci.sh never took the lock"; return; }
+	echo "$$" > "$r/build/ci/lock/pid"
+	touch "$bin/release"
+	wait "$(cat "$bin/ci.job")"
+	assert_eq "$(cat "$r/build/ci/lock/pid" 2>/dev/null)" "$$" "the other owner's lock was removed"
+}
+
+# Test that a stale lock another ci.sh is taking over (it holds
+# lock.takeover) is left to it: the run fails at once, saying so, without
+# touching the lock or running a leg.
+test_takeover_in_progress_fails()
+{
+	local bin r out rc dead
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	sh -c 'exit 0' &
+	dead=$!
+	wait "$dead"
+	mkdir -p "$r/build/ci/lock" "$r/build/ci/lock.takeover"
+	echo "$dead" > "$r/build/ci/lock/pid"
+	out=$(run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: another ci.sh is taking over the lock"
+	assert_not_contains "$out" "native check"
+	assert_eq "$(cat "$r/build/ci/lock/pid")" "$dead"
+	[[ -d $r/build/ci/lock.takeover ]] || fail "the other run's lock.takeover was removed"
+}
+
+# Test that a lock without a pid file (its ci.sh was killed between taking
+# it and writing its pid) is taken over once it stays so for a few seconds.
+test_lock_without_pid_is_taken_over()
+{
+	local bin r out
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	mkdir -p "$r/build/ci/lock"
+	out=$(run_ci "$r" "$bin" --fast)
+	assert_eq "$?" 0 "$out"
+	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived the run"
 }
 
 # Test that ci.sh runs check.sh natively and in the container, offline.
