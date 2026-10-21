@@ -20,12 +20,15 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 
 **Orchestrator**
 
-- **Claim**: assign yourself and comment `started <ISO time>`.
+- **Claim**: assign yourself, comment `started <ISO time>`, and on the board
+  (https://github.com/users/neostar/projects/2) set Status to In Progress and Started to today.
 - **Time box**: a ticket's story points set its expected time, and the box is twice that. At the
   box, comment on the ticket what is done, what is open, and why it took longer. The overrun is
   data for the estimates, not a failure.
 - **Merge**: sign the implementer's commits, merge them into `sdl-gpu-port`, push.
-- **Finish**: close with a comment giving review rounds and anything that surprised you.
+- **Finish**: close with a comment giving review rounds and anything that surprised you, and on
+  the board set Status to Done, Done to today, and Agent minutes, Agent tokens and Review rounds
+  from the metrics log.
 - **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
   orchestrating session records each agent run's system-reported duration, tokens and tool calls,
   per ticket, in the metrics log; GitHub timestamps (claim, PR ready, first review, merge, close)
