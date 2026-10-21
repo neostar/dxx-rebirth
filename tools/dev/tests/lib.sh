@@ -76,9 +76,16 @@ make_scratch()
 }
 
 # git with a test identity and no signing, set per command so that no
-# repository's config is ever written.  Always pass -C <throwaway repo>.
+# repository's config is ever written.  Always pass -C <throwaway repo>:
+# anything but a path under the scratch root is refused, as `git -C ""`
+# would act on the current directory, the real repository.
 tgit()
 {
+	if [[ ${1-} != -C || -z ${2-} ||
+		$(cd "$2" 2>/dev/null && pwd -P) != "$(cd "$_scratch_root" && pwd -P)"/* ]]; then
+		echo "tgit: refusing '${2-}': pass -C and a scratch repository" >&2
+		return 1
+	fi
 	git -c user.name=test -c user.email=test@example.invalid \
 		-c commit.gpgsign=false "$@"
 }

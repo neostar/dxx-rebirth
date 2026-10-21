@@ -17,6 +17,17 @@ test_scratch_dirs_are_removed_on_exit()
 	done
 }
 
+# Test that tgit refuses to act on anything but a scratch repository: an
+# empty -C, which git takes as the current directory, or none at all.
+test_tgit_refuses_non_scratch_repository()
+{
+	local out
+	out=$(cd "$REPO_ROOT" && tgit -C "" status 2>&1) && fail "tgit -C '' ran: $out"
+	assert_contains "$out" "tgit: refusing"
+	out=$(tgit status 2>&1) && fail "tgit without -C ran: $out"
+	tgit -C "$(make_repo)" status -s || fail "tgit refused a scratch repository"
+}
+
 # Test that a test calling skip is reported as skipped with its reason and
 # does not fail the file.
 test_skip_is_reported_and_passes()
