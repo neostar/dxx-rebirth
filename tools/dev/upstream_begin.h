@@ -12,7 +12,12 @@
 // The strict warnings stay on where fork code expands the header's macros,
 // whose diagnostics GCC and clang place at the expansion; they are lost in
 // the header's own code, templates instantiated from fork code among them.
-// No pragma once: each use opens a new region.
+// No pragma once: each use opens a new region.  A region opened twice fails
+// here, and format.sh fails one never closed.
+#ifdef DXX_UPSTREAM_REGION
+#error "upstream_begin.h inside an open region; include upstream_end.h first"
+#endif
+#define DXX_UPSTREAM_REGION
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"

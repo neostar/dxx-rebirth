@@ -390,6 +390,8 @@ test_tidy_reports_fork_headers_only()
 # Test that a fork file including a header through `..` fails the tidy
 # gate, staged and not, naming the rule: clang-tidy reports nothing in a
 # header named that way, so a template instantiated from it would pass.
+# Each spelling counts: quotes, angle brackets, #include_next, a comment
+# after the #, a line continuation.
 test_tidy_rejects_includes_through_dotdot()
 {
 	local r out rc
@@ -399,13 +401,80 @@ test_tidy_rejects_includes_through_dotdot()
 	printf '#pragma once\ntemplate <class T>\nint conv(T t)\n{\n\tint r = t;\n\treturn r;\n}\n' \
 		> "$r/src/sub/h.h"
 	printf '#include "../sub/h.h"\nint g();\nint g()\n{\n\treturn conv(2L);\n}\n' > "$r/src/x/plant.cpp"
+	printf '#include <../sub/h.h>\n' > "$r/src/x/angle.h"
+	printf '#include_next "../sub/h.h"\n' > "$r/src/x/next.h"
+	printf '#/**/include "../sub/h.h"\n' > "$r/src/x/comment.h"
+	printf '#include \\\n"../sub/h.h"\n' > "$r/src/x/continued.h"
 	tgit -C "$r" add src
 	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/x/plant.cpp:1: #include through ..; include fork headers by their path from the top"
+	assert_contains "$out" "src/x/angle.h:1: #include through .."
+	assert_contains "$out" "src/x/next.h:1: #include through .."
+	assert_contains "$out" "src/x/comment.h:1: #include through .."
+	assert_contains "$out" "src/x/continued.h:1: #include through .."
 	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/x/plant.cpp:1: #include through .."
+}
+
+# Test that an upstream_begin.h region must be closed by upstream_end.h
+# before the next one and the end of the file, in format.sh (unclosed,
+# nested, an end alone) and in the compile (nested, an end alone, through
+# the headers' marker macro), and that a closed region passes.
+test_upstream_regions_pair()
+{
+	local r out rc
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	local b='#include "tools/dev/upstream_begin.h"' e='#include "tools/dev/upstream_end.h"'
+	printf '%s\n%s\nint ok();\n' "$b" "$e" > "$r/src/closed.h"
+	printf '%s\nint open();\n' "$b" > "$r/src/open.h"
+	printf '%s\n%s\n%s\n%s\n' "$b" "$b" "$e" "$e" > "$r/src/nested.h"
+	printf '%s\n' "$e" > "$r/src/alone.h"
+	tgit -C "$r" add src
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/open.h:1: upstream_begin.h not closed by upstream_end.h"
+	assert_contains "$out" "src/nested.h:2: upstream_begin.h inside the region opened at line 1"
+	assert_contains "$out" "src/alone.h:1: upstream_end.h without upstream_begin.h"
+	grep -q '^src/closed.h:[0-9]*: upstream' <<<"$out" && fail "closed region reported: $out"
+	need "$cxx"
+	out=$("$cxx" -std=c++23 -I"$REPO_ROOT" -fsyntax-only -x c++ "$r/src/nested.h" 2>&1) &&
+		fail "nested region compiled"
+	assert_contains "$out" "upstream_begin.h inside an open region"
+	out=$("$cxx" -std=c++23 -I"$REPO_ROOT" -fsyntax-only -x c++ "$r/src/alone.h" 2>&1) &&
+		fail "lone upstream_end.h compiled"
+	assert_contains "$out" "upstream_end.h without upstream_begin.h"
+	"$cxx" -std=c++23 -I"$REPO_ROOT" -fsyntax-only -x c++ "$r/src/closed.h" ||
+		fail "closed region failed to compile"
+}
+
+# Test that a .clang-tidy in a fork directory other than its own copy and
+# the unittest/ copies fails the gate, staged, unstaged (read from the
+# working tree) and in --tidy: one in src/sub/ dropping
+# unchecked-optional-access would hide the finding in src/sub/b.h.
+test_tidy_rejects_extra_configs()
+{
+	local r out rc
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/src/sub"
+	printf 'InheritParentConfig: true\nChecks: -bugprone-unchecked-optional-access\n' \
+		> "$r/src/sub/.clang-tidy"
+	printf '#pragma once\n#include <optional>\ninline int plant_value(const std::optional<int> &o)\n{\n\treturn *o;\n}\n' \
+		> "$r/src/sub/b.h"
+	tgit -C "$r" add src/sub/b.h
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/sub/.clang-tidy: a .clang-tidy that is neither"
+	tgit -C "$r" add src/sub/.clang-tidy
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/sub/.clang-tidy: a .clang-tidy that is neither"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/sub/.clang-tidy: a .clang-tidy that is neither"
 }
 
 # Test that the tidy gate reads a GCC compilation database, as in the

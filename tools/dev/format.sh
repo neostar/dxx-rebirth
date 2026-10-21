@@ -24,7 +24,10 @@
 # out, so --tidy and --staged fail on a fork file whose #include "..."
 # climbs through `..`.  Each unittest/ directory in a fork directory holds a
 # copy of tools/dev/style/clang-tidy-unittest, checked like the fork
-# directory's; --staged reads both kinds of config from the index.  Source
+# directory's, and any other .clang-tidy under a fork directory fails;
+# --staged reads the configs from the index (an untracked one from the
+# working tree).  --tidy and --staged also fail on an include through `..`
+# and on an unpaired upstream_begin.h or upstream_end.h (check_includes).  Source
 # files keep their database entry, less the flags the pinned clang-tidy
 # rejects (GCC's, in the container), found by one probe run and dropped with
 # --removed-arg.  Files are tidied in one run per .clang-tidy that applies
@@ -109,6 +112,14 @@ check_tidy_configs()
 				"run cp tools/dev/style/clang-tidy-unittest $u/.clang-tidy"
 			rc=1
 		done < <(find "$root/$d" -type d -name unittest -print0 2>/dev/null)
+		# Any other config would switch checks off for the files below it.
+		while IFS= read -r -d '' u; do
+			u=${u#"$base"/}
+			[[ $u == "$d/.clang-tidy" || $u == */unittest/.clang-tidy ]] && continue
+			echo "$u: a .clang-tidy that is neither the fork directory's nor a unittest/" \
+				"copy; remove it (fork code gets the fork checks, conventions.md)"
+			rc=1
+		done < <(find "$base/$d" -name .clang-tidy -print0 2>/dev/null)
 	done
 	return "$rc"
 }
@@ -147,26 +158,74 @@ check_nolint()
 	return "$rc"
 }
 
-# Fail on each #include "..." in files "$@" whose path climbs through `..`:
-# clang-tidy reports no finding in a header named that way (header_filter),
-# so fork code includes fork headers by their path from the top.
+# Fail on each #include or #include_next in files "$@" whose path climbs
+# through `..`, with quotes or angle brackets, also split by a line
+# continuation or with a comment after the #: clang-tidy reports no finding
+# in a header named that way (header_filter), so fork code includes fork
+# headers by their path from the top.  A path built by a macro passes
+# (ADR 5).  Also fail on an upstream_begin.h not closed by upstream_end.h
+# before the next one or the end of the file, and on an upstream_end.h
+# without one: the strict warnings would stay off for the rest of the
+# translation unit.
 check_includes()
 {
-	local f n line rc=0
-	local name
-	for f in "$@"; do
-		n=0
-		name=$(rel "$f")
-		while IFS= read -r line; do
-			n=$((n + 1))
-			[[ $line =~ ^[[:space:]]*#[[:space:]]*include[[:space:]]*\"([^\"]*/)?\.\./ ]] || continue
-			echo "$name:$n: #include through ..; include fork headers by their path" \
-				"from the top (\"common/debug/x.h\")"
-			rc=1
-		done < "$f"
-	done
-	return "$rc"
+	python3 - "$root" "${tree:-$root}" "$@" <<'PY'
+import re, sys
+root, tree, files = sys.argv[1], sys.argv[2], sys.argv[3:]
+include = re.compile(r'^\s*#\s*include(?:_next)?\s*([<"])([^>"]*)[>"]')
+rc = 0
+def name(f):
+    for p in (tree + "/", root + "/"):
+        if f.startswith(p):
+            return f[len(p):]
+    return f
+for f in files:
+    n = name(f)
+    if n in ("tools/dev/upstream_begin.h", "tools/dev/upstream_end.h"):
+        continue
+    text = open(f, errors="replace").read()
+    # Comments become a space, line continuations join their lines; each
+    # logical line keeps the number of its first physical line.
+    text = re.sub(r"/\*.*?\*/", lambda m: " " + "\n" * m.group(0).count("\n"), text, flags=re.S)
+    lines, start, cur = [], 1, ""
+    for i, line in enumerate(text.split("\n"), 1):
+        if not cur:
+            start = i
+        if line.endswith("\\"):
+            cur += line[:-1]
+            continue
+        lines.append((start, cur + line))
+        cur = ""
+    open_at = None
+    for lno, line in lines:
+        m = include.match(line)
+        if not m:
+            continue
+        path = m.group(2)
+        if re.search(r"(^|/)\.\./", path):
+            print(f"{n}:{lno}: #include through ..; include fork headers by their path"
+                  f' from the top ("common/debug/x.h")')
+            rc = 1
+        base = path.rsplit("/", 1)[-1]
+        if base == "upstream_begin.h":
+            if open_at is not None:
+                print(f"{n}:{lno}: upstream_begin.h inside the region opened at line {open_at};"
+                      " close it with upstream_end.h first")
+                rc = 1
+            open_at = lno
+        elif base == "upstream_end.h":
+            if open_at is None:
+                print(f"{n}:{lno}: upstream_end.h without upstream_begin.h")
+                rc = 1
+            open_at = None
+    if open_at is not None:
+        print(f"{n}:{open_at}: upstream_begin.h not closed by upstream_end.h;"
+              " the strict warnings would stay off for the rest of the file")
+        rc = 1
+sys.exit(rc)
+PY
 }
+
 
 # Succeed if the compilation database has an entry for file $1.
 in_database()

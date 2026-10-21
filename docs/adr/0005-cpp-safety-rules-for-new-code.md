@@ -58,7 +58,17 @@ upstream header the flags trip on (`timer.h`, `vecmat.h`, `byteutil.h`) is inclu
 `tools/dev/upstream_begin.h` and `tools/dev/upstream_end.h`, whose diagnostic pragmas turn the
 strict warnings off for its own lines. What that loses: defects inside the header's code, among
 them a template instantiated from fork code with a narrowing argument; fork code expanding the
-header's macros keeps the warnings, which GCC and clang place at the expansion.
+header's macros keeps the warnings, which GCC and clang place at the expansion. Also lost: a
+fork header that the upstream header includes, or that is first included inside the region, is
+compiled there with the warnings off, and its include guard keeps a later include from compiling
+it again; fork code includes its own headers before the region. A region is closed before the
+next one and the end of the file: `format.sh` fails an unclosed, nested or lone one, and the
+headers' marker macro fails a nested one or a lone `upstream_end.h` in the compile.
+`format.sh` also fails a fork `#include` or `#include_next` through `..`, quoted or angled, with a
+comment after the `#` or split by a line continuation, since clang-tidy reports nothing in a
+header named that way. Accepted: a path built by a macro gets past it. Deciding from the
+preprocessor's dependency list instead would catch it, at about 0.2 to 0.3 s per source file
+with Boost.Test (`-M`, measured on the Mac), over the pre-commit tier's half-second margin.
 
 **Hardened standard library** in every `build.sh` profile (dev and asan), for upstream and fork
 code alike: `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` (libc++, the Mac) and
