@@ -7,7 +7,7 @@ source "$(dirname "$0")/lib.sh"
 # check.sh's doctor step reads free disk in Docker's VM from a running
 # daemon; these tests leave the real one alone.
 export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
-# shellcheck over the copy of tools/dev is the slowest fast step (9 s in
+# Running shellcheck over the copy of tools/dev is the slowest fast step (9 s in
 # the container, per run) and only the shellcheck test needs it: the
 # others run check.sh with it a SKIP.  check.sh's own shellcheck step
 # still covers these scripts.
