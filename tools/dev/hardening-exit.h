@@ -4,8 +4,11 @@
 // prints the trap's message and exits 1 instead, so a trap in a unit test
 // fails the test run like any other failure.  libstdc++ (the container)
 // does not read the macro and aborts, which leaves no report there.
+// The preprocess-only pass over kconfig.ui-table.cpp (SConstruct defines
+// DXX_KCONFIG_UI_ENUM for it) must print nothing but the table, or
+// generate-kconfig-udlr.py rejects it.
 #pragma once
-#if defined(__cplusplus) && defined(__APPLE__)
+#if defined(__cplusplus) && defined(__APPLE__) && !defined(DXX_KCONFIG_UI_ENUM)
 // The two libc functions, declared here so that no header is forced into
 // every file.
 extern "C" int vdprintf(int, const char *, __builtin_va_list);

@@ -161,6 +161,26 @@ test_full_runs_build_tests_and_tidy()
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: tidy' "$out"
 }
 
+# Test that the full checks generate kconfig.udlr.h from clean through the
+# dev profile: a fake build.sh records its arguments and whether the stale
+# outputs were gone when that call ran.
+test_full_generates_kconfig_header_from_clean()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	mkdir -p "$r/build/dev/d2x-rebirth"
+	touch "$r/build/dev/d2x-rebirth/kconfig.ui-table.i" "$r/build/dev/d2x-rebirth/kconfig.udlr.h"
+	printf '#!/bin/sh\ncd "$(dirname "$0")/../.."\necho "build.sh $*" >> calls
+case $* in *kconfig*) for f in build/dev/d2x-rebirth/kconfig.*; do
+	[ -e "$f" ] && echo "stale $f" >> calls; done ;; esac
+exit 0\n' > "$r/tools/dev/build.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "-- kconfig: "
+	assert_contains "$(cat "$r/calls")" "build.sh dev build/dev/d2x-rebirth/kconfig.udlr.h"
+	assert_not_contains "$(cat "$r/calls")" "stale"
+}
+
 # Test that the full checks time each step and fail, naming the budget,
 # when they take longer than the check tier's budget (ADR 5), here
 # DXX_CHECK_BUDGET=-1 s; the fast subset keeps no budget.

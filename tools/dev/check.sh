@@ -398,6 +398,19 @@ step_unit_tests()
 	"$dev_dir/no-window.sh" "$dev_dir/build.sh" dev check build/dev/compile_commands.json
 }
 
+# Generate the game's kconfig.udlr.h from clean with the dev profile: the
+# step of a full game build that preprocesses kconfig.ui-table.cpp with the
+# profile's flags, hardening-exit.h among them, and parses the result
+# (generate-kconfig-udlr.py), which any stray declaration breaks.  SCons
+# does not see a force-included header as a dependency, so both outputs are
+# removed first; the full game build stays out of the check tier.
+step_kconfig()
+{
+	local out=build/dev/d2x-rebirth
+	rm -f "$root/$out/kconfig.ui-table.i" "$root/$out/kconfig.udlr.h"
+	"$dev_dir/build.sh" dev "$out/kconfig.udlr.h"
+}
+
 # Run the rtrace tests (#19) built by profile $1, each through the command
 # "${@:2}" (none: directly).  #19 adds tools/dev/rtrace-tests.sh, which takes
 # the same arguments; until then this is a SKIP.
@@ -445,7 +458,7 @@ step_leaks()
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
 	workflows commit_sizes test_git gpu_gate shell_tests)
-full_steps=(secrets_history unit_tests leaks gpu_tests tidy sanitizer_tests)
+full_steps=(secrets_history unit_tests kconfig leaks gpu_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in

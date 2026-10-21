@@ -1,0 +1,16 @@
+// gate kconfig: pass
+// A kc_item table in the shape of similar/main/kconfig.ui-table.cpp, which
+// SConstruct preprocesses on its own and generate-kconfig-udlr.py parses:
+// whatever the hardening flags force in must leave only the table there.
+#ifndef DXX_KCONFIG_UI_ENUM
+#define DXX_KCONFIG_UI_ENUM(ENUM)
+#endif
+#ifndef DXX_KCONFIG_UI_LABEL
+#define DXX_KCONFIG_UI_LABEL(LABEL)
+#endif
+#ifdef kc_item
+constexpr kc_item kc_plant[] = {
+	{15, 49, 86, 26, DXX_KCONFIG_UI_ENUM(key_a) DXX_KCONFIG_UI_LABEL("A") PLANT_UDLR_A(), kc_type::key, STATE_BIT1, {&a} },
+	{15, 57, 86, 26, DXX_KCONFIG_UI_ENUM(key_b) PLANT_UDLR_B(), kc_type::key, STATE_BIT1, {&b} },
+};
+#endif

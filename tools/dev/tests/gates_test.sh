@@ -33,7 +33,8 @@ cxx=g++
 
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
-	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [ubsanclang]=$cxx [leaks]=$cxx [gpu]=$cxx [gpumetal]=$cxx)
+	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [ubsanclang]=$cxx [leaks]=$cxx [gpu]=$cxx [gpumetal]=$cxx
+	[kconfig]=$cxx)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
 # `// staged as: PATH` line names (a check scoped by file name), in a fork
@@ -96,6 +97,21 @@ gate_hardening()
 		printf '%s\n' "$out"
 	fi
 	return "$rc"
+}
+
+# SConstruct's preprocess-only pass over the kconfig table (its
+# _generate_kconfig_ui_table, with the same three defines) under the
+# hardened library's flags, as the dev profile runs it, then
+# generate-kconfig-udlr.py on the result: file $1 is the table.
+gate_kconfig()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	# shellcheck disable=SC2046  # the flags are words
+	"$cxx" -E -std=c++23 $(python3 "$DEV_DIR/hardening.py") \
+		-DDXX_KCONFIG_UI_ENUM=DXX_KCONFIG_UI_ENUM -DDXX_KCONFIG_UI_LABEL=DXX_KCONFIG_UI_LABEL \
+		-Dkc_item=kc_item -x c++ "$1" -o "$d/table.i" 2>&1 || return
+	python3 "$REPO_ROOT/similar/main/generate-kconfig-udlr.py" "$d/table.i" "$d/udlr.h" 2>&1
 }
 
 # Print site-asan.py's values of the variables "$@", space-separated, as
@@ -193,6 +209,7 @@ run_planted()
 test_tidy() { run_planted tidy; }
 test_strict() { run_planted strict; }
 test_hardening() { run_planted hardening; }
+test_kconfig() { run_planted kconfig; }
 test_asan() { run_planted asan; }
 test_ubsan() { run_planted ubsan; }
 
