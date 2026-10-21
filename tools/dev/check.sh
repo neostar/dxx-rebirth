@@ -234,9 +234,11 @@ step_tidy()
 
 # Build D2X with the dev profile and run the unit tests, under
 # no-window.sh: a test that takes focus or crashes into a report fails.
+# The compilation database, which `check` alone does not write, is for
+# the tidy step.
 step_unit_tests()
 {
-	"$dev_dir/no-window.sh" "$dev_dir/build.sh" dev check
+	"$dev_dir/no-window.sh" "$dev_dir/build.sh" dev check build/dev/compile_commands.json
 }
 
 # Run the rtrace tests (#19) built by profile $1, each through the command
