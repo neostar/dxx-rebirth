@@ -189,4 +189,30 @@ test_staged_header_is_tidied_without_database_entry()
 	assert_not_contains "$out" "pragma-once"
 }
 
+# Test that --staged checks what is staged, not the working tree: a
+# NOLINT without a reason and a clang-tidy finding, staged and then fixed
+# in the working copy only, still fail, named by their repository paths;
+# and a staged fix of a broken working copy passes.
+test_staged_reads_the_index_not_the_working_tree()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s\n' 'int *null_pointer();' 'int *null_pointer() { return 0; } // NOLINT' \
+		> "$r/src/anchor.cpp"
+	"$r/tools/dev/format.sh" "$r/src" || die "format failed"
+	tgit -C "$r" add src/anchor.cpp
+	printf '%s\n' 'int *null_pointer();' 'int *null_pointer()' '{' $'\treturn nullptr;' '}' \
+		> "$r/src/anchor.cpp"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/anchor.cpp:5: NOLINT without a check and a reason"
+	assert_contains "$out" "src/anchor.cpp:4:9: error: use nullptr"
+	assert_contains "$out" "modernize-use-nullptr"
+	assert_not_contains "$out" "format-staged."
+	tgit -C "$r" add src/anchor.cpp
+	printf 'int *broken() { return 0; } // NOLINT\n' > "$r/src/anchor.cpp"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 run_tests
