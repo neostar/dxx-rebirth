@@ -12,6 +12,14 @@
 # not seen).  The hook cannot tell DXX_ALLOW_LARGE_COMMIT given on the
 # command line from one left exported in the shell, as both arrive in
 # its environment: the printed reason is the reminder.
+#
+# git runs no pre-commit hook for the commits a rebase makes, so a squash
+# or fixup in `rebase -i` that joins small commits into a large one passes
+# it.  check.sh's commit_sizes step is the backstop: `commit-size.sh
+# --history BASE` measures every commit in BASE..HEAD against its first
+# parent and fails on one over the limit, unless its message has a
+# `Large-commit: <reason>` trailer or tools/dev/commit-size-allow lists its
+# subject with a reason.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 max=300
@@ -33,18 +41,43 @@ amending()
 	return 1
 }
 
+# Print the changed lines of the staged change against $1, or with $2 of
+# commit $2 against $1.
+count()
+{
+	local range=(--cached "$1")
+	[[ -n ${2-} ]] && range=("$1" "$2")
+	git diff --numstat --no-renames "${range[@]}" |
+		awk -v ex="$dev_dir/commit-size-exclude" -v bin="$binary_lines" '
+		BEGIN { while ((getline l < ex) > 0) if (l !~ /^#/ && l != "") skip[l] = 1 }
+		$3 in skip { next }
+		$1 == "-" { n += bin; next }
+		{ n += $1 + $2 }
+		END { print n + 0 }'
+}
+
+if [[ ${1-} == --history ]]; then
+	rc=0
+	allowed=$(sed -nE 's/^(.+) -- [^[:space:]].*$/\1/p' "$dev_dir/commit-size-allow" 2>/dev/null)
+	for c in $(git rev-list --no-merges "$2..HEAD"); do
+		lines=$(count "$c^" "$c")
+		[[ $lines -le $max ]] && continue
+		git log -1 --format=%B "$c" | grep -qE '^Large-commit: [^[:space:]]' && continue
+		subject=$(git log -1 --format=%s "$c")
+		grep -qxF -- "$subject" <<<"$allowed" && continue
+		echo "commit-size: $lines changed lines, over $max: $subject; split it, or give" \
+			"a Large-commit: <reason> trailer"
+		rc=1
+	done
+	exit "$rc"
+fi
+
 base=HEAD
 if amending; then
 	base=$(git rev-parse -q --verify HEAD^ 2>/dev/null) ||
 		base=$(git hash-object -t tree /dev/null)
 fi
-lines=$(git diff --cached --numstat --no-renames "$base" |
-	awk -v ex="$dev_dir/commit-size-exclude" -v bin="$binary_lines" '
-	BEGIN { while ((getline l < ex) > 0) if (l !~ /^#/ && l != "") skip[l] = 1 }
-	$3 in skip { next }
-	$1 == "-" { n += bin; next }
-	{ n += $1 + $2 }
-	END { print n + 0 }')
+lines=$(count "$base")
 [[ $lines -le $max ]] && exit 0
 if [[ -n ${DXX_ALLOW_LARGE_COMMIT-} ]]; then
 	echo "commit-size: $lines changed lines allowed: $DXX_ALLOW_LARGE_COMMIT"

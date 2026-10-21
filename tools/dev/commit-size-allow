@@ -1,0 +1,4 @@
+# Fork commits over the 300-line limit (conventions.md, Commits) made
+# before check.sh's commit_sizes step, which carry no Large-commit:
+# trailer: one subject per line, then " -- " and the reason.
+`doctor.sh`: fail on drift from the pinned toolchain -- the toolchain check with its tests, before the history check existed

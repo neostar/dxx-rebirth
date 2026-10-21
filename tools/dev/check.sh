@@ -352,6 +352,19 @@ step_gpu_tests()
 	return "$rc"
 }
 
+# The commit size limit over the fork's history (commit-size.sh
+# --history): every commit in upstream/master..HEAD against its first
+# parent, which also catches a rebase -i squash or fixup, for which git
+# runs no pre-commit hook.  Without upstream/master the check is a SKIP.
+step_commit_sizes()
+{
+	if ! git -C "$root" rev-parse -q --verify upstream/master >/dev/null; then
+		echo "SKIP commit_sizes: no upstream/master; fetch upstream to run this check"
+		return 0
+	fi
+	(cd "$root" && "$dev_dir/commit-size.sh" --history upstream/master)
+}
+
 # Check the toolchain against tools/dev/toolchain.pins.
 step_doctor()
 {
@@ -433,7 +446,7 @@ step_leaks()
 
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
-	workflows test_git gpu_gate shell_tests)
+	workflows commit_sizes test_git gpu_gate shell_tests)
 full_steps=(secrets_history unit_tests leaks gpu_tests tidy sanitizer_tests)
 
 mode=full

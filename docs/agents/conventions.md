@@ -115,7 +115,10 @@ Done when every touched line follows the rules for its kind of code.
   the generated files `tools/dev/commit-size-exclude` lists, counting a binary file as 100 lines
   and an amend as the whole amended commit; for a larger change that cannot be
   split, commit with `DXX_ALLOW_LARGE_COMMIT=<reason>`, which the hook prints, and give the reason
-  in the body.
+  in a `Large-commit: <reason>` trailer. git runs no hook for the commits a `rebase -i` squash or
+  fixup makes, so `check.sh --fast` (`commit_sizes`) measures every fork commit against its first
+  parent too, letting through only a `Large-commit:` trailer or a subject that
+  `tools/dev/commit-size-allow` lists with a reason.
 - Docs change in the same series as the code they describe.
 - Commits are signed; push only signed commits.
 - Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.

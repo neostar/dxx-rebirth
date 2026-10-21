@@ -22,7 +22,7 @@ make_dev_repo()
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
-		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/gpu-programs" \
+		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/commit-size-allow" "$DEV_DIR/gpu-programs" \
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
@@ -827,6 +827,35 @@ test_pre_commit_hook_limits_commit_size()
 	seq 300 > "$r/small.txt"
 	tgit -C "$r" add gen.lock small.txt
 	out=$(tgit -C "$r" commit -q -m lock 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a rebase -i squash and fixup joining small commits into one
+# over 300 lines, which git makes without the pre-commit hook, fails the
+# fast checks' commit_sizes step, naming it; a Large-commit: trailer or an
+# allow-list entry with a reason lets it through.
+test_fast_fails_on_large_commit_made_by_squash()
+{
+	local r up fork out rc i
+	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
+	for i in 1 2 3; do
+		seq 120 | sed "s/^/$i /" > "$r/part$i.txt"
+		tgit -C "$r" add "part$i.txt"
+		tgit -C "$r" commit -q -m "part $i" || die "commit $i failed"
+	done
+	GIT_SEQUENCE_EDITOR="sed -i.bak -e '/part 2/s/^pick/squash/' -e '/part 3/s/^pick/fixup/'" \
+		GIT_EDITOR=true tgit -C "$r" rebase -q -i HEAD~3 >/dev/null || die "rebase failed"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "commit-size: 360 changed lines, over 300: part 1"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "commit_sizes"
+	printf 'part 1 -- three parts of one table\n' >> "$r/tools/dev/commit-size-allow"
+	out=$(cd "$r" && tools/dev/commit-size.sh --history upstream/master 2>&1)
+	assert_eq "$?" 0 "$out"
+	sed -i.bak '$d' "$r/tools/dev/commit-size-allow"
+	tgit -C "$r" commit -q --amend -m 'part 1' -m 'Large-commit: three parts of one table' --no-verify
+	out=$(cd "$r" && tools/dev/commit-size.sh --history upstream/master 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
