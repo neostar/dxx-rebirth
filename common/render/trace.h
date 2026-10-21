@@ -111,6 +111,8 @@ class writer
 	 */
 	void texture(texture_slot slot, const texture_image *image);
 	void draw(const draw_call &call);
+	/* A record as read, written back as the same bytes. */
+	void write(const record &r);
 	[[nodiscard]]
 	std::vector<std::uint8_t> take();
 };

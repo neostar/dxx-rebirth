@@ -22,7 +22,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   (`perspective`, `ortho`, `translate_scale`, `identity`), never as a matrix.
 - **Caps**: what an adapter supports beyond the common set (quad-buffer stereo, `copy_region`,
   anisotropy).
-- **Trace**: a recorded sequence of render-device calls (`.rtr`), replayed by `rtrace`.
+- **Trace**: a recorded sequence of render-device calls (`.rtr`), replayed by `rtrace`: one
+  record per draw, texture (its pixels included), clear and present, so it replays without the
+  game and a present marks each frame's end. Format, writer and reader: `common/render/trace.h`.
 - **Capture**: frames recorded from the real game through the GL interposer; derived from licensed
   data, so never committed.
 - **Synthetic trace**: a trace generated from procedural data; may be committed.

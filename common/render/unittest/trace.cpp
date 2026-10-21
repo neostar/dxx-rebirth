@@ -193,6 +193,30 @@ const render::draw_call world_draw{
 	                                                    .scale = {{1.f, 1.f, -1.f}}}},
 };
 
+/* Two frames using every record kind, with a mid-frame depth clear. */
+bytes two_frames()
+{
+	const std::vector<std::uint8_t> rgba{255, 0, 0, 255};
+	const render::texture_image image{{.size = {.width = 1, .height = 1},
+	                                   .format = render::texture_format::rgba8,
+	                                   .filter = render::filter::nearest,
+	                                   .anisotropic = false,
+	                                   .has_transparency = false},
+	                                  rgba};
+	trace::writer w;
+	w.clear({.color = true, .depth = true});
+	w.texture({42}, &image);
+	w.draw(world_draw);
+	w.clear({.color = false, .depth = true});
+	w.draw(world_draw);
+	w.draw(hud_draw);
+	w.present();
+	w.texture({42}, nullptr);
+	w.draw(hud_draw);
+	w.present();
+	return w.take();
+}
+
 }
 
 /* Test that draws read back with every field and vertex they were written
@@ -216,6 +240,56 @@ BOOST_AUTO_TEST_CASE(draw_round_trip)
 	const auto &world{std::get<trace::draw>(records.value().back())};
 	BOOST_TEST((world.vertices == fan));
 	BOOST_TEST((world.call() == world_draw));
+}
+
+/* Test that a trace of frames keeps its frame boundaries and clears in
+ * order, and that writing its records back gives the same bytes.
+ */
+BOOST_AUTO_TEST_CASE(frames_round_trip)
+{
+	const auto out{two_frames()};
+	const auto records{trace::read_all(out)};
+	BOOST_REQUIRE(records.has_value());
+	BOOST_TEST(records.value().size() == 10u);
+	const auto presents{std::ranges::count_if(records.value(), [](const trace::record &r) {
+		return std::holds_alternative<trace::present>(r);
+	})};
+	BOOST_TEST(presents == 2);
+	BOOST_TEST(
+	    (records.value().at(3) == trace::record{trace::clear{.color = false, .depth = true}}));
+	trace::writer again;
+	for (const auto &r : records.value())
+		again.write(r);
+	BOOST_TEST((again.take() == out));
+}
+
+/* Test that a trace with any one bit flipped is read without undefined
+ * behaviour (the asan profile checks it), and that whatever it accepts it
+ * writes back as the same bytes: no two traces read as the same records.
+ */
+BOOST_AUTO_TEST_CASE(every_bit_flip_read_safely)
+{
+	const auto good{two_frames()};
+	std::size_t accepted{0};
+	for (std::size_t i{0}; i < good.size(); ++i)
+		for (unsigned bit{0}; bit < 8; ++bit)
+		{
+			auto bad{good};
+			bad.at(i) = static_cast<std::uint8_t>(bad.at(i) ^ (1u << bit));
+			const auto records{trace::read_all(bad)};
+			if (!records)
+				continue;
+			++accepted;
+			trace::writer w;
+			for (const auto &r : records.value())
+				w.write(r);
+			BOOST_TEST_CONTEXT("byte " << i << " bit " << bit)
+			{
+				BOOST_TEST((w.take() == bad));
+			}
+		}
+	/* Flips in float fields and pixels are still valid traces. */
+	BOOST_TEST(accepted > 0u);
 }
 
 namespace {

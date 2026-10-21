@@ -394,6 +394,21 @@ void writer::draw(const draw_call &call)
 		bytes_[length_at + i] = static_cast<std::uint8_t>(length >> (8 * i));
 }
 
+void writer::write(const record &r)
+{
+	if (const auto *const c{std::get_if<trace::clear>(&r)})
+		clear(*c);
+	else if (std::holds_alternative<trace::present>(r))
+		present();
+	else if (const auto *const t{std::get_if<trace::texture>(&r)})
+	{
+		const auto image{t->image()};
+		texture(t->slot, image ? &image.value() : nullptr);
+	}
+	else if (const auto *const d{std::get_if<trace::draw>(&r)})
+		draw(d->call());
+}
+
 draw_call draw::call() const
 {
 	return {.topology = topology,
