@@ -47,12 +47,23 @@ std::string_view frame_of(const std::string_view line)
 
 }
 
-/* Test that a section header names what plays: the demo's file, or no demo. */
+/* Test that a section header names what plays: the demo's file, the scene, or no demo. */
 BOOST_AUTO_TEST_CASE(section_headers)
 {
 	BOOST_TEST(dcx::frame_hash_section::no_demo().header_line() == "# no demo\n");
 	BOOST_TEST(dcx::frame_hash_section::demo_playback("demos/a.dem").header_line() ==
 	           "# demo playback demos/a.dem\n");
+	BOOST_TEST(dcx::frame_hash_section::scene("s1-title-menu").header_line() ==
+	           "# scene s1-title-menu\n");
+}
+
+/* Test that a scene and a demo of the same name are different sections. */
+BOOST_AUTO_TEST_CASE(scene_is_not_a_demo)
+{
+	const auto scene{dcx::frame_hash_section::scene("a")};
+	BOOST_TEST(!(scene == dcx::frame_hash_section::demo_playback("a")));
+	BOOST_TEST(!(scene == dcx::frame_hash_section::no_demo()));
+	BOOST_TEST((scene == dcx::frame_hash_section::scene("a")));
 }
 
 /* Test that the log opens a section before the first frame and counts its frames from 0. */

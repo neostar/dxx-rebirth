@@ -22,35 +22,38 @@
 
 namespace dcx {
 
-/* What plays while a frame is presented: a demo, named by its file, or no
- * demo (title screens, menus, the game).  Each change starts a section of
- * the frame hash log.
+/* What plays while a frame is presented: a demo, named by its file, a
+ * scripted scene, named by its input script, or neither (title screens,
+ * menus, the game).  Each change starts a section of the frame hash log.
  */
 class frame_hash_section
 {
-	/* The demo's file; nullopt when no demo plays. */
-	std::optional<std::string> demo_file;
-	explicit frame_hash_section(std::optional<std::string> file) : demo_file{std::move(file)}
+	/* The section's header line. */
+	std::string header;
+	explicit frame_hash_section(std::string h) : header{std::move(h)}
 	{}
 
   public:
 	[[nodiscard]]
 	static frame_hash_section no_demo()
 	{
-		return frame_hash_section{std::nullopt};
+		return frame_hash_section{"# no demo\n"};
 	}
 	[[nodiscard]]
 	static frame_hash_section demo_playback(const std::string_view file)
 	{
-		return frame_hash_section{std::string{file}};
+		return frame_hash_section{"# demo playback " + std::string{file} + '\n'};
 	}
-	/* "# demo playback <file>\n" or "# no demo\n". */
 	[[nodiscard]]
-	std::string header_line() const
+	static frame_hash_section scene(const std::string_view name)
 	{
-		if (!demo_file)
-			return "# no demo\n";
-		return "# demo playback " + demo_file.value() + '\n';
+		return frame_hash_section{"# scene " + std::string{name} + '\n'};
+	}
+	/* "# demo playback <file>\n", "# scene <name>\n" or "# no demo\n". */
+	[[nodiscard]]
+	const std::string &header_line() const
+	{
+		return header;
 	}
 	bool operator==(const frame_hash_section &) const = default;
 };
