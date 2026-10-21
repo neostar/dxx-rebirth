@@ -5013,6 +5013,9 @@ class DXXArchive(DXXCommon):
 			'common/unittest/physfsrwops.cpp',
 			'common/misc/physfsrwops.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-render-device', (
+			'common/render/unittest/render_device.cpp',
+			)),
 		RuntimeTest('test-serial', (
 			'common/unittest/serial.cpp',
 			)),
