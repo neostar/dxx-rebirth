@@ -57,16 +57,24 @@ if [[ -x $dev_venv/bin/python3 && :$PATH: != *":$dev_venv/bin:"* ]]; then
 fi
 unset _dev_root
 
+# The DXX_* settings the shell tests may see: the ones that pick this
+# machine's tools and caches or opt into slow tests.  Any other DXX_*
+# (a token, DXX_ALLOW_LARGE_COMMIT, a test's own override) stays out.
+# shellcheck disable=SC2034  # used by the scripts sourcing this file
+dev_test_dxx_vars=(DXX_JOBS DXX_VENV DXX_DEPS_PREFIX DXX_DEPS_CACHE DXX_BUILD_TESTS
+	DXX_REPRO_TESTS DXX_CONTAINER_TESTS)
+
 # Fill array $1 with NAME=VALUE for each variable the shell tests may see
-# (ADR 4): the basics, every DXX_* and the sanitizer options set above;
-# everything else in the caller's environment stays out.
+# (ADR 4): the basics, the DXX_* settings above, the sanitizer options set
+# above and SDL_MAC_BACKGROUND_APP (no-window.sh); everything else in the
+# caller's environment stays out.
 dev_test_env()
 {
 	local -n _env=$1
 	local v
 	_env=()
 	for v in PATH HOME TMPDIR LANG LC_ALL TZ USER ASAN_OPTIONS UBSAN_OPTIONS \
-		$(compgen -e | grep '^DXX_'); do
+		SDL_MAC_BACKGROUND_APP "${dev_test_dxx_vars[@]}"; do
 		[[ -v $v ]] && _env+=("$v=${!v}")
 	done
 }

@@ -133,6 +133,9 @@ step_shell_tests()
 	done
 	out=$(mktemp -d "${TMPDIR:-/tmp}/check-shell-tests.XXXXXX")
 	dev_test_env test_env
+	# no-window.sh exports SDL_MAC_BACKGROUND_APP=1 before env -i, which
+	# would drop it: pass it on by name.
+	test_env+=(SDL_MAC_BACKGROUND_APP=1)
 	for i in "${!tests[@]}"; do
 		while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
 			wait -n

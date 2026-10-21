@@ -475,15 +475,17 @@ test_leak_detection_on_except_macos()
 }
 
 # Test that shell tests run in a clean environment: a variable outside the
-# allowlist is invisible to them, the allowlisted ones get through.
+# allowlist, an unknown DXX_* among them, is invisible to them; the named
+# DXX_* settings and no-window.sh's SDL_MAC_BACKGROUND_APP get through.
 test_shell_tests_see_only_allowlisted_environment()
 {
 	local r out
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	printf '#!/usr/bin/env bash\necho "token=${SECRET_TOKEN-unset} dxx=${DXX_DECOY-unset}"\n' \
-		> "$r/tools/dev/tests/env_test.sh"
-	out=$(SECRET_TOKEN=decoy DXX_DECOY=kept "$r/tools/dev/check.sh" --fast 2>&1)
-	assert_contains "$out" "token=unset dxx=kept"
+	printf '#!/usr/bin/env bash\necho "token=%s dxx=%s jobs=%s sdl=%s"\n' \
+		'${SECRET_TOKEN-unset}' '${DXX_DECOY-unset}' '${DXX_JOBS-unset}' \
+		'${SDL_MAC_BACKGROUND_APP-unset}' > "$r/tools/dev/tests/env_test.sh"
+	out=$(SECRET_TOKEN=decoy DXX_DECOY=leaked DXX_JOBS=3 "$r/tools/dev/check.sh" --fast 2>&1)
+	assert_contains "$out" "token=unset dxx=unset jobs=3 sdl=1"
 }
 
 # Test that the fast subset fails on a workflow upstream/master does not
