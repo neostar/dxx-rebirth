@@ -164,3 +164,48 @@ BOOST_AUTO_TEST_CASE(fan_to_list_drops_degenerate_fan)
 	BOOST_TEST(render::fan_to_list(std::span(pentagon).first(2)).empty());
 	BOOST_TEST(render::fan_to_list(std::span(pentagon).first(0)).empty());
 }
+
+/* Test that transform recipes compare by their GL call arguments: the same
+ * arguments are equal, and changing any one makes them unequal.
+ */
+BOOST_AUTO_TEST_CASE(transform_recipes_equal_by_arguments)
+{
+	const render::perspective game{.fovy = 90.0, .aspect = 1.0, .z_near = 0.1, .z_far = 5000.0};
+	BOOST_TEST((game == render::perspective{90.0, 1.0, 0.1, 5000.0}));
+	BOOST_TEST((game != render::perspective{90.0, 1.0, 0.1, 5000.0, 0.5f}));
+	BOOST_TEST((game != render::perspective{60.0, 1.0, 0.1, 5000.0}));
+	BOOST_TEST((game != render::perspective{90.0, 4.0 / 3.0, 0.1, 5000.0}));
+	BOOST_TEST((game != render::perspective{90.0, 1.0, 1.0, 5000.0}));
+	BOOST_TEST((game != render::perspective{90.0, 1.0, 0.1, 1000.0}));
+	const render::ortho unit{
+	    .left = 0, .right = 1, .bottom = 0, .top = 1, .z_near = -1, .z_far = 1};
+	BOOST_TEST((unit == render::ortho{0, 1, 0, 1, -1, 1}));
+	BOOST_TEST((unit != render::ortho{-1, 1, 0, 1, -1, 1}));
+	BOOST_TEST((unit != render::ortho{0, 2, 0, 1, -1, 1}));
+	BOOST_TEST((unit != render::ortho{0, 1, -1, 1, -1, 1}));
+	BOOST_TEST((unit != render::ortho{0, 1, 0, 2, -1, 1}));
+	BOOST_TEST((unit != render::ortho{0, 1, 0, 1, 0, 1}));
+	BOOST_TEST((unit != render::ortho{0, 1, 0, 1, -1, 2}));
+	const render::translate_scale ts{.translate = {{0.5f, 0.25f, 0}}, .scale = {{2, 3, 1}}};
+	BOOST_TEST((ts == render::translate_scale{{{0.5f, 0.25f, 0}}, {{2, 3, 1}}}));
+	BOOST_TEST((ts != render::translate_scale{{{0.5f, 0.25f, 1}}, {{2, 3, 1}}}));
+	BOOST_TEST((ts != render::translate_scale{{{0.5f, 0.25f, 0}}, {{2, 3, 4}}}));
+}
+
+/* Test that recipes of different kinds are unequal even where their matrices
+ * would be the same: a recipe is a GL call sequence, never a matrix.
+ */
+BOOST_AUTO_TEST_CASE(transform_recipes_of_different_kinds_unequal)
+{
+	const render::modelview none{render::identity{}};
+	const render::modelview unit_scale{render::translate_scale{{{0, 0, 0}}, {{1, 1, 1}}}};
+	BOOST_TEST((none == render::modelview{render::identity{}}));
+	BOOST_TEST((none != unit_scale));
+	const render::projection gl_ortho{render::ortho{0, 1, 0, 1, -1, 1}};
+	const render::projection gl_perspective{render::perspective{90.0, 1.0, 0.1, 5000.0}};
+	BOOST_TEST((gl_ortho != gl_perspective));
+	const render::transforms a{.projection = gl_ortho, .modelview = none};
+	BOOST_TEST((a == render::transforms{gl_ortho, none}));
+	BOOST_TEST((a != render::transforms{gl_perspective, none}));
+	BOOST_TEST((a != render::transforms{gl_ortho, unit_scale}));
+}

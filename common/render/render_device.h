@@ -22,6 +22,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace dcx::render {
@@ -198,6 +199,62 @@ inline std::vector<vertex> fan_to_list(const std::span<const vertex> fan)
 	}
 	return list;
 }
+
+/* Transform recipes: each projection and modelview the game sets, described
+ * by the arguments of the GL calls that build it, never as a matrix (ADR 2).
+ * The GL adapter replays the same calls, so its matrices keep today's bits;
+ * the SDL_GPU adapter builds its own matrices from them.
+ */
+
+/* gluPerspective(fovy, aspect, z_near, z_far); a non-zero stereo_dx is then
+ * added to element 8 of the matrix, as the stereo modes do.
+ */
+struct perspective
+{
+	double fovy{};
+	double aspect{};
+	double z_near{};
+	double z_far{};
+	float stereo_dx{0};
+	constexpr bool operator==(const perspective &) const = default;
+};
+
+/* glOrtho(left, right, bottom, top, z_near, z_far). */
+struct ortho
+{
+	double left{};
+	double right{};
+	double bottom{};
+	double top{};
+	double z_near{};
+	double z_far{};
+	constexpr bool operator==(const ortho &) const = default;
+};
+
+/* glLoadIdentity, then glTranslatef(translate), then glScalef(scale). */
+struct translate_scale
+{
+	std::array<float, 3> translate;
+	std::array<float, 3> scale;
+	constexpr bool operator==(const translate_scale &) const = default;
+};
+
+/* glLoadIdentity alone. */
+struct identity
+{
+	constexpr bool operator==(const identity &) const = default;
+};
+
+using projection = std::variant<perspective, ortho>;
+using modelview = std::variant<identity, translate_scale>;
+
+/* The projection and modelview of one draw call. */
+struct transforms
+{
+	render::projection projection;
+	render::modelview modelview;
+	constexpr bool operator==(const transforms &) const = default;
+};
 
 }
 
