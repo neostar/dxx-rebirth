@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Shared helpers for the shell tests in tools/dev/tests; sourced, not run.
 # Each test file defines functions named test_*; run_tests runs them in
-# order, reports skipped ones, and exits non-zero if any failed.
+# order (only the ones named, when the file is run with test names as
+# arguments), reports skipped ones, and exits non-zero if any failed.
 
 DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC2034  # used by the test files
@@ -32,6 +33,8 @@ export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 
 _failures=0
+# A test file run with arguments runs only the tests they name.
+_lib_only=("$@")
 
 fail()
 {
@@ -253,6 +256,7 @@ run_tests()
 {
 	local t rc
 	for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
+		[[ ${#_lib_only[@]} -eq 0 || " ${_lib_only[*]} " == *" $t "* ]] || continue
 		# Asserts record failure in _test_failed, so a later passing
 		# assert cannot hide an earlier failing one.
 		rm -f "$_scratch_root/refused"
