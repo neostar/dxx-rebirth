@@ -107,6 +107,9 @@ char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPOR
 #include "net_udp.h"
 #endif
 #include "dsx-ns.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/harness_pilot.h"
+#endif
 
 #if DXX_USE_SDLIMAGE
 #include <SDL_image.h>
@@ -700,6 +703,13 @@ static int main(int argc, char *argv[])
 		if (!CGameArg.SysPilot.empty())
 		{
 			char filename[sizeof(PLAYER_DIRECTORY_TEXT) + CALLSIGN_LEN + 4];
+#if DXX_USE_DBG_HARNESS
+			/* The name the debug harness creates a missing -pilot
+			 * with below, read before SysPilot is cleared.
+			 */
+			const auto harness_pilot{harness_pilot_name(CGameArg.SysPilot)};
+			const std::string harness_pilot_arg{CGameArg.SysPilot};
+#endif
 
 			/* Step over the literal PLAYER_DIRECTORY_TEXT when it is
 			 * present.  Point at &filename[0] when
@@ -729,6 +739,26 @@ static int main(int argc, char *argv[])
 				read_player_file();
 				WriteConfigFile(CGameCfg, GameCfg);
 			}
+#if DXX_USE_DBG_HARNESS
+			else
+			{
+				/* The debug harness creates a missing -pilot with the
+				 * defaults, so a run in a fresh D2X_REBIRTH_HOME skips
+				 * the pilot prompt.  It takes only a name the new-pilot
+				 * menu accepts: for any other, the file found missing
+				 * above and the pilot written would differ
+				 * (harness_pilot.h).  An existing file loads above
+				 * whatever its name, as upstream loads it.
+				 */
+				if (!harness_pilot)
+					UserError("-pilot \"%s\": no such pilot, and a new pilot takes 1 to 8 letters, digits, _ or -", harness_pilot_arg.c_str());
+				InterfaceUniqueState.PilotName.copy(std::span<const char>(harness_pilot.value()));
+				InterfaceUniqueState.update_window_title();
+				new_player_config();
+				write_player_file();
+				WriteConfigFile(CGameCfg, GameCfg);
+			}
+#endif
 		}
 	}
 

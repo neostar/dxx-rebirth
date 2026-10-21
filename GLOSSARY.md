@@ -33,6 +33,7 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   line per presented frame, `<frame> <w>x<h> <FNV-1a 64 of its RGB pixels>`, in sections headed
   `# demo playback <demo file>` or `# no demo` that each count frames from 0, so a demo's frames
   line up across runs. `DXX_DBG_HIDDEN=1` creates the window hidden, so nothing shows on screen;
-  on macOS its frames hash the same as a shown window's.
+  on macOS its frames hash the same as a shown window's. `-pilot name` creates a missing pilot with the
+  defaults, so a fresh `D2X_REBIRTH_HOME` skips the pilot prompt.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.
