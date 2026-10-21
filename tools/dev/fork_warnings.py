@@ -2,10 +2,13 @@
 # -Wshadow -Werror on every compile whose source lies in a directory listed
 # in tools/dev/fork-dirs; upstream files compile as before.  site-dev.py
 # calls install(), so the build.sh profiles get it and SConstruct stays
-# unchanged.  `python3 fork_warnings.py` prints the flags.
+# unchanged.  `python3 fork_warnings.py` prints the flags.  A profile adds
+# its own fork-only flags to FORK_ONLY_FLAGS (site-asan.py: UBSan's
+# implicit-conversion, which upstream code trips).
 import os
 
 STRICT_FLAGS = ('-Wconversion', '-Wsign-conversion', '-Wshadow', '-Werror')
+FORK_ONLY_FLAGS = []
 _dev_dir = os.path.dirname(os.path.realpath(__file__))
 _root = os.path.dirname(os.path.dirname(_dev_dir))
 
@@ -25,11 +28,12 @@ def _path(node):
 
 
 def flags_for(target, source, env, for_signature):
-	"""$_DXX_FORK_WARNINGS: STRICT_FLAGS when a source is fork code."""
+	"""$_DXX_FORK_WARNINGS: STRICT_FLAGS and FORK_ONLY_FLAGS when a source
+	is fork code."""
 	dirs = fork_dirs()
 	for s in source or ():
 		if _path(s).startswith(dirs):
-			return list(STRICT_FLAGS)
+			return list(STRICT_FLAGS) + FORK_ONLY_FLAGS
 	return []
 
 

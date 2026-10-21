@@ -1,0 +1,11 @@
+// An int narrowed to a byte without a cast, losing its value at run time:
+// valid C++ that only UBSan's implicit-conversion check reports.
+// gate ubsanclang: implicit conversion from type 'int' of value 256
+#include <cstdint>
+
+int main(const int argc, char **)
+{
+	const int wide{255 + argc};
+	const std::uint8_t narrow = wide;
+	return narrow;
+}

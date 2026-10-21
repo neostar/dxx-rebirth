@@ -1,0 +1,14 @@
+// A null pointer passed for a parameter declared _Nonnull: UBSan's
+// nullability check reports it.
+// gate ubsanclang: null pointer passed as argument 1, which is declared to never be null
+static int value_or_zero(const int *_Nonnull value)
+{
+	return value ? *value : 0;
+}
+
+int main(const int argc, char **)
+{
+	const int one{1};
+	const int *const value{argc > 0 ? nullptr : &one};
+	return value_or_zero(value);
+}

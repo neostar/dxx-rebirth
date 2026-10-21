@@ -34,6 +34,7 @@ cxx=g++
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
 	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [leaks]=$cxx [gpu]=$cxx)
+gate_tool[ubsanclang]=$cxx
 
 # The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
 # `// staged as: PATH` line names (a check scoped by file name), in a fork
@@ -97,15 +98,27 @@ gate_hardening()
 	return "$rc"
 }
 
+# Print site-asan.py's values of the variables "$@", space-separated, as
+# SCons reads them (with tools/dev on sys.path).
+asan_site()
+{
+	python3 -I -c 'import sys, os
+sys.path.insert(0, os.path.dirname(sys.argv[1]))
+v = {}
+exec(open(sys.argv[1]).read(), {}, v)
+print(" ".join(" ".join(x) if isinstance(x, list) else x for x in (v[n] for n in sys.argv[2:])))' \
+		"$DEV_DIR/site-asan.py" "$@"
+}
+
 # The asan profile (build.sh asan): run file $1 built with site-asan.py's
-# compiler and linker flags, under env.sh's sanitizer options (LeakSanitizer
-# on, except on macOS).  AddressSanitizer, LeakSanitizer and UBSan are one
-# build, so gates asan, lsan and ubsan are one runner.
+# compiler and linker flags, fork code's among them, under env.sh's
+# sanitizer options (LeakSanitizer on, except on macOS).  AddressSanitizer,
+# LeakSanitizer and UBSan are one build, so gates asan, lsan, ubsan and
+# ubsanclang are one runner.
 gate_sanitizers()
 {
 	local p flags
-	flags=$(python3 -I -c 'import sys; exec(open(sys.argv[1]).read())
-print(CXXFLAGS, LINKFLAGS)' "$DEV_DIR/site-asan.py") || return
+	flags=$(asan_site CXXFLAGS FORK_ONLY_CXXFLAGS LINKFLAGS) || return
 	# shellcheck disable=SC2086  # the flags are words
 	p=$(build_plant "$1" $flags) || return
 	"$p" 2>&1
@@ -113,6 +126,8 @@ print(CXXFLAGS, LINKFLAGS)' "$DEV_DIR/site-asan.py") || return
 gate_asan() { gate_sanitizers "$@"; }
 gate_lsan() { gate_sanitizers "$@"; }
 gate_ubsan() { gate_sanitizers "$@"; }
+# UBSan's Clang-only checks, which site-asan.py adds where g++ has them.
+gate_ubsanclang() { gate_sanitizers "$@"; }
 
 # macOS's leak check (leaks.sh, the check tier's leaks step): run file $1,
 # built without sanitizers, under leaks --atExit.
@@ -196,6 +211,17 @@ test_lsan()
 test_ubsan()
 {
 	run_planted ubsan
+}
+
+test_ubsanclang()
+{
+	local missing
+	need "${gate_tool[ubsanclang]}"
+	missing=$(asan_site CLANG_UBSAN_MISSING 2>/dev/null) ||
+		{ fail "site-asan.py failed"; return; }
+	[[ -z $missing ]] ||
+		skip "$cxx lacks -fsanitize=${missing// /,}; the Mac's Apple clang covers them"
+	run_planted ubsanclang
 }
 
 test_leaks()

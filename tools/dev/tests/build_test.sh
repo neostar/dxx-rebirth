@@ -136,16 +136,30 @@ for source in sources:
 }
 
 # Test that the site files add the strict warnings (ADR 5) to compiles of
-# sources in the fork directories only, once, without touching SConstruct.
+# sources in the fork directories only, once, without touching SConstruct;
+# the asan profile adds UBSan's implicit-conversion check there too, where
+# g++ has it (Apple clang, not GCC), and says so where it does not.
 test_site_files_add_strict_warnings_to_fork_sources_only()
 {
-	local out
-	out=$(site_fork_warnings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" 2>&1)
-	assert_eq "$out" '$INC $_DXX_FORK_WARNINGS
-dev: -Wconversion -Wsign-conversion -Wshadow -Werror
-tools: -Wconversion -Wsign-conversion -Wshadow -Werror
+	local out fork='-Wconversion -Wsign-conversion -Wshadow -Werror' note=''
+	out=$(site_fork_warnings "$DEV_DIR/site-dev.py" 2>&1)
+	assert_eq "$out" "\$INC \$_DXX_FORK_WARNINGS
+dev: $fork
+tools: $fork
 main: 
-toolsx: '
+toolsx: "
+	if g++ -fsanitize=implicit-conversion -x c++ -fsyntax-only - </dev/null 2>/dev/null; then
+		fork+=' -fsanitize=implicit-conversion -fno-sanitize-recover=implicit-conversion'
+	else
+		note='site-asan.py: g++ lacks -fsanitize=implicit-conversion,local-bounds,nullability; skipped
+'
+	fi
+	out=$(site_fork_warnings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" 2>&1)
+	assert_eq "$out" "$note\$INC \$_DXX_FORK_WARNINGS
+dev: $fork
+tools: $fork
+main: 
+toolsx: "
 }
 
 # Test, in a real build of a throwaway clone (slow, opt-in with

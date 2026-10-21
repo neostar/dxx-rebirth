@@ -155,6 +155,13 @@ tightening is its own small commit that leaves the tree green and updates the le
     parameters of one type, such as an SDL-shaped `(int w, int h)`. It comes back on when the
     strong-types rule has reached the fork's interfaces, so that adjacent same-typed parameters
     are rare enough to justify one by one.
+- **Level 2, run-time half (active)**: in the asan profile (`tools/dev/site-asan.py`), UBSan's
+  Clang-only checks, which `undefined` leaves out, each fatal: `local-bounds` (through the UBSan
+  runtime, `-fno-sanitize-trap`, since a trap leaves a crash report on macOS) and `nullability`
+  on every file, `implicit-conversion` on fork files only (`fork_warnings.py`), because
+  upstream's unit tests convert -1 to unsigned on purpose. site-asan.py adds each where `g++`
+  has it: Apple clang on the Mac; GCC 14 in the container has none, so the build prints a note
+  and the gate `ubsanclang` is a SKIP there.
 
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names

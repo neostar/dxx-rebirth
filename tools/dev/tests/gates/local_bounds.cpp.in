@@ -1,0 +1,14 @@
+// A local array read past its end through a pointer, where the array's
+// bounds are not in the indexing expression's type: UBSan's bounds check
+// misses it, its local-bounds check reports it.
+// gate ubsanclang: access out of bounds
+static int element(const int *values, const int index)
+{
+	return values[index];
+}
+
+int main(const int argc, char **)
+{
+	const int values[4]{1, 2, 3, 4};
+	return element(values, argc + 3);
+}
