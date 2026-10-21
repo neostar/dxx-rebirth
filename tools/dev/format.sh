@@ -259,7 +259,10 @@ header_filter()
 # and Objective-C++ ones are tidied only when the database has them.  A header has
 # no entry of its own, and the one clang-tidy would borrow may be GCC's
 # (the container), with flags clang rejects; headers are tidied with the
-# fork's own flags instead (fork_warnings.py, the pinned dependencies).
+# fork's own flags instead (fork_warnings.py, the pinned dependencies), and
+# see SDL as an sdl3=1 build does: <SDL.h>, <SDL_image.h> and <SDL_mixer.h>
+# in the SDL3, SDL3_image and SDL3_mixer include directories,
+# SDL_ENABLE_OLD_NAMES defined (ADR 3).
 # Source files keep their database entry, less the flags clang rejects.
 tidy()
 {
@@ -334,7 +337,9 @@ tidy_headers()
 	done
 	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "${sel[@]}" -- \
 		-x c++-header -std=c++23 "${flags[@]}" \
-		-isystem "$dev_deps_prefix/include" 2>&1 | strip_tree
+		-isystem "$dev_deps_prefix/include" -isystem "$dev_deps_prefix/include/SDL3" \
+		-isystem "$dev_deps_prefix/include/SDL3_image" -isystem "$dev_deps_prefix/include/SDL3_mixer" \
+		-DSDL_ENABLE_OLD_NAMES 2>&1 | strip_tree
 	[[ ${PIPESTATUS[0]} -eq 0 ]]
 }
 

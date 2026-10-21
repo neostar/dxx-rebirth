@@ -194,6 +194,38 @@ test_staged_header_is_tidied_without_database_entry()
 	assert_not_contains "$out" "pragma-once"
 }
 
+# Test that a staged fork header is tidied against the pinned SDL3 the way
+# sdl3=1 builds it (ADR 3): <SDL.h> found in the SDL3 include directory and
+# the SDL2 names compiled through SDL_ENABLE_OLD_NAMES.
+test_staged_header_sees_sdl3_as_sdl3_builds()
+{
+	local r out
+	[[ -e $dev_deps_prefix/include/SDL3/SDL.h ]] || skip "no pinned SDL3 headers in $dev_deps_prefix; run deps.sh"
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s\n' '#pragma once' '#include <SDL.h>' \
+		'inline bool is_stream(const SDL_RWops *ops) { return ops != nullptr; }' > "$r/src/stream.h"
+	"$r/tools/dev/format.sh" "$r/src" || die "format failed"
+	tgit -C "$r" add src/stream.h
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a staged fork header finds <SDL_image.h> and <SDL_mixer.h> in
+# the SDL3_image and SDL3_mixer include directories, as sdl3=1 builds do.
+test_staged_header_sees_sdl3_image_and_mixer()
+{
+	local r out
+	[[ -e $dev_deps_prefix/include/SDL3_mixer/SDL_mixer.h ]] ||
+		skip "no pinned SDL3_image and SDL3_mixer headers in $dev_deps_prefix; run deps.sh"
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s\n' '#pragma once' '#include <SDL_image.h>' '#include <SDL_mixer.h>' \
+		'inline int versions() { return IMG_Version() + MIX_Version(); }' > "$r/src/versions.h"
+	"$r/tools/dev/format.sh" "$r/src" || die "format failed"
+	tgit -C "$r" add src/versions.h
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 # Test that --staged checks what is staged, not the working tree: a
 # NOLINT without a reason and a clang-tidy finding, staged and then fixed
 # in the working copy only, still fail, named by their repository paths;
