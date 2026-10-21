@@ -1,0 +1,70 @@
+# Fork code checks (ADR 5, level 2); a copy is each fork directory's
+# .clang-tidy, which clangd and tools/dev/format.sh read.  clang-diagnostic-*
+# reports the compiler's warnings, the strict ones among them.  Left out at
+# level 1: easily-swappable-parameters (any adjacent same-type parameters) and
+# pro-type-vararg (every con_printf call, a format-checked idiom).
+# clang-tidy-checks lists the checks this enables on the pinned LLVM; a test
+# fails when they differ.  LLVM 23 moved the hicpp checks into bugprone:
+# unhandled-code-paths stays on without its noisy missing-else mode, and
+# signed-bitwise stays on with literals counted, each proven by a planted
+# file (tools/dev/tests/gates).  Left out at level 2: constant-array-index and
+# avoid-unchecked-container-access, which flag every subscript with a run-time
+# index, std::array and std::span included, that the hardened library traps.
+# ExtraArgs turns on LLVM 23 analyses that clang-diagnostic-* then reports:
+# -Wlifetime-safety-permissive (a pointer or view used after its owner dies),
+# which Apple clang 21 accepts but reports nothing for, so it lives here, not in
+# the build's flags; and -Wunsafe-buffer-usage (pointer arithmetic, subscripts
+# and pointer-plus-length constructions where std::span belongs, and libc
+# buffer calls such as memcpy with a raw size).
+ExtraArgs:
+  - -Wlifetime-safety-permissive
+  - -Wunsafe-buffer-usage
+Checks: >
+  -*,
+  clang-diagnostic-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  cppcoreguidelines-owning-memory,
+  cppcoreguidelines-pro-type-*,
+  -cppcoreguidelines-pro-type-vararg,
+  cppcoreguidelines-narrowing-conversions,
+  modernize-use-using,
+  modernize-use-nullptr,
+  modernize-use-override,
+  readability-identifier-naming,
+  misc-const-correctness,
+  cppcoreguidelines-use-enum-class,
+  cppcoreguidelines-avoid-c-arrays,
+  cppcoreguidelines-pro-bounds-*,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-special-member-functions,
+  custom-void-pointer-cast
+# A query-based check (LLVM 23, experimental: format.sh passes
+# --experimental-custom-checks): a cast from void * (static_cast,
+# reinterpret_cast, C-style) only in the SDL wrapper layer, the files named
+# sdl_wrap* (ADR 5).  The canonical type catches typedefs of void *, such as
+# SDL_MetalView; a cast to void (an unused userdata) is no cast from it.
+CustomChecks:
+  - Name: void-pointer-cast
+    Query: |
+      match explicitCastExpr(
+        hasSourceExpression(hasType(hasCanonicalType(pointerType(pointee(voidType()))))),
+        unless(hasDestinationType(voidType())),
+        unless(isExpansionInFileMatching("(^|/)sdl_wrap[^/]*$"))).bind("cast")
+    Diagnostic:
+      - BindName: cast
+        Message: "cast from void * outside the SDL wrapper layer (files named sdl_wrap*)"
+        Level: Warning
+CheckOptions:
+  readability-identifier-naming.FunctionCase: lower_case
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.ClassCase: lower_case
+  readability-identifier-naming.EnumConstantCase: lower_case
+  readability-identifier-naming.NamespaceCase: lower_case
+  bugprone-unhandled-code-paths.WarnOnMissingElse: false
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: false
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+WarningsAsErrors: '*'

@@ -5025,6 +5025,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-device', (
 			'common/render/unittest/render_device.cpp',
 			)),
+		RuntimeTest('test-shader-blobs', (
+			'shaders/unittest/shader_blobs.cpp',
+			)),
 		RuntimeTest('test-serial', (
 			'common/unittest/serial.cpp',
 			)),
