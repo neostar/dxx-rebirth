@@ -126,6 +126,12 @@ gate_gpu()
 	env "${video[@]}" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
 }
 
+# Succeed inside a container: Docker's or Podman's marker file.
+in_container()
+{
+	[[ -e /.dockerenv || -e /run/.containerenv ]]
+}
+
 # Run gate $1 on every planted file that names it, and fail unless one does.
 run_planted()
 {
@@ -190,9 +196,28 @@ test_leaks()
 
 test_gpu()
 {
-	[[ -e $dev_deps_prefix/include/SDL3/SDL_gpu.h ]] ||
+	# The container's image holds the pinned SDL3: missing there, the gate
+	# is broken, not unavailable.
+	if [[ ! -e $dev_deps_prefix/include/SDL3/SDL_gpu.h ]]; then
+		in_container && die "no pinned SDL3 in $dev_deps_prefix, which the image builds"
 		skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
+	fi
 	run_planted gpu
+}
+
+# Test that the GPU gate fails without the pinned SDL3 in the container,
+# whose image builds it, and skips without it elsewhere.
+test_gpu_without_pinned_sdl3_fails_only_in_container()
+{
+	local out rc empty
+	empty=$(make_scratch) || die "make_scratch failed"
+	out=$(exec 2>&1; dev_deps_prefix=$empty; in_container() { :; }; test_gpu; echo ran) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no pinned SDL3 in $empty, which the image builds"
+	out=$(exec 2>&1; dev_deps_prefix=$empty; in_container() { false; }; test_gpu; echo ran) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 77 "$out"
 }
 
 # Test that each gate a planted file names without a runner has an owning

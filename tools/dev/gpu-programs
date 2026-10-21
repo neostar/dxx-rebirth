@@ -1,0 +1,3 @@
+# SDL_GPU programs check.sh's gpu_tests step runs, each under
+# gpu-validate.sh, one path per line relative to the repo root (a program
+# the full build makes, such as build/dev/...).  #24 registers the first.

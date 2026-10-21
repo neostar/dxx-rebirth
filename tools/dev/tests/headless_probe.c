@@ -20,8 +20,9 @@ int main(void)
 		fprintf(stderr, "headless_probe: SDL_Init: %s\n", SDL_GetError());
 		return 1;
 	}
+	/* debug_mode true, as ADR 5 asks of every SDL_GPU device. */
 	SDL_GPUDevice *dev =
-	    SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
+	    SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_SPIRV, true, NULL);
 	if (!dev)
 	{
 		fprintf(stderr, "headless_probe: SDL_CreateGPUDevice: %s\n", SDL_GetError());

@@ -14,7 +14,8 @@ make_dev_repo()
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
-		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$r/tools/dev/"
+		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/gpu-programs" \
+		"$DEV_DIR/gpu_debug_mode.py" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
@@ -265,6 +266,63 @@ test_fast_fails_on_raw_git_in_tests()
 	printf '%s\n' '#!/usr/bin/env bash' "$body # raw git: a test" > "$r/tools/dev/tests/raw_test.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
+}
+
+# Test that the fast subset fails on fork code creating an SDL_GPU device
+# without debug_mode true, naming file and line, and that the check lets
+# true through, however the call is spread over lines.
+test_fast_fails_on_gpu_device_without_debug_mode()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '%s\n' 'auto *a = SDL_CreateGPUDevice(f(1, 2),' '	true, nullptr);' \
+		'auto *b = SDL_CreateGPUDevice(f(1, 2), false, nullptr);' > "$r/tools/gpu.cpp"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/gpu.cpp:3: SDL_CreateGPUDevice without debug_mode true"
+	assert_not_contains "$out" "tools/gpu.cpp:1: SDL_CreateGPUDevice"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gpu_gate"
+	sed -i.bak 's/false, nullptr/debug, nullptr/' "$r/tools/gpu.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	sed -i.bak '3d' "$r/tools/gpu.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that the fast subset fails on a line of check.sh that runs a
+# registered GPU program other than through gpu-validate.sh.
+test_fast_fails_on_gpu_program_run_outside_the_wrapper()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '%s\n' 'unwrapped() { "$gpu_program"; }' >> "$r/tools/dev/check.sh"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" 'unwrapped() { "$gpu_program"; }'
+	assert_contains "$out" "failed: gpu_gate"
+}
+
+# Test that the full checks run every registered GPU program under
+# gpu-validate.sh, failing on a validation message, and SKIP naming #24
+# with none registered.
+test_full_runs_gpu_programs_under_gpu_validate()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs; #24"
+	mkdir -p "$r/build/dev"
+	printf '%s\n' '#!/bin/sh' "echo 'Validation layers enabled'" "echo 'SDL_GPU Driver: Vulkan'" \
+		"echo 'Validation Error: [ VUID-x ] bad'" > "$r/build/dev/gpu-probe"
+	chmod +x "$r/build/dev/gpu-probe"
+	echo build/dev/gpu-probe >> "$r/tools/dev/gpu-programs"
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "gpu-validate: gpu-probe: 1 from the driver's validation layer"
+	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: gpu_tests' "$out"
 }
 
 # Test that an unknown option is a usage error with exit status 2.

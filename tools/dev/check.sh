@@ -171,6 +171,41 @@ step_test_git()
 	return 1
 }
 
+# GPU validation is a gate (ADR 5): fail on an SDL_CreateGPUDevice call in
+# fork code whose debug_mode is not true (gpu_debug_mode.py), and on a line
+# of this file that runs a registered GPU program ($gpu_program) other than
+# through gpu-validate.sh.
+step_gpu_gate()
+{
+	local hits rc=0
+	python3 "$dev_dir/gpu_debug_mode.py" "$root" || rc=1
+	hits=$(grep -nE '"\$\{?gpu_program\}?"' "$dev_dir/check.sh" | grep -v 'gpu-validate\.sh')
+	if [[ -n $hits ]]; then
+		printf 'tools/dev/check.sh:%s\n' "$hits"
+		echo "gpu_gate: run a GPU program in check.sh through gpu-validate.sh"
+		rc=1
+	fi
+	return "$rc"
+}
+
+# Run every GPU program tools/dev/gpu-programs registers under
+# gpu-validate.sh (and no-window.sh); none yet is a SKIP naming #24.
+step_gpu_tests()
+{
+	local gpu_program line rc=0 programs=()
+	while IFS= read -r line; do
+		[[ -z $line || $line == \#* ]] || programs+=("$line")
+	done < "$dev_dir/gpu-programs"
+	if [[ ${#programs[@]} -eq 0 ]]; then
+		echo "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs; #24 registers the first"
+		return 0
+	fi
+	for gpu_program in "${programs[@]}"; do
+		"$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$root/$gpu_program" || rc=1
+	done
+	return "$rc"
+}
+
 # Check the toolchain against tools/dev/toolchain.pins.
 step_doctor()
 {
@@ -249,8 +284,8 @@ step_leaks()
 
 pre_commit_steps=(repo_config guard staged)
 fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows test_git
-	shell_tests)
-full_steps=(unit_tests leaks tidy sanitizer_tests)
+	gpu_gate shell_tests)
+full_steps=(unit_tests leaks gpu_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in

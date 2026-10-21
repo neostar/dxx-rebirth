@@ -63,6 +63,9 @@ validation (`MTL_DEBUG_LAYER=1`) and the Vulkan validation layer
 status (spike #55, K4), so the wrapper scans the output and fails on any validation message, and
 on a run whose validation was not active. Until the fork has GPU code (#24), headless probes in
 the gate self-test prove it on Metal natively and on lavapipe in the container.
+`check.sh`'s `gpu_gate` step fails on fork code creating a device with `debug_mode` other than
+`true` and on a GPU program it runs outside the wrapper; its `gpu_tests` step runs every program
+`tools/dev/gpu-programs` registers through `gpu-validate.sh`.
 
 **The check tier's budget** is 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
 leg of `ci.sh --clean` took 307 s (shell tests 223 s, unit tests 34 s, sanitizer build and tests
