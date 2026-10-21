@@ -4,7 +4,9 @@
 #   format.sh [--check] [DIR...]   clang-format (--check: report, change nothing)
 #   format.sh --tidy [DIR...]      clang-tidy with build/dev/compile_commands.json
 #   format.sh --staged             the pre-commit gate: --check and --tidy on
-#                                  the staged C/C++ files in fork directories
+#                                  the staged C, C++ and Objective-C(++) files
+#                                  in fork directories (.c .cc .cpp .cxx .h
+#                                  .hh .hpp .hxx .m .mm)
 #
 # DIRs default to the directories listed in tools/dev/fork-dirs.  --tidy and
 # --staged also fail on a NOLINT without a check list and a reason (the C++
@@ -50,18 +52,27 @@ if [[ $dev_os == darwin && -z ${SDKROOT-} ]]; then
 	SDKROOT=$(xcrun --show-sdk-path 2>/dev/null) && export SDKROOT
 fi
 
+# The fork's C, C++ and Objective-C(++) sources and headers, as pathspecs
+# for --staged and as find tests otherwise.
+exts=(c cc cpp cxx h hh hpp hxx m mm)
+specs=() names=()
+for e in "${exts[@]}"; do
+	specs+=("${fork_dirs[@]/%//*.$e}")
+	[[ ${#names[@]} -gt 0 ]] && names+=(-o)
+	names+=(-name "*.$e")
+done
+
 files=()
 if [[ $mode == staged ]]; then
 	while IFS= read -r -d '' f; do
 		files+=("$root/$f")
-	done < <(git -C "$root" diff --cached --name-only --diff-filter=ACMR -z -- \
-		"${fork_dirs[@]/%//*.cpp}" "${fork_dirs[@]/%//*.h}" "${fork_dirs[@]/%//*.c}")
+	done < <(git -C "$root" diff --cached --name-only --diff-filter=ACMR -z -- "${specs[@]}")
 else
 	dirs=("$@")
 	[[ ${#dirs[@]} -eq 0 ]] && dirs=("${fork_dirs[@]/#/$root/}")
 	while IFS= read -r -d '' f; do
 		files+=("$f")
-	done < <(find "${dirs[@]}" -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) -print0)
+	done < <(find "${dirs[@]}" -type f \( "${names[@]}" \) -print0)
 fi
 
 # Fail unless every fork directory holds a current copy of the tidy config.
@@ -110,8 +121,20 @@ check_nolint()
 	return "$rc"
 }
 
+# Succeed if the compilation database has an entry for file $1.
+in_database()
+{
+	python3 - "$database/compile_commands.json" "$root/$(rel "$1")" <<'PY' 2>/dev/null
+import json, os, sys
+entries = json.load(open(sys.argv[1]))
+sys.exit(0 if any(os.path.normpath(os.path.join(e["directory"], e["file"])) == sys.argv[2]
+	for e in entries) else 1)
+PY
+}
+
 # clang-tidy the C++ files among "$@" with the compilation database; the
-# clang-tidy rules are C++ rules, so C files are left out.  A header has
+# clang-tidy rules are C++ rules, so C and Objective-C files are left out,
+# and Objective-C++ ones are tidied only when the database has them.  A header has
 # no entry of its own, and the one clang-tidy would borrow may be GCC's
 # (the container), with flags clang rejects; headers are tidied with the
 # fork's own flags instead (fork_warnings.py, the pinned dependencies).
@@ -120,8 +143,9 @@ tidy()
 	local f rc=0 cxx=() headers=() flags=()
 	for f in "$@"; do
 		case $f in
-		*.c) ;;
-		*.h|*.hh|*.hpp) headers+=("$f") ;;
+		*.c|*.m) ;;
+		*.h|*.hh|*.hpp|*.hxx) headers+=("$f") ;;
+		*.mm) in_database "$f" && cxx+=("$f") ;;
 		*) cxx+=("$f") ;;
 		esac
 	done

@@ -215,4 +215,30 @@ test_staged_reads_the_index_not_the_working_tree()
 	assert_eq "$?" 0 "$out"
 }
 
+# Test that every C, C++ and Objective-C(++) extension is a fork file:
+# misformatted .cc .cxx .hh .hxx .m and .mm files fail --staged and
+# --check, a bare NOLINT in an .mm file fails, and an .mm file the
+# compilation database lacks is not tidied.
+test_every_source_extension_is_checked()
+{
+	local r out rc e
+	r=$(fork_repo) || die "fork_repo failed"
+	for e in cc cxx hh hxx m; do
+		printf 'int   x_%s;\n' "$e" > "$r/src/f.$e"
+	done
+	printf '%s\n' 'int *g() { return 0; } // NOLINT' > "$r/src/g.mm"
+	tgit -C "$r" add src
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	for e in cc cxx hh hxx m; do
+		assert_contains "$out" "src/f.$e: not formatted"
+	done
+	assert_contains "$out" "src/g.mm:1: NOLINT without a check and a reason"
+	assert_not_contains "$out" "modernize-use-nullptr"
+	out=$("$r/tools/dev/format.sh" --check 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/f.m:"
+	assert_contains "$out" "src/f.hxx:"
+}
+
 run_tests
