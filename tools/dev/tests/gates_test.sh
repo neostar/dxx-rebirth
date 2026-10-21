@@ -429,6 +429,48 @@ test_tidy_reads_gcc_database()
 	assert_not_contains "$out" "unknown"
 }
 
+# Test that a fork directory's unittest/ gets the fork checks less
+# bugprone-throwing-static-initialization, which every BOOST_AUTO_TEST_CASE
+# trips (a static registrar whose constructor may throw), and with value()
+# on an optional allowed after a require() the analysis cannot follow (as
+# BOOST_REQUIRE(o.has_value())), while *o stays flagged, staged or not;
+# and that format.sh requires the unit test config there.
+test_tidy_unittest_config_allows_static_registrars()
+{
+	local r out rc plant='#include <optional>
+struct registrar
+{
+	registrar();
+};
+static const registrar plant_registrar;
+void require(bool);
+int plant_value(const std::optional<int> &o);
+int plant_value(const std::optional<int> &o)
+{
+	require(o.has_value());
+	return o.value() + *o;
+}
+'
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/src/unittest"
+	printf '%s' "$plant" > "$r/src/plant.cpp"
+	printf '%s' "$plant" > "$r/src/unittest/plant.cpp"
+	tgit -C "$r" add src/plant.cpp src/unittest/plant.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/unittest/.clang-tidy: not a copy of tools/dev/style/clang-tidy-unittest"
+	cp "$r/tools/dev/style/clang-tidy-unittest" "$r/src/unittest/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_contains "$out" "src/plant.cpp:6:24: error: initialization of 'plant_registrar'"
+	assert_contains "$out" "src/plant.cpp:12:9: error: unchecked access to optional value"
+	assert_contains "$out" "src/unittest/plant.cpp:12:22: error: unchecked access to optional value"
+	assert_not_contains "$out" "src/unittest/plant.cpp:6:"
+	assert_not_contains "$out" "src/unittest/plant.cpp:12:9:"
+	out=$("$r/tools/dev/format.sh" --tidy src/unittest 2>&1)
+	assert_not_contains "$out" "throwing-static-initialization"
+}
+
 # Test that each gate a planted file names without a runner has an owning
 # ticket, and skip, naming those gates and tickets.
 test_later_gates()

@@ -26,6 +26,7 @@ source "$dev_dir/env.sh"
 clang_format=$(dev_llvm_tool clang-format)
 clang_tidy=$(dev_llvm_tool clang-tidy)
 tidy_config=$dev_dir/style/clang-tidy
+unittest_config=$dev_dir/style/clang-tidy-unittest
 database=$root/build/dev
 
 mode=format
@@ -75,22 +76,33 @@ else
 	done < <(find "${dirs[@]}" -type f \( "${names[@]}" \) -print0)
 fi
 
-# Fail unless every fork directory holds a current copy of the tidy config.
+# Fail unless every fork directory holds a current copy of the tidy config,
+# and every unittest/ directory in one a copy of the unit test config.
 check_tidy_configs()
 {
-	local d rc=0
+	local d u rc=0
 	for d in "${fork_dirs[@]}"; do
-		cmp -s "$tidy_config" "$root/$d/.clang-tidy" && continue
-		echo "$d/.clang-tidy: not a copy of tools/dev/style/clang-tidy;" \
-			"run cp tools/dev/style/clang-tidy $d/.clang-tidy"
-		rc=1
+		if ! cmp -s "$tidy_config" "$root/$d/.clang-tidy"; then
+			echo "$d/.clang-tidy: not a copy of tools/dev/style/clang-tidy;" \
+				"run cp tools/dev/style/clang-tidy $d/.clang-tidy"
+			rc=1
+		fi
+		while IFS= read -r -d '' u; do
+			u=${u#"$root"/}
+			cmp -s "$unittest_config" "$root/$u/.clang-tidy" && continue
+			echo "$u/.clang-tidy: not a copy of tools/dev/style/clang-tidy-unittest;" \
+				"run cp tools/dev/style/clang-tidy-unittest $u/.clang-tidy"
+			rc=1
+		done < <(find "$root/$d" -type d -name unittest -print0 2>/dev/null)
 	done
 	return "$rc"
 }
 
 # --staged: the temporary tree holding the staged files, whose paths are
-# reported as the repository's, and clang-tidy's options for it: the tree
-# has no .clang-tidy, but every fork directory's is a copy of tidy_config.
+# reported as the repository's, and clang-tidy's options for it.  The tree
+# gets tidy_config at its top, of which every fork directory's .clang-tidy
+# is a copy, and each .clang-tidy above a staged file (a unittest/
+# directory's), so clang-tidy finds the configs it would in the repository.
 tree=
 # The config's CustomChecks (ADR 5) run only with this flag.
 tidy_opts=(--experimental-custom-checks)
@@ -217,9 +229,22 @@ tidy()
 	while IFS= read -r flag; do
 		removed+=(--removed-arg="$flag")
 	done < <(unknown_flags "$db/compile_commands.json")
-	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
-		"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${cxx[@]}" 2>&1 | strip_tree
-	[[ ${PIPESTATUS[0]} -eq 0 && $rc -eq 0 ]]
+	# One run per config: clang-tidy filters the findings of every file in a
+	# run by the config of the last one, so a unittest/ file's config
+	# (clang-tidy-unittest) would hide findings in the others.
+	local group sel
+	for group in other unittest; do
+		sel=()
+		for f in "${cxx[@]}"; do
+			[[ $f == */unittest/* ]] && [[ $group == unittest ]] && sel+=("$f")
+			[[ $f != */unittest/* ]] && [[ $group == other ]] && sel+=("$f")
+		done
+		[[ ${#sel[@]} -eq 0 ]] && continue
+		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
+			"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${sel[@]}" 2>&1 | strip_tree
+		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
+	done
+	return "$rc"
 }
 
 # Print, one per line, the warning and code generation flags in compilation
@@ -300,9 +325,16 @@ tidy|staged)
 	if [[ $mode == staged ]]; then
 		tree=$(mktemp -d "${TMPDIR:-/tmp}/format-staged.XXXXXX") || exit 1
 		trap 'rm -rf "$tree"' EXIT
-		tidy_opts+=(--config-file="$tidy_config")
 		staged=("${files[@]#"$root"/}")
 		git -C "$root" checkout-index --prefix="$tree/" -- "${staged[@]}" || exit 1
+		cp "$tidy_config" "$tree/.clang-tidy"
+		for f in "${staged[@]}"; do
+			d=$(dirname "$f")
+			while [[ $d != . ]]; do
+				[[ -f $root/$d/.clang-tidy ]] && cp "$root/$d/.clang-tidy" "$tree/$d/"
+				d=$(dirname "$d")
+			done
+		done
 		files=("${staged[@]/#/$tree/}")
 		for f in "${staged[@]}"; do
 			"$clang_format" "$style" --assume-filename="$f" --dry-run --Werror < "$tree/$f" ||

@@ -31,6 +31,11 @@ Done when every touched line follows the rules for its kind of code.
   pre-commit hook, `--tidy` for clang-tidy), only in the directories listed in
   `tools/dev/fork-dirs`: add a new fork directory there, with a copy of `tools/dev/style/clang-tidy`
   as its `.clang-tidy`.
+- Fork code includes fork headers by their path from the top (`"common/debug/frame_time_policy.h"`)
+  and upstream headers by their bare name (`"timer.h"`). The strict warnings and clang-tidy then
+  check fork lines only: a fork compile names upstream and third-party include directories with
+  `-isystem` (`fork_warnings.py`), and clang-tidy reports headers in fork directories only, never
+  through a `..` path (`format.sh`).
 - C++23 is required (`SConstruct:1229`): `static operator()`, explicit object parameters and
   concepts are in use (52f6389ee, ff8df741e).
 
@@ -90,6 +95,12 @@ Done when every touched line follows the rules for its kind of code.
 - Each case carries a block comment `/* Test that <behaviour>. */` directly above it
   (`enumerate.cpp:19`).
 - Register new files in `runtime_test_boost_tests` (`SConstruct:4999`); run them with `check`.
+- Fork tests live in their fork directory's `unittest/` (`common/render/unittest/`), not in
+  `common/unittest/`, so the fork gates (strict warnings, clang-tidy, format) cover them.
+- Each fork `unittest/` holds a copy of `tools/dev/style/clang-tidy-unittest` as its
+  `.clang-tidy` (`format.sh` checks it): the fork checks less
+  `bugprone-throwing-static-initialization`, which every `BOOST_AUTO_TEST_CASE` trips through its
+  static registrar. No NOLINT for it.
 
 ## Shell scripts
 
