@@ -1,8 +1,7 @@
 # Coding conventions
 
-Upstream has no style guide; these rules come from its code and history (counts and commits in the
-evidence file `design/CONVENTIONS-draft.md` of the spike workspace). Each rule names an example:
-when in doubt, open it and match it.
+Upstream has no style guide; these rules come from its code and history. Each rule names an
+example: when in doubt, open it and match it.
 
 ## Two kinds of code
 
@@ -94,7 +93,8 @@ Done when every touched line follows the rules for its kind of code.
 
 ## Shell scripts
 
-`check.sh --fast` runs shellcheck on `tools/dev/fork-dirs`; these are the calls it cannot make:
+`check.sh --fast` runs shellcheck on the scripts in the `tools/dev/fork-dirs` directories; these
+are the calls it cannot make:
 
 - Throwaway repositories come from `make_repo` in `tools/dev/tests/lib.sh`, and scripts source
   `tools/dev/env.sh`, so git's repository variables never reach the real repository.
@@ -111,16 +111,13 @@ Done when every touched line follows the rules for its kind of code.
 - Trailers: `Fixes: <full hash> ("<old subject>")` for regressions, `Reported-by: <name> <issue URL>`
   for reported bugs.
 - One concern per commit, at most about 300 changed lines, test and change together; style changes
-  ride along with the change that needs them. The pre-commit hook enforces the 300, leaving out
-  the generated files `tools/dev/commit-size-exclude` lists, counting a binary file as 100 lines
-  and an amend as the whole amended commit; for a larger change that cannot be
-  split, commit with `DXX_ALLOW_LARGE_COMMIT=<reason>`, which the hook prints, and give the reason
-  in a `Large-commit: <reason>` trailer. git runs no hook for the commits a `rebase -i` squash or
-  fixup makes, so `check.sh --fast` (`commit_sizes`) measures every fork commit against its first
-  parent too, letting through only a `Large-commit:` trailer or a subject that
-  `tools/dev/commit-size-allow` lists with a reason.
+  ride along with the change that needs them. For a larger change that cannot be split, commit
+  with `DXX_ALLOW_LARGE_COMMIT=<reason>` and give the reason in a `Large-commit: <reason>`
+  trailer. The pre-commit hook and `check.sh`'s `commit_sizes` step enforce this;
+  `tools/dev/commit-size.sh`'s header says what they count and let through.
 - Docs change in the same series as the code they describe.
-- Commits are signed; push only signed commits.
+- Commits are signed by the time they land (an implementer's are signed at merge,
+  `issue-tracker.md`); push only signed commits.
 - Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.
   `check.sh --fast` fails on a fork hash in `docs/`, `CLAUDE.md` or `GLOSSARY.md`; upstream
   hashes are fine.
@@ -161,4 +158,6 @@ can be offered upstream, named by subject (see Commits):
   `docs/adr/0005-cpp-safety-rules-for-new-code.md` (ADR 5).
 - Domain terms: `GLOSSARY.md`. Decisions: `docs/adr/` (soft fork, render device, SDL3 approach).
 - Licensed game data, demos, captures and goldens derived from them stay out of git.
-- Development tools run windowless and in the background (`SDL_HINT_MAC_BACKGROUND_APP`).
+- Development tools run windowless and in the background: launch binaries with `tools/dev/run.sh`
+  and any other command that may open a window with `tools/dev/no-window.sh`
+  (`SDL_MAC_BACKGROUND_APP=1`).

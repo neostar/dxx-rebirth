@@ -18,10 +18,9 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   changes are excluded. Its verdict is the one that counts. Nothing is pushed to a registry.
 - **No GitHub CI.** A GitHub mirror only on the owner's explicit go.
 - **Secret scanning is local too** (owner decision 2026-10-21): no GitHub workflow. The layers
-  are the pre-commit tier (`gitleaks git --staged`), the pre-push hook (`tools/dev/hooks/pre-push`:
-  gitleaks on exactly the commits being pushed, which catches a commit made with `--no-verify`),
-  both at the pinned version and failing, never skipping, without it; the full-history scan in
-  every `ci.sh` run; and GitHub push protection, a repository setting (on), not an Action.
+  are ADR 5's pre-commit and pre-push tiers (gitleaks at the pinned version, failing without it;
+  pre-push catches a commit made with `--no-verify`), the full-history scan in every `ci.sh` run,
+  and GitHub push protection, a repository setting (on), not an Action.
   `check.sh`'s workflows step fails on any workflow upstream does not have. The workflows
   inherited from upstream stay in the tree, so rebases do not conflict, and are disabled on the
   fork one by one in GitHub's settings.
@@ -75,9 +74,7 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
 - The container is linux/amd64: the pinned DXC, FLIP and shellcheck binaries are x86-64 only, and
   the later Windows leg under Wine (#49) needs x86-64 too. On Apple silicon it runs under
   emulation and is slower; an image rebuild takes about 25 minutes.
-- Disk is the scarce resource: `container.sh build` keeps only the current image,
-  `container.sh prune` drops the older `dxx-rebirth-ref` images and the dangling ones carrying the
-  image's label, never another project's images and never the build cache (Docker cannot filter
-  it by project, and the Docker daemon is shared), and `container.sh save` keeps
-  exactly one exported image under `third_party/images/`, so `container.sh load` restores the
-  toolchain without snapshot.ubuntu.com.
+- Disk is the scarce resource, and the Docker daemon is shared: `container.sh` keeps one image
+  and one export under `third_party/images/` (its header says what `build`, `prune` and `save`
+  remove and never touch), so `container.sh load` restores the toolchain without
+  snapshot.ubuntu.com.
