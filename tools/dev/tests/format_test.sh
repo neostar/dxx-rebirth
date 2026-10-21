@@ -151,6 +151,26 @@ test_fork_dir_needs_current_tidy_config()
 	assert_contains "$out" "src/.clang-tidy"
 }
 
+# Test that --tidy on every fork file also checks the fork directories'
+# clang-tidy config and NOLINT reasons, staged or not.
+test_tidy_checks_config_and_nolint()
+{
+	local r out rc
+	r=$(fork_repo)
+	printf 'int probe(void); // NOLINT\n' > "$r/src/probe.c"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/probe.c:1: NOLINT without a check and a reason"
+	assert_not_contains "$out" ".clang-tidy"
+	rm "$r/src/probe.c" "$r/src/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/.clang-tidy: not a copy"
+	cp "$r/tools/dev/style/clang-tidy" "$r/src/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 # Test that C files get clang-format but not the C++ clang-tidy rules, so a
 # C file needs no compilation database; a C++ file without one fails.
 test_staged_c_file_skips_tidy()

@@ -132,6 +132,22 @@ test_fast_runs_gate_on_staged_fork_code()
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: staged' "$out"
 }
 
+# Test that the full checks run the tidy step on every fork file, with a
+# fake build.sh: a NOLINT without a reason in a C file, which clang-tidy
+# itself skips, fails the tidy step.
+test_full_runs_tidy()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	printf 'int probe(void); // NOLINT\n' > "$r/tools/probe.c"
+	"$r/tools/dev/format.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/probe.c:1: NOLINT without a check and a reason"
+	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: tidy' "$out"
+}
+
 # Test that the fast subset runs shellcheck on scripts in the fork
 # directories, found by extension or by shebang.
 test_fast_fails_on_shellcheck_finding()
