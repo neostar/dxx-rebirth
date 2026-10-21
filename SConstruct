@@ -5012,6 +5012,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-time-policy', (
 			'common/debug/unittest/frame_time_policy.cpp',
 			)),
+		RuntimeTest('test-frame-hash', (
+			'common/debug/unittest/frame_hash.cpp',
+			)),
 		RuntimeTest('test-mouse-delta', (
 			'common/unittest/mouse_delta.cpp',
 			)),
