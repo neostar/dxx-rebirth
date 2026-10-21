@@ -3,6 +3,11 @@
 # reports the compiler's warnings, the strict ones among them.  Left out at
 # level 1: easily-swappable-parameters (any adjacent same-type parameters) and
 # pro-type-vararg (every con_printf call, a format-checked idiom).
+# clang-tidy-checks lists the checks this enables on the pinned LLVM; a test
+# fails when they differ.  LLVM 23 moved the hicpp checks into bugprone:
+# unhandled-code-paths stays on without its noisy missing-else mode, and
+# signed-bitwise stays on with literals counted, each proven by a planted
+# file (tools/dev/tests/gates).
 Checks: >
   -*,
   clang-diagnostic-*,
@@ -24,4 +29,6 @@ CheckOptions:
   readability-identifier-naming.ClassCase: lower_case
   readability-identifier-naming.EnumConstantCase: lower_case
   readability-identifier-naming.NamespaceCase: lower_case
+  bugprone-unhandled-code-paths.WarnOnMissingElse: false
+  bugprone-signed-bitwise.IgnorePositiveIntegerLiterals: false
 WarningsAsErrors: '*'

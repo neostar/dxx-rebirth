@@ -2,3 +2,4 @@
 # their line count says nothing about the change.  One path per line,
 # relative to the repository root.
 tools/dev/requirements.lock
+tools/dev/style/clang-tidy-checks

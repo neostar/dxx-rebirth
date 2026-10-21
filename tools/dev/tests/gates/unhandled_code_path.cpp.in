@@ -1,0 +1,17 @@
+// A switch on an int without a default label: every value it does not
+// list falls through unhandled.
+// gate tidy: potential uncovered code path; add a default label [bugprone-unhandled-code-paths
+void act(int);
+
+void dispatch(const int command)
+{
+	switch (command)
+	{
+		case 0:
+			act(0);
+			break;
+		case 1:
+			act(1);
+			break;
+	}
+}

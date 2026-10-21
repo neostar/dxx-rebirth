@@ -108,7 +108,13 @@ tightening is its own small commit that leaves the tree green and updates the le
   `cppcoreguidelines-pro-type-vararg`, `cppcoreguidelines-narrowing-conversions`,
   `modernize-use-using`, `modernize-use-nullptr`,
   `modernize-use-override`, `readability-identifier-naming` (lower snake case),
-  `misc-const-correctness`; `WarningsAsErrors: '*'`; strict warnings as above.
+  `misc-const-correctness`; `WarningsAsErrors: '*'`; strict warnings as above. On LLVM 23.1.3
+  these globs enable the 252 checks `tools/dev/style/clang-tidy-checks` lists, and
+  `gates_test.sh` fails when the two differ, so an LLVM upgrade that adds or moves a check under
+  a glob changes the list in a reviewed commit. LLVM 23 moved the `hicpp` checks into
+  `bugprone`: `bugprone-unhandled-code-paths` (a switch on a non-enum without `default`) stays
+  on with its noisy missing-`else` mode off, and `bugprone-signed-bitwise` stays on; both
+  options are set in the config, and a planted file proves each.
 - Left out for the whole config, not suppressed inline: the rule that exceptions are inline
   NOLINTs with a reason is for a single justified site, and these two checks fire on idioms fork
   code uses throughout, so every fork file would carry the same NOLINT and a real exception would

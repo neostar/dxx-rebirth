@@ -1,0 +1,7 @@
+// A bitwise operator on a signed operand: for a negative value the result
+// depends on the sign bit.
+// gate tidy: use of a signed integer operand with a binary bitwise operator [bugprone-signed-bitwise
+int low_byte(const int v)
+{
+	return v & 0xff;
+}

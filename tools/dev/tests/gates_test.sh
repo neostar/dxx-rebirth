@@ -268,6 +268,21 @@ test_every_enabled_check_is_planted()
 	[[ $n -gt 0 ]] || fail "no enabled check found in tools/dev/style/clang-tidy"
 }
 
+# Test that the checks the fork clang-tidy config enables on the pinned LLVM
+# are exactly those tools/dev/style/clang-tidy-checks lists, so that an LLVM
+# upgrade adding, moving or removing a check under a glob (LLVM 23 moved the
+# hicpp checks into bugprone) changes the list in a commit of its own.
+test_enabled_checks_match_committed_list()
+{
+	local tidy out
+	tidy=$(dev_llvm_tool clang-tidy)
+	need "$tidy"
+	out=$(diff <("$tidy" --list-checks --config-file="$DEV_DIR/style/clang-tidy" 2>/dev/null |
+		sed -n 's/^    //p') "$DEV_DIR/style/clang-tidy-checks" 2>&1) ||
+		fail "enabled checks (<) differ from style/clang-tidy-checks (>); review each, then" \
+			"update the list: $out"
+}
+
 # Run "$@" up to three times, printing each run's wall clock as $2, until
 # one takes under $1 s; fail if none does.  The shell tests run in
 # parallel, so one slow run can be the load of the others; three are not.
