@@ -209,10 +209,10 @@ check_disk()
 {
 	local free_gib=$(($2 / 1048576))
 	if [[ $free_gib -lt 15 ]]; then
-		echo "FAIL disk $1: $free_gib GiB free, below 15 GiB; run tools/dev/container.sh prune"
+		echo "FAIL disk $1: $free_gib GiB free, below 15 GiB; container.sh prune drops old images"
 		rc=1
 	elif [[ $free_gib -lt 40 ]]; then
-		echo "WARN disk $1: $free_gib GiB free, below 40 GiB; run tools/dev/container.sh prune"
+		echo "WARN disk $1: $free_gib GiB free, below 40 GiB; container.sh prune drops old images"
 	else
 		echo "ok   disk $1 $free_gib GiB free"
 	fi

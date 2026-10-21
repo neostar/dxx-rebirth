@@ -66,3 +66,7 @@ ENV PATH=/opt/dxx/venv/bin:$PATH DXX_REFERENCE_IMAGE=1 \
     SDL_VIDEO_DRIVER=offscreen SDL_GPU_DRIVER=vulkan \
     VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
     VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf
+
+# The label container.sh prune selects by: it removes this project's
+# images, dangling ones included, and never another project's.
+LABEL dxx-rebirth.reference-image=1

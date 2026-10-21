@@ -7,7 +7,11 @@
 #   container.sh tag            print the image tag for the current inputs
 #   container.sh run [--clean] CMD...     run CMD offline in /work
 #   container.sh check [--clean] [--fast] tools/dev/check.sh there
-#   container.sh prune          remove dangling images and unused build cache
+#   container.sh prune          remove every dxx-rebirth-ref image but the
+#                               current one, dangling ones (by label) among
+#                               them; never another project's images, and
+#                               never the build cache, which Docker cannot
+#                               filter by project
 #   container.sh save           export the current image to third_party/images,
 #                               replacing the one exported before
 #   container.sh load           import that export, without snapshot.ubuntu.com
@@ -46,6 +50,23 @@ image_ref()
 	awk -v n="$1" '$1 == "image" && $2 == n {print $3}' "$manifest"
 }
 
+# The label the Dockerfile puts on the reference image (and so on every
+# dangling one it leaves behind): prune removes images by it, never others.
+image_label=dxx-rebirth.reference-image
+
+# Remove every dxx-rebirth-ref image but the one for the current inputs,
+# and the dangling images that carry the label.
+remove_old_images()
+{
+	local tag old
+	tag=$(image_tag)
+	docker image ls --format '{{.Repository}}:{{.Tag}}' dxx-rebirth-ref |
+		while read -r old; do
+			[[ $old == "$tag" ]] || docker rmi "$old" >/dev/null
+		done
+	docker image prune -f --filter "label=$image_label" >/dev/null
+}
+
 # The one exported image: third_party/images, gitignored.
 images_dir=$root/third_party/images
 
@@ -53,7 +74,7 @@ image_tag()
 {
 	echo "dxx-rebirth-ref:$(cat "$dev_dir/container/Dockerfile" "$manifest" \
 		"$dev_dir/requirements.lock" "$dev_dir/deps.sh" "$dev_dir/env.sh" |
-		shasum -a 256 | cut -c1-12)"
+		dev_sha256 | cut -c1-12)"
 }
 
 # Run the remaining arguments offline in the image, in /work (see above).
@@ -105,16 +126,15 @@ build)
 		--build-arg SNAPSHOT="$(image_ref ubuntu-snapshot)" \
 		-t "$(image_tag)" -f "$dev_dir/container/Dockerfile" "$dev_dir"
 	# Only the image for the current inputs is ever used.
-	tag=$(image_tag)
-	docker image ls --format '{{.Repository}}:{{.Tag}}' dxx-rebirth-ref |
-		while read -r old; do
-			[[ $old == "$tag" ]] || docker rmi "$old" >/dev/null
-		done
+	remove_old_images
 	;;
 tag) image_tag ;;
 prune)
-	docker image prune -f
-	docker builder prune -f
+	remove_old_images
+	# docker builder prune filters by age, id or type, never by project:
+	# it would drop other projects' cache too.  Left to the owner.
+	echo "container.sh: removed old dxx-rebirth-ref images; the build cache is shared" \
+		"with other projects and left alone (docker buildx du shows it)"
 	;;
 save)
 	tag=$(image_tag)

@@ -77,6 +77,8 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   the later Windows leg under Wine (#49) needs x86-64 too. On Apple silicon it runs under
   emulation and is slower; an image rebuild takes about 25 minutes.
 - Disk is the scarce resource: `container.sh build` keeps only the current image,
-  `container.sh prune` drops dangling images and unused build cache, and `container.sh save` keeps
+  `container.sh prune` drops the older `dxx-rebirth-ref` images and the dangling ones carrying the
+  image's label, never another project's images and never the build cache (Docker cannot filter
+  it by project, and the Docker daemon is shared), and `container.sh save` keeps
   exactly one exported image under `third_party/images/`, so `container.sh load` restores the
   toolchain without snapshot.ubuntu.com.

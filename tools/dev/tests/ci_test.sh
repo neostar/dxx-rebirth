@@ -31,7 +31,7 @@ case "\$1 \${2-}" in
 'image ls') printf '%s\n' \${FAKE_IMAGES-}; exit 0 ;;
 'run '*) touch "$bin/container-started" ;;
 'save '*) echo image-bytes; exit 0 ;;
-'build '*|'rmi '*|'image prune'|'builder prune') exit 0 ;;
+'build '*|'rmi '*|'image prune'|'builder prune'|'system prune') exit 0 ;;
 esac
 printf '%s\n' "\$@" > "$bin/docker.args"
 cat > "$bin/docker.stdin"
@@ -197,16 +197,26 @@ test_build_removes_older_images()
 	assert_not_contains "$log" "rmi $tag"
 }
 
-# Test that prune removes dangling images and unused BuildKit cache.
-test_prune_removes_dangling_images_and_build_cache()
+# Test that prune removes only this project's images: the older
+# dxx-rebirth-ref ones and the dangling ones by the image's label; never an
+# unfiltered image prune, nor the build cache, which is shared and cannot
+# be filtered by project.
+test_prune_touches_only_reference_images()
 {
-	local bin r log
+	local bin r tag log
 	bin=$(make_scratch) || die "make_scratch failed"
 	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
-	PATH="$bin:$PATH" "$r/tools/dev/container.sh" prune >/dev/null 2>&1 || fail "prune failed"
+	tag=$("$r/tools/dev/container.sh" tag)
+	FAKE_IMAGES="dxx-rebirth-ref:0123456789ab $tag" PATH="$bin:$PATH" \
+		"$r/tools/dev/container.sh" prune >/dev/null 2>&1 || fail "prune failed"
 	log=$(cat "$bin/docker.log")
-	assert_contains "$log" "image prune -f"
-	assert_contains "$log" "builder prune -f"
+	assert_contains "$log" "rmi dxx-rebirth-ref:0123456789ab"
+	assert_not_contains "$log" "rmi $tag"
+	assert_contains "$log" "image prune -f --filter label=dxx-rebirth.reference-image"
+	if grep -E 'prune' "$bin/docker.log" | grep -vqE '^image prune -f --filter label=dxx-rebirth'; then
+		fail "unfiltered prune: $(grep prune "$bin/docker.log")"
+	fi
+	assert_contains "$(cat "$r/tools/dev/container/Dockerfile")" "LABEL dxx-rebirth.reference-image=1"
 }
 
 # Test that save keeps exactly one exported image, the current one, under
