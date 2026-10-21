@@ -5009,6 +5009,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-enumerate', (
 			'common/unittest/enumerate.cpp',
 			)),
+		RuntimeTest('test-insertion-sort', (
+			'common/algorithm/unittest/insertion_sort.cpp',
+			)),
 		RuntimeTest('test-frame-time-policy', (
 			'common/debug/unittest/frame_time_policy.cpp',
 			)),

@@ -1,0 +1,13 @@
+# Fork unit tests: a copy is the .clang-tidy of every unittest/ directory in
+# a fork directory, where fork tests live (conventions.md), and
+# tools/dev/format.sh checks it.  The fork checks of the directory above,
+# less bugprone-throwing-static-initialization: BOOST_AUTO_TEST_CASE
+# registers each case through a static object whose constructor may throw,
+# which Boost.Test reports before main, so every test case would trip it.
+# A test reads an optional with value(), which throws when it is empty, after
+# BOOST_REQUIRE(o.has_value()), whose throw the analysis does not follow;
+# bugprone-unchecked-optional-access still flags *o and o-> there.
+InheritParentConfig: true
+Checks: -bugprone-throwing-static-initialization
+CheckOptions:
+  bugprone-unchecked-optional-access.IgnoreValueCalls: true
