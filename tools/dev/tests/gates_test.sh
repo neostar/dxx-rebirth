@@ -174,23 +174,28 @@ test_editor_tier_clangd_uses_fork_config_within_budget()
 	assert_not_contains "$(cat "$r/out")" "cppcoreguidelines-"
 }
 
-# Test the pre-commit tier: the gate on a typical diff (the representative
-# file and two small ones) and the licensed-data guard take under 10 s.
+# Test the pre-commit tier: the real pre-commit hook, installed by setup.sh
+# in a fork repository, commits a typical fork diff (the representative
+# file and two small ones) in under 10 s.
 test_precommit_tier_within_budget()
 {
-	local r start secs
+	local r
 	need "${gate_tool[tidy]}"
 	r=$(fork_repo)
+	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	cp "$GATES/clean.cpp.in" "$r/src/clean.cpp"
 	printf 'int one()\n{\n\treturn 1;\n}\n' > "$r/src/one.cpp"
 	printf 'int two()\n{\n\treturn 2;\n}\n' > "$r/src/two.cpp"
 	tgit -C "$r" add src
-	start=$EPOCHREALTIME
-	"$r/tools/dev/format.sh" --staged >/dev/null 2>&1 || fail "the gate failed on clean files"
-	(cd "$r" && tools/dev/guard-licensed-data.sh --staged) || fail "the guard failed"
-	secs=$(awk -v a="$start" -v b="$EPOCHREALTIME" 'BEGIN {printf "%.2f", b - a}')
-	echo "    pre-commit tier: $secs s"
-	awk -v s="$secs" 'BEGIN {exit !(s < 10)}' || fail "the pre-commit tier took $secs s, over 10 s"
+	# Commit the diff, then undo the commit, keeping the diff staged.
+	# shellcheck disable=SC2329  # run by within_budget
+	commit_diff()
+	{
+		tgit -C "$r" commit -q -m 'fork diff' > "$r/out" 2>&1 &&
+			tgit -C "$r" reset -q --soft HEAD~1
+	}
+	within_budget 10 "pre-commit hook" commit_diff
+	assert_contains "$(cat "$r/out")" "== staged"
 }
 
 run_tests

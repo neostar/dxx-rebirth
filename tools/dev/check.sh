@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Single entry point for the fork's checks.
 #
-#   check.sh --fast   quick subset, run by the pre-commit hook
-#   check.sh          everything: the fast subset plus the full steps
+#   check.sh --pre-commit   the pre-commit tier (ADR 5, under 10 s), run
+#                           by the pre-commit hook after the size limit
+#   check.sh --fast         quick subset: the pre-commit steps and more,
+#                           the shell tests among them
+#   check.sh                everything: the fast subset plus the full steps
 #
 # Later tickets add a step by writing a step_<name> function and listing it
 # in fast_steps or full_steps.  Each step prints what it runs; check.sh runs
@@ -14,7 +17,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--fast]" >&2
+	echo "usage: $0 [--pre-commit|--fast]" >&2
 	exit 2
 }
 
@@ -190,17 +193,20 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
+pre_commit_steps=(repo_config guard staged)
 fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows shell_tests)
 full_steps=(unit_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in
+	--pre-commit) mode=pre-commit ;;
 	--fast) mode=fast ;;
 	'') ;;
 	*) usage ;;
 esac
 
 steps=("${fast_steps[@]}")
+[[ $mode == pre-commit ]] && steps=("${pre_commit_steps[@]}")
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
 	# The full checks also run the shell tests that build real objects.

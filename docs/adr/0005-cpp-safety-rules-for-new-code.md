@@ -34,8 +34,8 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 | Tier | Budget | Runs | Checked by |
 |---|---|---|---|
 | editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`) | `gates_test.sh` |
-| pre-commit | < 10 s | `format.sh --staged`: clang-format, NOLINT reasons and clang-tidy on the staged fork files; licensed-data guard | `gates_test.sh` |
-| check | minutes | `check.sh`: unit tests, `format.sh --tidy` on every fork file, the real-build strict-warning test; #58 adds the rest | `check.sh` |
+| pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files) | `gates_test.sh`, timing the real hook |
+| check | minutes | `check.sh --fast` (shell tests, shellcheck, format of every fork file) and `check.sh`: unit tests, `format.sh --tidy` on every fork file, the real-build strict-warning test; #58 adds the rest | `check.sh` |
 | nightly | none | #59 | #59 |
 
 clangd skips `clang-analyzer-*`, `bugprone-use-after-move` and slow checks by design, so the
@@ -88,7 +88,8 @@ a later ticket owns shows as a SKIP naming that ticket until it defines the gate
   neighbour's flags, and the pre-commit gate fails with a hint when there is no database.
 - The pre-commit gate tidies the working-tree file, so a partly staged file is checked as it
   stands on disk. C files get clang-format only: the clang-tidy rules are C++ rules.
-- The budget covers the pre-commit tier's gates. The hook also runs the rest of
-  `check.sh --fast`, the shell tests among them, which take minutes.
+- The hook runs only the pre-commit tier, so a commit takes seconds. The rest of
+  `check.sh --fast`, the shell tests among them, runs in `check.sh` and `ci.sh`, which a
+  ticket's report requires; a commit can pass the hook and still fail them.
 - Data races, signed overflow at run time and run-time leaks are caught only once #58 and #59
   land; the self-test lists them as SKIPs until then.

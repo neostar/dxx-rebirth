@@ -260,6 +260,26 @@ test_pre_commit_hook_blocks_game_data()
 	assert_eq "$?" 0 "$out"
 }
 
+# Test that the pre-commit hook runs the pre-commit tier only: a failing
+# shell test, which fails check.sh --fast, does not block a commit, and
+# misformatted staged fork code does.
+test_pre_commit_hook_runs_pre_commit_tier_only()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	printf '#!/usr/bin/env bash\nexit 3\n' > "$r/tools/dev/tests/zfail_test.sh"
+	printf 'int y;\n' > "$r/b.cpp"
+	git -C "$r" add b.cpp
+	out=$(tgit -C "$r" commit -q -m code 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_not_contains "$out" "shell_tests"
+	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
+	git -C "$r" add tools/bad.cpp
+	out=$(tgit -C "$r" commit -q -m bad 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/bad.cpp: not formatted"
+}
+
 # Test that setup.sh installs the hooks and enables rerere in a fresh clone.
 test_setup_installs_hooks()
 {
