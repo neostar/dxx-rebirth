@@ -18,6 +18,9 @@ run its other modes); `build.sh` the D2X profiles; `run.sh` launches binaries; `
 local only (ADR 4). Toolchain (ADR 1, ADR 4): `toolchain.pins` pins every tool and dependency,
 `doctor.sh` checks it, `deps.sh` builds it, `container.sh` is the Linux reference container.
 Also: `rebase.sh`, `fetch-docs.sh`, `leaks.sh`, `gpu-validate.sh`, `no-window.sh`.
+Shaders: HLSL in `shaders/hlsl/`, generated headers committed in `shaders/generated/`;
+`tools/shaders/build.sh` rebuilds them in the reference container (DXC is Linux-only),
+`tools/shaders/check.sh` checks the rebuild is byte-identical (R9, `check.sh`'s `shaders` step).
 
 ## Agent skills
 

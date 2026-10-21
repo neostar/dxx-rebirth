@@ -186,4 +186,56 @@ test_check_skips_metal_that_cannot_run()
 	assert_contains "$out" "SKIP metal: xcrun metal cannot run"
 }
 
+# Print a throwaway tree holding a copy of tools/shaders, env.sh, the HLSL
+# sources and stand-ins for the committed headers ("committed"), and a fake
+# container.sh that runs script $1.  build.sh then takes the container path
+# (DXX_DXC names no dxc).
+make_build_tree()
+{
+	local t
+	t=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$t/tools/dev" "$t/shaders/generated"
+	cp -R "$SHADERS" "$t/tools/"
+	cp "$DEV_DIR/env.sh" "$t/tools/dev/"
+	cp -R "$REPO_ROOT/shaders/hlsl" "$t/shaders/"
+	for h in pos_color_uv_vert.h tex_modulate_frag.h old_vert.h; do
+		printf 'committed\n' > "$t/shaders/generated/$h"
+	done
+	printf '#!/usr/bin/env bash\n%s\n' "$1" > "$t/tools/dev/container.sh"
+	chmod +x "$t/tools/dev/container.sh"
+	printf '%s\n' "$t"
+}
+
+# Test that build.sh leaves the committed headers alone when the container
+# fails, and when it delivers an incomplete set of headers.
+test_build_keeps_headers_on_failure()
+{
+	local t out rc
+	t=$(make_build_tree 'echo "container: no image" >&2; exit 1') || die "make_build_tree failed"
+	# The pipe's status is tar's: 1 from BSD tar, 2 from GNU tar.
+	out=$(DXX_DXC=/nonexistent/dxc "$t/tools/shaders/build.sh" 2>&1) && rc=0 || rc=$?
+	[[ $rc -ne 0 ]] || fail "build.sh passed: $out"
+	assert_eq "$(cat "$t"/shaders/generated/*.h)" "$(printf 'committed\n%.0s' 1 2 3)"
+	t=$(make_build_tree "cd '$REPO_ROOT/shaders/generated' && tar -cf - ./pos_color_uv_vert.h") ||
+		die "make_build_tree failed"
+	out=$(DXX_DXC=/nonexistent/dxc "$t/tools/shaders/build.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tex_modulate_frag.h"
+	assert_eq "$(cat "$t"/shaders/generated/*.h)" "$(printf 'committed\n%.0s' 1 2 3)"
+}
+
+# Test that build.sh replaces the headers with a complete set from the
+# container and removes a header whose source is gone.
+test_build_replaces_headers_from_container()
+{
+	local t out
+	t=$(make_build_tree "cd '$REPO_ROOT/shaders/generated' && tar -cf - ./*.h") ||
+		die "make_build_tree failed"
+	out=$(DXX_DXC=/nonexistent/dxc "$t/tools/shaders/build.sh" 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_eq "$(cd "$t/shaders/generated" && ls)" "$(printf 'pos_color_uv_vert.h\ntex_modulate_frag.h')"
+	cmp -s "$t/shaders/generated/tex_modulate_frag.h" "$REPO_ROOT/shaders/generated/tex_modulate_frag.h" ||
+		fail "tex_modulate_frag.h is not the container's"
+}
+
 run_tests
