@@ -96,14 +96,33 @@ make_scratch()
 # repository's config is ever written.  Every git a test runs goes through
 # tgit or real_git (check.sh's test_git step enforces it).  Always pass
 # -C <throwaway repo>: anything but a path under the scratch root is
-# refused, as `git -C ""` would act on the current directory.  A refusal
+# refused, as `git -C ""` would act on the current directory, and so is
+# any option before the subcommand that names another repository (a second
+# -C, --git-dir, --work-tree) or an argument GIT_DIR=...  A refusal
 # also fails the running test (run_tests), even from a command
 # substitution whose status nobody checks.
 tgit()
 {
+	local a i why=
 	if [[ ${1-} != -C || -z ${2-} ||
 		$(cd "$2" 2>/dev/null && pwd -P) != "$(cd "$_scratch_root" && pwd -P)"/* ]]; then
-		echo "tgit: refusing '${2-}': pass -C and a scratch repository" >&2
+		why="'${2-}': pass -C and a scratch repository"
+	fi
+	for ((i = 3; i <= $#; i++)); do
+		a=${!i}
+		case $a in
+		GIT_DIR=*) why="'$a'" ;;
+		-c) ((i++)) ;;
+		-C|--git-dir|--git-dir=*|--work-tree|--work-tree=*) why="'$a': one -C names the repository" ;;
+		-*) ;;
+		*) break ;;
+		esac
+	done
+	for a in "${@:i}"; do
+		[[ $a == GIT_DIR=* ]] && why="'$a'"
+	done
+	if [[ -n $why ]]; then
+		echo "tgit: refusing $why" >&2
 		: > "$_scratch_root/refused"
 		return 1
 	fi

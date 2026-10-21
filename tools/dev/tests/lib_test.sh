@@ -19,16 +19,28 @@ test_scratch_dirs_are_removed_on_exit()
 }
 
 # Test that tgit refuses to act on anything but a scratch repository: an
-# empty -C, which git takes as the current directory, or none at all.
+# empty -C, which git takes as the current directory, or none at all, a
+# second -C, --git-dir or --work-tree before the subcommand, or GIT_DIR=.
 test_tgit_refuses_non_scratch_repository()
 {
-	local out
+	local out r a
 	out=$(cd "$REPO_ROOT" && tgit -C "" status 2>&1) && fail "tgit -C '' ran: $out"
 	assert_contains "$out" "tgit: refusing"
 	out=$(tgit status 2>&1) && fail "tgit without -C ran: $out"
+	r=$(make_repo) || die "make_repo failed"
+	for a in "-C $REPO_ROOT" "--git-dir=$REPO_ROOT/.git" "--git-dir $REPO_ROOT/.git" \
+		"--work-tree=$REPO_ROOT" "-c x.y=1 -C $REPO_ROOT"; do
+		# shellcheck disable=SC2086  # split into options on purpose
+		out=$(tgit -C "$r" $a status 2>&1) && fail "tgit -C $r $a ran: $out"
+		assert_contains "$out" "tgit: refusing"
+	done
+	out=$(tgit -C "$r" commit -m "GIT_DIR=$REPO_ROOT/.git" 2>&1) && fail "GIT_DIR= ran: $out"
+	assert_contains "$out" "tgit: refusing 'GIT_DIR="
+	out=$(tgit -C "$r" rev-parse --git-dir 2>&1)
+	assert_eq "$out" ".git" "a --git-dir after the subcommand is a query"
 	out=$(real_git config user.name intruder 2>&1) && fail "real_git config ran: $out"
 	assert_contains "$out" "real_git: refusing"
-	# A refusal fails the running test; these three were meant.
+	# A refusal fails the running test; these were meant.
 	[[ -e $_scratch_root/refused ]] || fail "a refusal did not mark the test failed"
 	rm -f "$_scratch_root/refused"
 	tgit -C "$(make_repo)" status -s || fail "tgit refused a scratch repository"
