@@ -16,6 +16,7 @@ inline void dxx_hardening_exit(const char *format, ...) noexcept
 {
 	__builtin_va_list ap;
 	__builtin_va_start(ap, format);
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-libc-call): libc++'s format
 	vdprintf(2, format, ap);
 	__builtin_va_end(ap);
 	_exit(1);

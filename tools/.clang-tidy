@@ -14,13 +14,11 @@
 # -Wlifetime-safety-permissive (a pointer or view used after its owner dies),
 # which Apple clang 21 accepts but reports nothing for, so it lives here, not in
 # the build's flags; and -Wunsafe-buffer-usage (pointer arithmetic, subscripts
-# and pointer-plus-length constructions where std::span belongs) without its
-# libc-call part for now: that fires on hardening-exit.h's vdprintf, a
-# justified site whose NOLINT waits for the runtime ratchet's edits there.
+# and pointer-plus-length constructions where std::span belongs, and libc
+# buffer calls such as memcpy with a raw size).
 ExtraArgs:
   - -Wlifetime-safety-permissive
   - -Wunsafe-buffer-usage
-  - -Wno-unsafe-buffer-usage-in-libc-call
 Checks: >
   -*,
   clang-diagnostic-*,

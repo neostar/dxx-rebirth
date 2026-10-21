@@ -1,0 +1,12 @@
+// A libc buffer call with a raw size, where std::copy over a std::span
+// belongs: -Wunsafe-buffer-usage-in-libc-call reports it.
+// gate tidy: [clang-diagnostic-unsafe-buffer-usage-in-libc-call
+#include <array>
+#include <cstring>
+
+std::array<int, 4> copy_values(const std::array<int, 4> &values)
+{
+	std::array<int, 4> out{};
+	std::memcpy(out.data(), values.data(), sizeof(int) * 4);
+	return out;
+}

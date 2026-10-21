@@ -136,8 +136,9 @@ tightening is its own small commit that leaves the tree green and updates the le
   pointer-plus-length constructions), proven by `unsafe_buffer.cpp.in`; code on `std::span` and
   `std::array` stays clean, range-for and subscript alike, and the pixel wrapper, which builds its
   span from SDL's pointer and size, carries a second NOLINT. Its libc-call part
-  (`-Wunsafe-buffer-usage-in-libc-call`) is off until `tools/dev/hardening-exit.h`'s `vdprintf`,
-  libc++'s printf-shaped abort hook, has its NOLINT. A query-based custom check (LLVM 23
+  (`-Wunsafe-buffer-usage-in-libc-call`, a libc buffer call such as `memcpy` with a raw size) is
+  proven by `unsafe_libc_call.cpp.in`; `tools/dev/hardening-exit.h`'s `vdprintf`, libc++'s
+  printf-shaped abort hook, carries its NOLINT. A query-based custom check (LLVM 23
   `CustomChecks`, experimental: `format.sh` passes `--experimental-custom-checks`),
   `custom-void-pointer-cast`, fails any cast from `void *` (`static_cast`, `reinterpret_cast`,
   C-style) outside the `sdl_wrap*` files, by canonical type, so a typedef such as
