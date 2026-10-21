@@ -108,11 +108,19 @@ public:
 			throw std::runtime_error(PHYSFS_getErrorByCode(error));
 		return std::move(rwops);
 	}
+#if SDL_MAJOR_VERSION == 3
+
+	/* PHYSFS_unmount fails while a file opened through the mount is open. */
+	bool unmount() const
+	{
+		return PHYSFS_unmount(directory.string().c_str());
+	}
+#endif
 };
 
 }
 
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 BOOST_FIXTURE_TEST_CASE(size_preserves_position, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
@@ -122,6 +130,7 @@ BOOST_FIXTURE_TEST_CASE(size_preserves_position, physfsrwops_test_fixture)
 }
 #endif
 
+#if SDL_MAJOR_VERSION <= 2
 BOOST_FIXTURE_TEST_CASE(read_returns_complete_object_count, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
@@ -149,6 +158,41 @@ BOOST_FIXTURE_TEST_CASE(zero_length_read_does_not_move_position, physfsrwops_tes
 	BOOST_TEST(SDL_RWread(rwops.get(), &buffer, 1, 0) == 0u);
 	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
 }
+#elif SDL_MAJOR_VERSION == 3
+/* SDL3's SDL_ReadIO and SDL_WriteIO count bytes, where SDL2's SDL_RWread
+ * and SDL_RWwrite count objects, and report end of file and errors through
+ * SDL_GetIOStatus.
+ */
+BOOST_FIXTURE_TEST_CASE(read_returns_requested_bytes, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	std::array<uint8_t, 6> buffer{};
+	constexpr std::array<uint8_t, 6> expected{{1, 2, 3, 4, 5, 6}};
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 6u);
+	BOOST_TEST(buffer == expected);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 6);
+}
+
+BOOST_FIXTURE_TEST_CASE(read_past_end_reports_end_of_file, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	std::array<uint8_t, 8> buffer{};
+	BOOST_TEST(SDL_ReadIO(rwops.get(), buffer.data(), buffer.size()) == 7u);
+	BOOST_TEST(buffer[6] == 7u);
+	BOOST_TEST(SDL_GetIOStatus(rwops.get()) == SDL_IO_STATUS_EOF);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 7);
+}
+
+/* Test that a seek from the end lands relative to the file's length. */
+BOOST_FIXTURE_TEST_CASE(seek_from_end, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	uint8_t byte{};
+	BOOST_TEST(SDL_SeekIO(rwops.get(), -2, SDL_IO_SEEK_END) == 5);
+	BOOST_TEST(SDL_ReadIO(rwops.get(), &byte, 1) == 1u);
+	BOOST_TEST(byte == 6u);
+}
+#endif
 
 #if SDL_MAJOR_VERSION == 2
 BOOST_FIXTURE_TEST_CASE(read_rejects_size_product_overflow, physfsrwops_test_fixture)
@@ -161,8 +205,20 @@ BOOST_FIXTURE_TEST_CASE(read_rejects_size_product_overflow, physfsrwops_test_fix
 	BOOST_TEST(SDL_GetError()[0] != '\0');
 	BOOST_TEST(SDL_RWtell(rwops.get()) == 0);
 }
+#elif SDL_MAJOR_VERSION == 3
+BOOST_FIXTURE_TEST_CASE(read_rejects_oversized_request, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	uint8_t buffer{};
+	SDL_ClearError();
+	BOOST_TEST(SDL_ReadIO(rwops.get(), &buffer, std::numeric_limits<std::size_t>::max()) == 0u);
+	BOOST_TEST(SDL_GetError()[0] != '\0');
+	BOOST_TEST(SDL_GetIOStatus(rwops.get()) == SDL_IO_STATUS_ERROR);
+	BOOST_TEST(SDL_TellIO(rwops.get()) == 0);
+}
 #endif
 
+#if SDL_MAJOR_VERSION <= 2
 BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_objects, physfsrwops_test_fixture)
 {
 	auto rwops{open()};
@@ -171,3 +227,25 @@ BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_objects, physfsrwops_test_fixtu
 	BOOST_TEST(SDL_RWwrite(rwops.get(), buffer.data(), 2, 3) == 0u);
 	BOOST_TEST(SDL_GetError()[0] != '\0');
 }
+#elif SDL_MAJOR_VERSION == 3
+BOOST_FIXTURE_TEST_CASE(write_error_returns_zero_bytes, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	std::array<uint8_t, 6> buffer{};
+	SDL_ClearError();
+	BOOST_TEST(SDL_WriteIO(rwops.get(), buffer.data(), buffer.size()) == 0u);
+	BOOST_TEST(SDL_GetError()[0] != '\0');
+}
+
+/* Test that SDL_CloseIO closes the PhysicsFS file: the mount cannot be
+ * unmounted while it is open.  PHYSFS_deinit would close a leaked one
+ * unseen.
+ */
+BOOST_FIXTURE_TEST_CASE(close_closes_file, physfsrwops_test_fixture)
+{
+	auto rwops{open()};
+	BOOST_TEST(!unmount());
+	BOOST_TEST(SDL_CloseIO(rwops.release()));
+	BOOST_TEST(unmount());
+}
+#endif

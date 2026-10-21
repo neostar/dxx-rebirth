@@ -35,6 +35,8 @@
 #define SDL_RWops_callback_seek_position	int
 #define SDL_RWops_callback_read_position	int
 #define SDL_RWops_callback_write_position	int
+#elif SDL_MAJOR_VERSION == 3
+/* SDL3's SDL_IOStreamInterface callbacks below spell their types. */
 #else
 #define SDL_RWops_callback_seek_position	Sint64
 #define SDL_RWops_callback_read_position	size_t
@@ -52,8 +54,17 @@ static Sint64 physfsrwops_size(SDL_RWops *rw)
 		SDL_SetError("Can't find end of file: %s", PHYSFS_getLastError());
 	return len;
 } /* physfsrwops_size */
+#elif SDL_MAJOR_VERSION == 3
+static Sint64 physfsrwops_size(void *const userdata)
+{
+	const auto len{PHYSFS_fileLength(static_cast<PHYSFS_File *>(userdata))};
+	if (len == -1)
+		SDL_SetError("Can't find end of file: %s", PHYSFS_getLastError());
+	return len;
+} /* physfsrwops_size */
 #endif
 
+#if SDL_MAJOR_VERSION <= 2
 static SDL_RWops_callback_seek_position physfsrwops_seek(SDL_RWops *rw, const SDL_RWops_callback_seek_position offset, const int whence)
 {
     PHYSFS_File *handle = reinterpret_cast<PHYSFS_File *>(rw->hidden.unknown.data1);
@@ -232,9 +243,97 @@ static int physfsrwops_close(SDL_RWops *rw)
     SDL_FreeRW(rw);
     return(0);
 } /* physfsrwops_close */
+#elif SDL_MAJOR_VERSION == 3
+/* SDL3 streams count bytes, report end of file and errors through
+ * `*status`, and free the SDL_IOStream themselves after `close`.  The stream
+ * has no `write` callback: SDL_WriteIO then fails as on a read-only stream.
+ */
+static Sint64 physfsrwops_seek(void *const userdata, const Sint64 offset, const SDL_IOWhence whence)
+{
+	const auto handle{static_cast<PHYSFS_File *>(userdata)};
+	PHYSFS_sint64 base;
+	if (whence == SDL_IO_SEEK_SET)
+		base = 0;
+	else if (whence == SDL_IO_SEEK_CUR)
+		base = PHYSFS_tell(handle);
+	else if (whence == SDL_IO_SEEK_END)
+		base = PHYSFS_fileLength(handle);
+	else
+	{
+		[[unlikely]];
+		SDL_SetError("Invalid 'whence' parameter.");
+		return -1;
+	}
+	if (base == -1)
+	{
+		[[unlikely]];
+		SDL_SetError("PhysicsFS error: %s", PHYSFS_getLastError());
+		return -1;
+	}
+	if (whence == SDL_IO_SEEK_CUR && offset == 0)  /* SDL_TellIO */
+		return base;
+	if (offset < -base)
+	{
+		[[unlikely]];
+		SDL_SetError("Attempt to seek past start of file.");
+		return -1;
+	}
+	if (offset > std::numeric_limits<Sint64>::max() - base)
+	{
+		[[unlikely]];
+		SDL_SetError("Attempt to seek past largest file position.");
+		return -1;
+	}
+	const Sint64 pos{base + offset};
+	if (!PHYSFS_seek(handle, static_cast<PHYSFS_uint64>(pos)))
+	{
+		[[unlikely]];
+		SDL_SetError("PhysicsFS error: %s", PHYSFS_getLastError());
+		return -1;
+	}
+	return pos;
+} /* physfsrwops_seek */
+
+static size_t physfsrwops_read(void *const userdata, void *const ptr, const size_t size, SDL_IOStatus *const status)
+{
+	const auto handle{static_cast<PHYSFS_File *>(userdata)};
+	if (!std::in_range<PHYSFS_sint64>(size))
+	{
+		[[unlikely]];
+		SDL_SetError("I/O request is too large.");
+		*status = SDL_IO_STATUS_ERROR;
+		return 0;
+	}
+	const auto rc{PHYSFS_readBytes(handle, ptr, size)};
+	if (rc != static_cast<PHYSFS_sint64>(size))
+	{
+		if (rc >= 0 && PHYSFS_eof(handle))
+			*status = SDL_IO_STATUS_EOF;
+		else
+		{
+			[[unlikely]];
+			SDL_SetError("PhysicsFS error: %s", PHYSFS_getLastError());
+			*status = SDL_IO_STATUS_ERROR;
+		}
+	}
+	return rc < 0 ? 0 : static_cast<size_t>(rc);
+} /* physfsrwops_read */
+
+static bool physfsrwops_close(void *const userdata)
+{
+	if (!PHYSFS_close(static_cast<PHYSFS_File *>(userdata)))
+	{
+		[[unlikely]];
+		SDL_SetError("PhysicsFS error: %s", PHYSFS_getLastError());
+		return false;
+	}
+	return true;
+} /* physfsrwops_close */
+#endif
 
 }
 
+#if SDL_MAJOR_VERSION <= 2
 std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname)
 {
 	RAIIPHYSFS_File handle{PHYSFS_openRead(fname)};
@@ -289,5 +388,36 @@ std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname)
 		return {std::move(retval), PHYSFS_ERR_OK};
     } /* else */
 } /* PHYSFSRWOPS_openRead */
+#elif SDL_MAJOR_VERSION == 3
+std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *fname)
+{
+	RAIIPHYSFS_File handle{PHYSFS_openRead(fname)};
+	if (!handle)
+	{
+		[[unlikely]];
+		const auto err = PHYSFS_getLastErrorCode();
+		SDL_SetError("PhysicsFS error: %s", PHYSFS_getErrorByCode(err));
+		return {nullptr, err};
+	}
+	const SDL_IOStreamInterface iface{
+		.version{sizeof(SDL_IOStreamInterface)},
+		.size{physfsrwops_size},
+		.seek{physfsrwops_seek},
+		.read{physfsrwops_read},
+		.write{},
+		.flush{},
+		.close{physfsrwops_close},
+	};
+	RWops_ptr retval{SDL_OpenIO(&iface, handle.get())};
+	if (!retval)
+	{
+		[[unlikely]];
+		return {nullptr, PHYSFS_ERR_OTHER_ERROR};
+	}
+	/* The stream owns the file now: SDL_CloseIO closes it. */
+	handle.release();
+	return {std::move(retval), PHYSFS_ERR_OK};
+} /* PHYSFSRWOPS_openRead */
+#endif
 
 /* end of physfsrwops.c ... */
