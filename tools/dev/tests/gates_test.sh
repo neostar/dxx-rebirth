@@ -84,12 +84,13 @@ build_plant()
 # The hardened standard library (hardening.py) as the dev profile builds
 # it: run file $1, built with it.  On macOS a trap must exit 1, never
 # abort() into a crash report (hardening-exit.h); such a run prints only
-# its status, which no expectation matches.
+# its status, which no expectation matches.  It runs under no-window.sh,
+# which reports a crash report of the run.
 gate_hardening()
 {
 	local p rc out
 	p=$(build_plant "$1") || return
-	out=$("$p" 2>&1) && rc=0 || rc=$?
+	out=$("$DEV_DIR/no-window.sh" "$p" 2>&1) && rc=0 || rc=$?
 	if [[ $dev_os == darwin && $rc -gt 1 ]]; then
 		echo "gate hardening: the trap ended with status $rc, not 1 (abort?)"
 	else
@@ -112,8 +113,10 @@ print(" ".join(" ".join(x) if isinstance(x, list) else x for x in (v[n] for n in
 
 # The asan profile (build.sh asan): run file $1 built with site-asan.py's
 # compiler and linker flags, fork code's among them, under env.sh's
-# sanitizer options (LeakSanitizer on, except on macOS; reporting, never
-# aborting), under no-window.sh, so that a crash report fails it.
+# sanitizer options (LeakSanitizer on, except on macOS; reporting), under
+# no-window.sh, so that a crash report fails it.  abort_on_error=0 is
+# appended to both option sets, where the last setting wins: an inherited
+# abort_on_error=1 would leave a crash report on macOS.
 # AddressSanitizer, LeakSanitizer and UBSan are one build, so gates asan,
 # lsan, ubsan and ubsanclang are one runner.
 gate_sanitizers()
@@ -122,7 +125,9 @@ gate_sanitizers()
 	flags=$(asan_site CXXFLAGS FORK_ONLY_CXXFLAGS LINKFLAGS) || return
 	# shellcheck disable=SC2086  # the flags are words
 	p=$(build_plant "$1" $flags) || return
-	"$DEV_DIR/no-window.sh" "$p" 2>&1
+	ASAN_OPTIONS=${ASAN_OPTIONS:+$ASAN_OPTIONS:}abort_on_error=0 \
+		UBSAN_OPTIONS=${UBSAN_OPTIONS:+$UBSAN_OPTIONS:}abort_on_error=0 \
+		"$DEV_DIR/no-window.sh" "$p" 2>&1
 }
 gate_asan() { gate_sanitizers "$@"; }
 gate_lsan() { gate_sanitizers "$@"; }
@@ -131,12 +136,12 @@ gate_ubsan() { gate_sanitizers "$@"; }
 gate_ubsanclang() { gate_sanitizers "$@"; }
 
 # macOS's leak check (leaks.sh, the check tier's leaks step): run file $1,
-# built without sanitizers, under leaks --atExit.
+# built without sanitizers, under leaks --atExit and no-window.sh.
 gate_leaks()
 {
 	local p
 	p=$(build_plant "$1") || return
-	"$DEV_DIR/leaks.sh" "$p" 2>&1
+	"$DEV_DIR/no-window.sh" "$DEV_DIR/leaks.sh" "$p" 2>&1
 }
 
 # The GPU validation gate (gpu-validate.sh): run file $1, built against the
@@ -162,6 +167,8 @@ in_container()
 }
 
 # Run gate $1 on every planted file that names it, and fail unless one does.
+# A run that no-window.sh reports (a crash report, focus taken) fails
+# whatever its expectation: a red plant must go red by its diagnostic.
 run_planted()
 {
 	local gate=$1 f line expect out rc n=0 lines
@@ -172,7 +179,9 @@ run_planted()
 			expect=${line#"// gate $gate: "}
 			n=$((n + 1))
 			out=$("gate_$gate" "$f") && rc=0 || rc=$?
-			if [[ $expect == pass ]]; then
+			if [[ $out == *"no-window.sh:"* ]]; then
+				fail "gate $gate on ${f##*/} crashed or took focus: $out"
+			elif [[ $expect == pass ]]; then
 				[[ $rc -eq 0 ]] || fail "gate $gate failed ${f##*/}: $out"
 			elif [[ $rc -eq 0 ]]; then
 				fail "gate $gate passed ${f##*/}; expected: $expect"
@@ -249,6 +258,57 @@ test_gpumetal()
 {
 	[[ $dev_os == darwin ]] || skip "Metal is macOS only; gate gpu covers Vulkan here"
 	run_planted gpumetal
+}
+
+# Test that a planted run that crashed into a report or took focus fails
+# its gate even when its output matches the expectation: no-window.sh's
+# verdict, not the plant's text, decides.
+# Run gate fake, whose run matches its expectation but which no-window.sh
+# reports, on a plant in directory $1; print whether run_planted failed.
+run_crashed_plant()
+{
+	local GATES=$1
+	printf '// gate fake: boom\n' > "$GATES/crash.cpp.in"
+	gate_tool[fake]=true
+	# shellcheck disable=SC2329  # run by run_planted
+	gate_fake() { printf 'boom\nno-window.sh: new crash report of the run: x.ips\n'; return 1; }
+	_test_failed=0
+	run_planted fake
+	echo "failed=$_test_failed"
+}
+
+test_planted_crash_or_focus_fails_the_gate()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(run_crashed_plant "$d" 2>&1)
+	assert_contains "$out" "failed=1"
+	assert_contains "$out" "crashed or took focus"
+}
+
+# Test that the sanitizer gates report and never abort (an abort leaves a
+# crash report on macOS), whatever ASAN_OPTIONS and UBSAN_OPTIONS the
+# environment sets: the plant sees abort_on_error=0 last in both.
+test_sanitizer_gates_never_abort_under_inherited_options()
+{
+	local d out
+	need "${gate_tool[asan]}"
+	d=$(make_scratch) || die "make_scratch failed"
+	cat > "$d/env.cpp.in" <<-'EOF'
+	#include <cstdio>
+	#include <cstdlib>
+	int main()
+	{
+		const char *const asan{std::getenv("ASAN_OPTIONS")};
+		const char *const ubsan{std::getenv("UBSAN_OPTIONS")};
+		std::printf("asan=%s\nubsan=%s\n", asan ? asan : "", ubsan ? ubsan : "");
+		return 0;
+	}
+	EOF
+	out=$(ASAN_OPTIONS=abort_on_error=1 UBSAN_OPTIONS=abort_on_error=1 gate_asan "$d/env.cpp.in") ||
+		{ fail "gate asan failed: $out"; return; }
+	[[ $out =~ asan=[^$'\n']*abort_on_error=0($'\n'|$) ]] || fail "ASAN_OPTIONS may abort: $out"
+	[[ $out =~ ubsan=[^$'\n']*abort_on_error=0($'\n'|$) ]] || fail "UBSAN_OPTIONS may abort: $out"
 }
 
 # Test that the GPU gate fails without the pinned SDL3 in the container,
