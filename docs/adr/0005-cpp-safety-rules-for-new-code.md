@@ -51,6 +51,14 @@ editor tier shows the fast checks and the pre-commit tier is the first to run th
 `tools/dev/fork_warnings.py` from the site file `build.sh` reads, to every compile whose source
 lies in a fork directory. `SConstruct` is unchanged; upstream files compile as before. The flags
 reach the compilation database, and clang-tidy's `clang-diagnostic-*` reports them before a build.
+A fork compile also names the include directories outside the repository (Boost and the other
+Homebrew headers) with `-isystem`, so third-party headers are quiet. Upstream directories stay
+`-I`: a system header would also hide a fork defect spelled through its macros or templates. An
+upstream header the flags trip on (`timer.h`, `vecmat.h`, `byteutil.h`) is included between
+`tools/dev/upstream_begin.h` and `tools/dev/upstream_end.h`, whose diagnostic pragmas turn the
+strict warnings off for its own lines. What that loses: defects inside the header's code, among
+them a template instantiated from fork code with a narrowing argument; fork code expanding the
+header's macros keeps the warnings, which GCC and clang place at the expansion.
 
 **Hardened standard library** in every `build.sh` profile (dev and asan), for upstream and fork
 code alike: `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` (libc++, the Mac) and

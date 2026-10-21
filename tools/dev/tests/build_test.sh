@@ -163,6 +163,28 @@ main:
 toolsx: "
 }
 
+# Test that a fork compile gets every include directory on CPPPATH outside
+# the repository (Homebrew's: Boost) again as -isystem, so the strict
+# warnings stay off third-party headers, and that an upstream compile gets
+# nothing.  Directories in the repository stay user ones, given relative,
+# top-relative ('#dir', '#/dir') or absolute, also one holding a fork
+# directory (common, for common/debug): a system header would hide a fork
+# defect spelled through its macros or templates.
+test_fork_compiles_see_third_party_includes_as_system()
+{
+	local out
+	out=$(cd "$REPO_ROOT" && python3 -I -c "$read_sites"'
+import SCons.Defaults
+flags_for = SCons.Defaults.ConstructionEnvironment["_DXX_FORK_WARNINGS"]
+env = {"CPPPATH": ["common/include", ".", "build/dev/", "/opt/x/include", "#common/main",
+	"#/build/dev", "common", os.getcwd() + "/common/include", "tools/dev"]}
+for source in ("tools/y.cpp", "common/main/x.cpp"):
+	print(source + ": " + " ".join(flags_for(target=[], source=[source], env=env, for_signature=False)))
+' "$(fake_scons)" "$DEV_DIR/site-dev.py" 2>&1)
+	assert_eq "$out" "tools/y.cpp: -Wconversion -Wsign-conversion -Wshadow -Werror -isystem /opt/x/include
+common/main/x.cpp: "
+}
+
 # Exec site-asan.py twice in one python3, as SCons may read a site file
 # more than once, with PATH $1, and print CLANG_UBSAN_MISSING; stderr too.
 site_asan_twice()
@@ -198,7 +220,12 @@ exit 1
 
 # Test, in a real build of a throwaway clone (slow, opt-in with
 # DXX_BUILD_TESTS=1), that a -Wconversion violation fails the compile of a
-# fork file and the same code in an upstream file still builds.
+# fork file and the same code in an upstream file still builds; that a fork
+# file includes timer.h, vecmat.h and byteutil.h (between upstream_begin.h
+# and upstream_end.h) and Boost.Test cleanly; and that fork code narrowing
+# through an upstream macro or instantiating an upstream template still
+# fails, and through the macro also between upstream_begin.h and
+# upstream_end.h.
 test_strict_warnings_fail_fork_file_in_real_build()
 {
 	local d r out rc probe='int dxx_strict_probe(long); int dxx_strict_probe(long v) { return v; }'
@@ -215,17 +242,59 @@ test_strict_warnings_fail_fork_file_in_real_build()
 	rm -rf "$r/tools/dev" && cp -R "$DEV_DIR" "$r/tools/dev"
 	printf '%s\n' "$probe" > "$r/tools/strictprobe.cpp"
 	printf '%s\n' "$probe" >> "$r/common/misc/strutil.cpp"
-	awk -v anchor="'common/misc/strutil.cpp'," -v probe="'tools/strictprobe.cpp'," \
+	cat > "$r/tools/strictuser.cpp" <<-'EOF'
+	// clang-format off
+	#include "tools/dev/upstream_begin.h"
+	#include "timer.h"
+	#include "vecmat.h"
+	#include "byteutil.h"
+	#include "tools/dev/upstream_end.h"
+	// clang-format on
+	#include <boost/test/unit_test.hpp>
+	int dxx_strict_user();
+	int dxx_strict_user() { return 0; }
+	EOF
+	cat > "$r/common/include/strictmacro.h" <<-'EOF'
+	#pragma once
+	#define DXX_STRICT_STORE(dst, v) ((dst) = (v))
+	template <class T> int dxx_strict_conv(T t) { return t; }
+	EOF
+	cat > "$r/tools/strictmacro.cpp" <<-'EOF'
+	#include "strictmacro.h"
+	int dxx_strict_macro(long v);
+	int dxx_strict_macro(long v)
+	{
+		int i = 0;
+		DXX_STRICT_STORE(i, v);
+		unsigned u = 0;
+		DXX_STRICT_STORE(u, i);
+		return i + static_cast<int>(u) + dxx_strict_conv(v);
+	}
+	EOF
+	{ printf '// clang-format off\n#include "tools/dev/upstream_begin.h"\n'
+		printf '#include "strictmacro.h"\n#include "tools/dev/upstream_end.h"\n'
+		sed 1d "$r/tools/strictmacro.cpp"; } > "$r/tools/strictwrapped.cpp"
+	awk -v anchor="'common/misc/strutil.cpp'," \
+		-v probe="'tools/strictprobe.cpp','tools/strictuser.cpp','tools/strictmacro.cpp','tools/strictwrapped.cpp'," \
 		'{print} $0 == anchor {print probe}' "$REPO_ROOT/SConstruct" > "$r/SConstruct"
-	grep -qxF "'tools/strictprobe.cpp'," "$r/SConstruct" || fail "SConstruct has no strutil.cpp line"
+	grep -qF "'tools/strictprobe.cpp','tools/strictuser.cpp'," "$r/SConstruct" ||
+		fail "SConstruct has no strutil.cpp line"
 	out=$("$r/tools/dev/build.sh" dev build/dev/common/misc/strutil.o 2>&1)
 	assert_eq "$?" 0 "upstream file: $out"
+	out=$("$r/tools/dev/build.sh" dev build/dev/tools/strictuser.o 2>&1)
+	assert_eq "$?" 0 "fork file including upstream headers and Boost.Test: $(grep -m5 error <<<"$out")"
 	out=$("$r/tools/dev/build.sh" dev build/dev/tools/strictprobe.o 2>&1) && rc=0 || rc=$?
 	[[ $rc -ne 0 ]] || fail "fork file built: $(tail -5 <<<"$out")"
 	assert_contains "$out" "strictprobe.cpp:1:"
 	# clang: [-Werror,-Wshorten-64-to-32]; GCC: [-Werror=conversion]
 	[[ $out =~ \[-Werror(,-Wshorten-64-to-32|=conversion)\] ]] ||
 		fail "no strict conversion error: $(tail -5 <<<"$out")"
+	out=$("$r/tools/dev/build.sh" -k dev build/dev/tools/strictmacro.o build/dev/tools/strictwrapped.o 2>&1)
+	assert_contains "$out" "strictmacro.cpp:6:"
+	assert_contains "$out" "strictmacro.cpp:8:"
+	assert_contains "$out" "strictmacro.h:3:"
+	assert_contains "$out" "strictwrapped.cpp:9:"
+	assert_contains "$out" "strictwrapped.cpp:11:"
 }
 
 run_tests

@@ -1,6 +1,7 @@
 # Strict warnings for fork code (ADR 5): -Wconversion -Wsign-conversion
 # -Wshadow -Werror on every compile whose source lies in a directory listed
-# in tools/dev/fork-dirs; upstream files compile as before.  site-dev.py
+# in tools/dev/fork-dirs, with the third-party include directories made
+# system ones there; upstream files compile as before.  site-dev.py
 # calls install(), so the build.sh profiles get it and SConstruct stays
 # unchanged.  `python3 fork_warnings.py` prints the flags.  A profile adds
 # its own fork-only flags to FORK_ONLY_FLAGS (site-asan.py: UBSan's
@@ -45,13 +46,37 @@ def _path(node):
 	return os.path.realpath(srcnode().get_abspath() if srcnode else str(node))
 
 
+def system_includes(env):
+	"""-isystem for each directory on env's CPPPATH outside the repository:
+	third-party headers (Boost and the other Homebrew ones come in with -I).
+	Named again with -isystem, GCC and clang drop the -I and treat the
+	directory as a system one, so the strict warnings stay off them.
+	Upstream directories stay user ones: a system header would also hide a
+	fork defect spelled through one of its macros or templates.  Fork code
+	includes an upstream header the strict warnings trip on (timer.h)
+	between upstream_begin.h and upstream_end.h instead (ADR 5)."""
+	result = []
+	for p in (env.get('CPPPATH') or ()) if env is not None else ():
+		if not isinstance(p, str):
+			p = p.get_abspath()
+		else:
+			p = env.subst(p) if hasattr(env, 'subst') else p
+			# SCons' top-relative spelling, '#dir' or '#/dir'.
+			p = os.path.join(_root, p[1:].lstrip('/')) if p.startswith('#') else p
+		real = os.path.realpath(p)
+		if real == _root or real.startswith(_root + os.sep):
+			continue
+		result += ['-isystem', p]
+	return result
+
+
 def flags_for(target, source, env, for_signature):
-	"""$_DXX_FORK_WARNINGS: STRICT_FLAGS and FORK_ONLY_FLAGS when a source
-	is fork code."""
+	"""$_DXX_FORK_WARNINGS: STRICT_FLAGS, FORK_ONLY_FLAGS and the system
+	includes when a source is fork code."""
 	dirs = fork_dirs()
 	for s in source or ():
 		if _path(s).startswith(dirs):
-			return list(STRICT_FLAGS) + FORK_ONLY_FLAGS
+			return list(STRICT_FLAGS) + FORK_ONLY_FLAGS + system_includes(env)
 	return []
 
 
