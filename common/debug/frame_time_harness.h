@@ -38,4 +38,14 @@ inline harness_frame_time read_harness_frame_time()
 	return {.value = value, .policy = frame_time_policy::parse(value)};
 }
 
+/* DXX_DBG_FIXED_FRAMETIME of this run, read and parsed once for every
+ * caller (the game's frame time, the harness clock, the input script).
+ */
+[[nodiscard]]
+inline const harness_frame_time &harness_frame_time_of_run()
+{
+	static const harness_frame_time frame_time{read_harness_frame_time()};
+	return frame_time;
+}
+
 }

@@ -654,7 +654,7 @@ namespace {
 const frame_time_policy &harness_frame_time_policy()
 {
 	static const frame_time_policy policy{[]() {
-		const auto [value, parsed]{read_harness_frame_time()};
+		const auto &[value, parsed]{harness_frame_time_of_run()};
 		if (!parsed)
 			UserError("DXX_DBG_FIXED_FRAMETIME=\"%s\": expected 1 to %u frames per second",
 				value, frame_time_policy::max_fps);

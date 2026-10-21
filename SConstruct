@@ -5118,6 +5118,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-input-script', (
 			'common/debug/unittest/input_script.cpp',
 			)),
+		RuntimeTest('test-input-script-harness', (
+			'common/debug/unittest/input_script_harness.cpp',
+			)),
 		RuntimeTest('test-mouse-delta', (
 			'common/unittest/mouse_delta.cpp',
 			)),
