@@ -10,6 +10,12 @@
 # file (tools/dev/tests/gates).  Left out at level 2: constant-array-index and
 # avoid-unchecked-container-access, which flag every subscript with a run-time
 # index, std::array and std::span included, that the hardened library traps.
+# ExtraArgs turns on LLVM 23 analyses that clang-diagnostic-* then reports:
+# -Wlifetime-safety-permissive (a pointer or view used after its owner dies).
+# Apple clang 21 accepts the flag but reports nothing, so it lives here, not in
+# the build's flags.
+ExtraArgs:
+  - -Wlifetime-safety-permissive
 Checks: >
   -*,
   clang-diagnostic-*,

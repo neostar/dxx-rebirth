@@ -126,6 +126,10 @@ tightening is its own small commit that leaves the tree green and updates the le
   `avoid-unchecked-container-access` flag every subscript with a run-time index, into
   `std::array` and `std::span` too, which the hardened library traps; `clean.cpp.in` holds one
   (`x_at`).
+  The config's `ExtraArgs` add LLVM 23's `-Wlifetime-safety-permissive` (a pointer or view used
+  after its owner dies), which `clang-diagnostic-*` reports, proven by `dangling_view.cpp.in`;
+  Apple clang 21 accepts the flag but reports nothing, so it is not a build flag. clangd reads
+  `ExtraArgs` too, so the editor tier shows it.
 - Left out for the whole config, not suppressed inline: the rule that exceptions are inline
   NOLINTs with a reason is for a single justified site, and these two checks fire on idioms fork
   code uses throughout, so every fork file would carry the same NOLINT and a real exception would

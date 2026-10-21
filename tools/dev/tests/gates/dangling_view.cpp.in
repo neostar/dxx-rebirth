@@ -1,0 +1,14 @@
+// A view that outlives the string it points into.
+// gate tidy: [clang-diagnostic-lifetime-safety-use-after-scope
+#include <string>
+#include <string_view>
+
+std::size_t dangling_size()
+{
+	std::string_view view;
+	{
+		const std::string name{"a name too long for the small buffer"};
+		view = name;
+	}
+	return view.size();
+}
