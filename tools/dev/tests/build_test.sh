@@ -138,7 +138,9 @@ test_strict_warnings_fail_fork_file_in_real_build()
 	out=$("$r/tools/dev/build.sh" dev build/dev/tools/strictprobe.o 2>&1) && rc=0 || rc=$?
 	[[ $rc -ne 0 ]] || fail "fork file built: $(tail -5 <<<"$out")"
 	assert_contains "$out" "strictprobe.cpp:1:"
-	assert_contains "$out" "-Werror,-Wshorten-64-to-32"
+	# clang: [-Werror,-Wshorten-64-to-32]; GCC: [-Werror=conversion]
+	[[ $out =~ \[-Werror(,-Wshorten-64-to-32|=conversion)\] ]] ||
+		fail "no strict conversion error: $(tail -5 <<<"$out")"
 }
 
 run_tests
