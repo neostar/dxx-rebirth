@@ -1,9 +1,13 @@
-// Memory still allocated at exit, found at run time.
+// Memory still allocated at exit, unreachable, found at run time.  The
+// volatile pointer keeps the optimiser from removing the allocation.
+// gate lsan: detected memory leaks
 // gate leaks (#58): leaked
 #include <cstdlib>
 
 int main()
 {
-	void *const p{std::malloc(64)};
-	return p ? 0 : 1;
+	void *volatile p{std::malloc(64)};
+	const bool allocated{p != nullptr};
+	p = nullptr;
+	return allocated ? 0 : 1;
 }

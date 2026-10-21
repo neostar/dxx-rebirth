@@ -1,0 +1,12 @@
+// Heap memory read after it was freed, found at run time.
+// gate asan: heap-use-after-free
+#include <memory>
+
+int main(const int argc, char **)
+{
+	auto owned{std::make_unique<int[]>(4)};
+	int *const p{owned.get()};
+	p[argc] = argc;
+	owned.reset();
+	return p[argc];
+}

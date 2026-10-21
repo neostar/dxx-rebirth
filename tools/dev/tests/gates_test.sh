@@ -26,7 +26,8 @@ need()
 }
 
 # The tool each gate runs, which a test needs before running the gate.
-declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++)
+declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++
+	[asan]=c++ [lsan]=c++ [ubsan]=c++)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
@@ -97,6 +98,23 @@ gate_hardening()
 	"$p" 2>&1
 }
 
+# The asan profile (build.sh asan): run file $1 built with site-asan.py's
+# compiler and linker flags, under env.sh's sanitizer options (LeakSanitizer
+# on, except on macOS).  AddressSanitizer, LeakSanitizer and UBSan are one
+# build, so gates asan, lsan and ubsan are one runner.
+gate_sanitizers()
+{
+	local p flags
+	flags=$(python3 -I -c 'import sys; exec(open(sys.argv[1]).read()); print(CXXFLAGS, LINKFLAGS)' \
+		"$DEV_DIR/site-asan.py") || return
+	# shellcheck disable=SC2086  # the flags are words
+	p=$(build_plant "$1" $flags) || return
+	"$p" 2>&1
+}
+gate_asan() { gate_sanitizers "$@"; }
+gate_lsan() { gate_sanitizers "$@"; }
+gate_ubsan() { gate_sanitizers "$@"; }
+
 # Run gate $1 on every planted file that names it, and fail unless one does.
 run_planted()
 {
@@ -134,6 +152,23 @@ test_strict()
 test_hardening()
 {
 	run_planted hardening
+}
+
+test_asan()
+{
+	run_planted asan
+}
+
+test_lsan()
+{
+	[[ $dev_os == darwin ]] &&
+		skip "LeakSanitizer is unsupported on Apple Silicon macOS; gate leaks covers the Mac"
+	run_planted lsan
+}
+
+test_ubsan()
+{
+	run_planted ubsan
 }
 
 # Test that each gate a planted file names without a runner has an owning

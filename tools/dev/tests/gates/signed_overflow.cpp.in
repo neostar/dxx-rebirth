@@ -1,5 +1,5 @@
 // A signed addition that overflows at run time.
-// gate ubsan (#58): signed integer overflow
+// gate ubsan: signed integer overflow
 #include <climits>
 
 int main(const int argc, char **)
