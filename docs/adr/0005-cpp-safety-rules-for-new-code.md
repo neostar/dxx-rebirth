@@ -127,7 +127,12 @@ tightening is its own small commit that leaves the tree green and updates the le
   below among them, are in `clang-tidy-checks`. Left out of `pro-bounds-*` for false alarms:
   `constant-array-index` and `avoid-unchecked-container-access` flag every subscript with a
   run-time index, into `std::array` and `std::span` too, which the hardened library traps;
-  `clean.cpp.in` holds one (`x_at`).
+  `clean.cpp.in` holds one (`x_at`). `avoid-c-arrays` also flags the `T[]` in
+  `std::unique_ptr<T[]>` and `std::make_unique<T[]>(n)`; LLVM 23 has no option for it
+  (`IgnoreTemplateInstantiations` does not cover a template argument written in the code), and
+  fork code holds a run-time-sized buffer in `std::vector`, so a site that needs `unique_ptr<T[]>`
+  (such as `make_unique_for_overwrite` for a buffer SDL fills) is a justified exception: one
+  `NOLINT(cppcoreguidelines-avoid-c-arrays)` with its reason on each line naming `T[]`.
   The config's `ExtraArgs` add LLVM 23's `-Wlifetime-safety-permissive` (a pointer or view used
   after its owner dies), which `clang-diagnostic-*` reports, proven by `dangling_view.cpp.in`;
   Apple clang 21 accepts the flag but reports nothing, so it is not a build flag. clangd reads
