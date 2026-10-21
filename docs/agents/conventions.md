@@ -28,9 +28,10 @@ Done when every touched line follows the rules for its kind of code.
 - `template <typename T>` on its own line, `requires(...)` on the next, one condition per line
   when long (`common/main/d_bit_enum.h:20-43`).
 - Keep new lines under about 100 columns. Upstream code has no formatter. Fork code is formatted
-  by `tools/dev/format.sh` (clang-format with `tools/dev/style/`, `--check` in the pre-commit hook,
-  `--tidy` for clang-tidy), only in the directories listed in `tools/dev/fork-dirs`: add a new
-  fork directory there.
+  by `tools/dev/format.sh` (clang-format with `tools/dev/style/`, `--staged` on the diff in the
+  pre-commit hook, `--tidy` for clang-tidy), only in the directories listed in
+  `tools/dev/fork-dirs`: add a new fork directory there, with a copy of `tools/dev/style/clang-tidy`
+  as its `.clang-tidy`.
 - C++23 is required (`SConstruct:1229`): `static operator()`, explicit object parameters and
   concepts are in use (52f6389ee, ff8df741e).
 
@@ -152,7 +153,8 @@ can be offered upstream, named by subject (see Commits):
 
 ## Fork rules defined elsewhere
 
-- C++ safety rules: the ADR from ticket #56.
+- C++ safety rules, the gates that enforce them and the active clang-tidy level:
+  `docs/adr/0005-cpp-safety-rules-for-new-code.md` (ADR 5).
 - Domain terms: `GLOSSARY.md`. Decisions: `docs/adr/` (soft fork, render device, SDL3 approach).
 - Licensed game data, demos, captures and goldens derived from them stay out of git.
 - Development tools run windowless and in the background (`SDL_HINT_MAC_BACKGROUND_APP`).

@@ -1,7 +1,7 @@
 # Fork code checks (ADR 5, level 1); a copy is each fork directory's
 # .clang-tidy, which clangd and tools/dev/format.sh read.  clang-diagnostic-*
 # reports the compiler's warnings, the strict ones among them.  Left out at
-# level 1: easily-swappable-parameters (every two-int signature) and
+# level 1: easily-swappable-parameters (any adjacent same-type parameters) and
 # pro-type-vararg (every con_printf call, a format-checked idiom).
 Checks: >
   -*,

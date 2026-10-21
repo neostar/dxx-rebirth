@@ -1,6 +1,7 @@
 ## Conventions
 
 Read `docs/agents/conventions.md` before writing or reviewing C++, SConstruct, tests or commit messages.
+Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-for-new-code.md`).
 
 ## Dev workflow
 
