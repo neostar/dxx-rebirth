@@ -335,6 +335,14 @@ step_gpu_gate()
 	return "$rc"
 }
 
+# SDL3 is built beside SDL1.2 and SDL2 with `#elif SDL_MAJOR_VERSION == 3`
+# branches (ADR 3): fail on a chain with an SDL2 branch and no SDL3 or >= 2
+# branch that tools/dev/sdl-arms-allow does not allow (check_sdl_arms.py).
+step_sdl_arms()
+{
+	python3 "$dev_dir/check_sdl_arms.py" "$root"
+}
+
 # Run every GPU program tools/dev/gpu-programs registers under
 # gpu-validate.sh (and no-window.sh); none yet is a SKIP naming #24.
 step_gpu_tests()
@@ -470,7 +478,7 @@ step_leaks()
 
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
-	workflows commit_sizes test_git gpu_gate shell_tests)
+	workflows commit_sizes test_git gpu_gate sdl_arms shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests)
 
 mode=full

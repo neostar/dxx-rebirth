@@ -25,7 +25,9 @@ make_dev_repo()
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/commit-size-allow" "$DEV_DIR/gpu-programs" \
-		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$r/tools/dev/"
+		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$r/tools/dev/"
+	# The real allowlist names upstream files the throwaway repository lacks.
+	: > "$r/tools/dev/sdl-arms-allow"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	printf 'tools\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
@@ -372,6 +374,24 @@ test_fast_fails_on_gpu_device_without_debug_mode()
 	assert_eq "$rc" 1 "$out"
 	sed -i.bak '3d' "$r/tools/gpu.cpp"
 	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that the fast subset fails on an SDL_MAJOR_VERSION chain with an
+# SDL2 branch and no SDL3 branch, naming it and the sdl_arms step, and
+# passes once the file is on the allowlist.
+test_fast_fails_on_sdl2_chain_without_sdl3()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	mkdir -p "$r/common/arch"
+	printf '%s\n' '#if SDL_MAJOR_VERSION == 1' '#elif SDL_MAJOR_VERSION == 2' '#endif' > "$r/common/arch/x.cpp"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "common/arch/x.cpp:2: SDL2 branch without an SDL3 or >= 2 branch"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "sdl_arms"
+	printf '%s\n' 'common/arch/x.cpp 1 -- ported later' > "$r/tools/dev/sdl-arms-allow"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
