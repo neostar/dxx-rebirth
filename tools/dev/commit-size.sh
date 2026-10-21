@@ -57,6 +57,8 @@ count()
 }
 
 if [[ ${1-} == --history ]]; then
+	git rev-parse -q --verify "${2-}^{commit}" >/dev/null ||
+		{ echo "commit-size: --history needs a base commit, got '${2-}'" >&2; exit 2; }
 	rc=0
 	allowed=$(sed -nE 's/^(.+) -- [^[:space:]].*$/\1/p' "$dev_dir/commit-size-allow" 2>/dev/null)
 	while read -r c lines; do

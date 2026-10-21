@@ -858,6 +858,9 @@ test_fast_fails_on_large_commit_made_by_squash()
 	tgit -C "$r" commit -q --amend -m 'part 1' -m 'Large-commit: three parts of one table' --no-verify
 	out=$(cd "$r" && tools/dev/commit-size.sh --history upstream/master 2>&1)
 	assert_eq "$?" 0 "$out"
+	out=$(cd "$r" && tools/dev/commit-size.sh --history upstrem/master 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "needs a base commit, got 'upstrem/master'"
 }
 
 # Test that an amend is measured as the whole commit: a 250-line commit
