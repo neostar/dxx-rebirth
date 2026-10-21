@@ -157,8 +157,8 @@ _tgit_in_scratch()
 # reach outside the scratch root: an absolute, ~ or file:// path (also as
 # the value of an option or of -c key=value) or a relative one climbing
 # out with .. is refused, but for the source of a clone from this clone
-# (REPO_ROOT); so is any other URL, setting core.worktree or core.hooksPath,
-# and a !command alias.  A refusal also fails the running test (run_tests),
+# (REPO_ROOT); so is any other URL, setting core.worktree or core.hooksPath
+# (by config or -c), and a !command alias.  A refusal also fails the running test (run_tests),
 # even from a command substitution whose status nobody checks.
 tgit()
 {
@@ -177,13 +177,18 @@ tgit()
 		esac
 	done
 	sub=${!i-}
-	for a in "${@:3}"; do
-		v=$a
+	local -a args=("${@:3}")
+	for i in "${!args[@]}"; do
+		a=${args[i]} v=$a
 		[[ $a == *=* ]] && v=${a#*=}
 		shopt -s nocasematch
 		case $a in
 		GIT_*=*) why="'$a'" ;;
-		*core.worktree*|*core.hookspath*) why="'$a': names a work tree or hooks" ;;
+		*core.worktree=*|*core.hookspath=*) why="'$a': sets a work tree or hooks" ;;
+		core.worktree|core.hookspath)
+			# Reading or unsetting it is fine; config with a value sets it.
+			[[ $sub == config && -n ${args[i + 1]-} && ${args[i + 1]} != -* ]] &&
+				why="'$a': sets a work tree or hooks" ;;
 		alias.*=!*) why="'$a': a shell alias" ;;
 		esac
 		shopt -u nocasematch

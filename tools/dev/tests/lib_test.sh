@@ -66,7 +66,7 @@ test_tgit_refuses_paths_outside_scratch()
 		"config core.worktree $outside" "-c core.worktree=$outside status" \
 		"config core.hooksPath $outside" "-c core.hooksPath=$outside status" \
 		"push ../../../../../../../../..$o HEAD:refs/heads/x" "push ssh://h/x HEAD" \
-		"-c alias.x=!true x" "push $REPO_ROOT HEAD:refs/heads/x"; do
+		"-c alias.x=!true x" "config core.hooksPath hooks" "push $REPO_ROOT HEAD:refs/heads/x"; do
 		# shellcheck disable=SC2086  # split into arguments on purpose
 		tgit -C "$r" $a >/dev/null 2>&1 && fail "tgit ran: $a"
 	done
@@ -77,6 +77,8 @@ test_tgit_refuses_paths_outside_scratch()
 	rm -f "$_scratch_root/refused"
 	tgit -C "$r" clone -q --shared "$REPO_ROOT" "$r/clone" || fail "a clone of this clone was refused"
 	tgit -C "$r" remote add self "$r" || fail "a remote in the scratch root was refused"
+	tgit -C "$r" config core.hooksPath >/dev/null; tgit -C "$r" config --unset core.hooksPath
+	[[ ! -e $_scratch_root/refused ]] || fail "reading or unsetting core.hooksPath was refused"
 }
 
 # Print the state of repository $1 that a stray git could change: every
