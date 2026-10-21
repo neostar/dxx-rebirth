@@ -182,7 +182,8 @@ step_gpu_gate()
 {
 	local hits rc=0
 	python3 "$dev_dir/gpu_debug_mode.py" "$root" || rc=1
-	hits=$(grep -nE '"\$\{?gpu_program\}?"' "$dev_dir/check.sh" | grep -v 'gpu-validate\.sh')
+	hits=$(grep -nE '\$\{?gpu_program([^[:alnum:]_]|$)' "$dev_dir/check.sh" |
+		grep -vE '^[0-9]+:[[:space:]]*#' | grep -v 'gpu-validate\.sh')
 	if [[ -n $hits ]]; then
 		printf 'tools/dev/check.sh:%s\n' "$hits"
 		echo "gpu_gate: run a GPU program in check.sh through gpu-validate.sh"

@@ -321,16 +321,20 @@ test_gpu_gate_scans_whole_repository()
 }
 
 # Test that the fast subset fails on a line of check.sh that runs a
-# registered GPU program other than through gpu-validate.sh.
+# registered GPU program other than through gpu-validate.sh, in the shape
+# step_gpu_tests runs it, and lets a comment naming one through.
 test_fast_fails_on_gpu_program_run_outside_the_wrapper()
 {
 	local r out rc
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	printf '%s\n' 'unwrapped() { "$gpu_program"; }' >> "$r/tools/dev/check.sh"
+	printf '%s\n' 'unwrapped() { "$dev_dir/no-window.sh" "$root/$gpu_program" || rc=1; }' \
+		'braced() { ${gpu_program}; }' '# runs $gpu_program' >> "$r/tools/dev/check.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" 'unwrapped() { "$gpu_program"; }'
-	assert_contains "$out" "failed: gpu_gate"
+	assert_contains "$out" 'unwrapped() { "$dev_dir/no-window.sh" "$root/$gpu_program"'
+	assert_contains "$out" 'braced() { ${gpu_program}; }'
+	assert_not_contains "$out" '# runs $gpu_program'
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gpu_gate"
 }
 
 # Test that the full checks run every registered GPU program under
