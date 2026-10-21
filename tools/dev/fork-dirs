@@ -6,3 +6,4 @@ common/render
 common/debug
 shaders
 common/algorithm
+common/sdl

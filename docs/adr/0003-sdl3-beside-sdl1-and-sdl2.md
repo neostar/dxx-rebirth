@@ -17,7 +17,8 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
   self-describing names.
 - Divergences get a new `#elif SDL_MAJOR_VERSION == 3` branch; SDL1.2 and SDL2 branches stay
   untouched, and identical SDL2/SDL3 code uses `>= 2`.
-- Repeated or long divergences call helpers in `dcx::sdl` (`common/include/dxx-sdl.h`).
+- Repeated or long divergences call helpers in `dcx::sdl` (`common/sdl/dxx-sdl.h`, the header
+  through which fork code includes SDL; upstream code keeps its own `<SDL*.h>` includes).
 - Depth is added only where it pays off, in fork code: mouse motion with a fraction accumulator,
   fullscreen and window handling, and a window/surface module that owns the GL context and hands
   the window to SDL_GPU for the runtime renderer switch.
