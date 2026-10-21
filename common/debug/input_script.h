@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -181,5 +182,41 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 	std::ranges::stable_sort(events, {}, &input_event::tick);
 	return events;
 }
+
+/* The name of the scene an input script at `path` drives: the file's name
+ * without its directory and extension.
+ */
+[[nodiscard]]
+inline std::string input_scene_name(std::string_view path)
+{
+	if (const auto slash{path.rfind('/')}; slash != std::string_view::npos)
+		path.remove_prefix(slash + 1);
+	return std::string{path.substr(0, path.rfind('.'))};
+}
+
+/* Hands out a parsed script's events, a harness tick at a time. */
+class input_script_player
+{
+	std::vector<input_event> events;
+	std::size_t next{0};
+	harness_tick tick{0};
+
+  public:
+	explicit input_script_player(std::vector<input_event> e) : events{std::move(e)}
+	{}
+	/* The events due at the next harness tick, the first call's tick 0. */
+	[[nodiscard]]
+	std::span<const input_event> next_tick()
+	{
+		const auto now{tick};
+		tick = harness_tick{std::to_underlying(now) + 1};
+		const std::span<const input_event> rest{std::span{events}.subspan(next)};
+		const auto due{static_cast<std::size_t>(
+		    std::ranges::find_if(rest, [now](const input_event &e) { return e.tick > now; }) -
+		    rest.begin())};
+		next += due;
+		return rest.first(due);
+	}
+};
 
 }

@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -70,6 +71,13 @@ BOOST_AUTO_TEST_CASE(lines_become_events)
 	BOOST_TEST(parsed("# S0\n\n5 down ENTER\n\t7  up\tENTER  # let go\n90 end\n") == want);
 }
 
+/* Test that a script with CRLF line ends reads as one with LF line ends. */
+BOOST_AUTO_TEST_CASE(crlf_lines_read_as_lf_lines)
+{
+	BOOST_TEST(parsed("# S0\r\n\r\n5 down ENTER\r\n7 up ENTER # let go\r\n90 end\r\n") ==
+	           parsed("# S0\n\n5 down ENTER\n7 up ENTER # let go\n90 end\n"));
+}
+
 /* Test that press is a down at its tick and an up one tick later, ordered by tick among the
  * other lines' events.
  */
@@ -83,6 +91,28 @@ BOOST_AUTO_TEST_CASE(press_is_down_then_up_a_tick_later)
 	    {.tick = harness_tick{5}, .action = input_action::end, .key = {}},
 	};
 	BOOST_TEST(parsed("3 press ENTER\n3 press ESC\n5 end") == want);
+}
+
+/* Test that the events due at one tick keep the order of their lines, also when presses put
+ * them out of order first: many presses at one tick, which an unstable sort would mix.
+ */
+BOOST_AUTO_TEST_CASE(events_at_one_tick_keep_script_order)
+{
+	constexpr std::size_t presses{200};
+	std::string text;
+	std::vector<input_event> want, ups;
+	for (std::size_t i{0}; i != presses; ++i)
+	{
+		const bool enter{i % 3 != 0};
+		const auto key{enter ? key_enter : key_esc};
+		text += enter ? "0 press ENTER\n" : "0 press ESC\n";
+		want.push_back({.tick = harness_tick{0}, .action = input_action::key_down, .key = key});
+		ups.push_back({.tick = harness_tick{1}, .action = input_action::key_up, .key = key});
+	}
+	text += "2 end\n";
+	want.insert(want.end(), ups.begin(), ups.end());
+	want.push_back({.tick = harness_tick{2}, .action = input_action::end, .key = {}});
+	BOOST_TEST(parsed(text) == want);
 }
 
 /* Test that a malformed line is rejected with its 1-based line number. */
@@ -109,4 +139,31 @@ BOOST_AUTO_TEST_CASE(malformed_lines_are_rejected)
 BOOST_AUTO_TEST_CASE(ticks_going_back_are_rejected)
 {
 	BOOST_TEST(error_line("5 down ENTER\n5 up ENTER\n4 end") == 3);
+}
+
+/* Test that the player hands out each tick's events once, at that tick, counting the ticks
+ * itself.
+ */
+BOOST_AUTO_TEST_CASE(player_hands_out_each_ticks_events_once)
+{
+	dcx::input_script_player player{parsed("2 press ENTER\n2 down ESC\n4 end")};
+	BOOST_TEST(player.next_tick().empty());
+	BOOST_TEST(player.next_tick().empty());
+	BOOST_TEST(player.next_tick().size() == 2u);
+	const auto at_3{player.next_tick()};
+	BOOST_REQUIRE(at_3.size() == 1u);
+	BOOST_TEST((at_3.front().tick == harness_tick{3}));
+	const auto at_4{player.next_tick()};
+	BOOST_REQUIRE(at_4.size() == 1u);
+	BOOST_TEST((at_4.front().action == input_action::end));
+	BOOST_TEST(player.next_tick().empty());
+}
+
+/* Test that a scene is named after its script's file, without directory and extension. */
+BOOST_AUTO_TEST_CASE(scene_named_after_script_file)
+{
+	BOOST_TEST(dcx::input_scene_name("common/debug/scenes/s1-title-menu.txt") == "s1-title-menu");
+	BOOST_TEST(dcx::input_scene_name("s3") == "s3");
+	BOOST_TEST(dcx::input_scene_name("a.d/s4.txt") == "s4");
+	BOOST_TEST(dcx::input_scene_name("a.d/s4") == "s4");
 }
