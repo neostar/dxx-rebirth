@@ -8,7 +8,7 @@ FORMAT="$DEV_DIR/format.sh"
 test_fork_style_file_passes()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '%s\n' \
 		'namespace dcx {' \
 		'' \
@@ -29,7 +29,7 @@ test_fork_style_file_passes()
 test_misformatted_file_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$d/bad.cpp"
 	out=$("$FORMAT" --check "$d" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1
@@ -41,7 +41,7 @@ test_misformatted_file_fails()
 test_missing_or_empty_fork_dirs_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	cp "$DEV_DIR/format.sh" "$DEV_DIR/env.sh" "$d/"
 	out=$("$d/format.sh" --check 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 2 "$out"

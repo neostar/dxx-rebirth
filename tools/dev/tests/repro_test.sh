@@ -18,7 +18,7 @@ test_pinned_dependencies_build_reproducibly()
 {
 	local d t a b line path diffs=()
 	[[ ${DXX_REPRO_TESTS-} == 1 ]] || skip "slow; set DXX_REPRO_TESTS=1 to run"
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	for t in one two; do
 		"$DEV_DIR/deps.sh" --cache "$dev_deps_cache" --prefix "$d/$t/deps-$t" build \
 			> "$d/$t.log" 2>&1 || { tail -n 20 "$d/$t.log" >&2; fail "build $t failed"; return; }

@@ -163,22 +163,46 @@ step_shell_tests()
 # change to this clone (real_git): the word git, also quoted, escaped, as
 # a variable ($git) or assigned (g=git), outside a comment line.  A line
 # directly below a whole-line comment "# raw git: <why>" is let through.
+# Also fail on a scratch directory or repository assigned without a check
+# (d=$(make_scratch) with no || or && after it): an empty path would
+# make the test act on the current directory.  A line directly below a
+# whole-line comment "# unchecked: <why>" is let through.
 step_test_git()
 {
-	local hits lines
+	local hits lines unchecked
+	unchecked=$(cd "$dev_dir/tests" && awk '
+		FNR == 1 { prev = ""; f = substr(FILENAME, 3) }
+		prev !~ /^[[:space:]]*# unchecked: / {
+			s = $0
+			while (match(s, /[[:alnum:]_]+=\$\((make_scratch|fork_repo|make_[a-z_]*repo)[^)]*\)/)) {
+				s = substr(s, RSTART + RLENGTH)
+				if (s !~ /^[[:space:]]*(\|\||&&)/) {
+					printf "%s:%d:%s\n", f, FNR, $0
+					break
+				}
+			}
+		}
+		{ prev = $0 }' ./*.sh) || { echo 'test_git: awk failed'; return 1; }
+	if [[ -n $unchecked ]]; then
+		mapfile -t lines <<<"$unchecked"
+		printf 'tools/dev/tests/%s\n' "${lines[@]}"
+		# shellcheck disable=SC2016  # the advice is code
+		echo 'test_git: check the result, as in d=$(make_scratch) || die "make_scratch failed"'
+	fi
 	# shellcheck disable=SC2016  # $ and quotes are the regex's
 	hits=$(cd "$dev_dir/tests" && awk -v q="'" '
 		BEGIN { re = "(^|[^[:alnum:]_./-])[\\\"" q "$={(]*git([\"" q "})]|[[:space:];|&]|$)" }
-		FNR == 1 { prev = "" }
+		FNR == 1 { prev = ""; f = substr(FILENAME, 3) }
 		$0 !~ /^[[:space:]]*#/ && $0 ~ re && prev !~ /^[[:space:]]*# raw git: / {
-			printf "%s:%d:%s\n", FILENAME, FNR, $0
+			printf "%s:%d:%s\n", f, FNR, $0
 		}
-		{ prev = $0 }' *.sh) || { echo 'test_git: awk failed'; return 1; }
-	[[ -z $hits ]] && return 0
-	mapfile -t lines <<<"$hits"
-	printf 'tools/dev/tests/%s\n' "${lines[@]}"
-	echo "test_git: run git in a test through tgit or real_git (tools/dev/tests/lib.sh)"
-	return 1
+		{ prev = $0 }' ./*.sh) || { echo 'test_git: awk failed'; return 1; }
+	if [[ -n $hits ]]; then
+		mapfile -t lines <<<"$hits"
+		printf 'tools/dev/tests/%s\n' "${lines[@]}"
+		echo "test_git: run git in a test through tgit or real_git (tools/dev/tests/lib.sh)"
+	fi
+	[[ -z $hits && -z $unchecked ]]
 }
 
 # GPU validation is a gate (ADR 5): fail on an SDL_GPU device created

@@ -9,6 +9,7 @@ source "$(dirname "$0")/lib.sh"
 test_scratch_dirs_are_removed_on_exit()
 {
 	local paths p
+	# unchecked: a status is what this test does not rely on
 	paths=$(bash -c 'source "$1"; d=$(make_scratch); r=$(make_repo); echo "$d"; echo "$r"' \
 		_ "$DEV_DIR/tests/lib.sh")
 	[[ -n $paths ]] || fail 'no paths printed'
@@ -49,14 +50,16 @@ repo_state()
 # test ignores make_repo's status, one stops on it.
 test_empty_repo_path_fails_without_touching_repository()
 {
-	local real out rc before
+	local real out rc before ignores
 	real=$(make_repo) || die "make_repo failed"
+	# unchecked: the planted test ignores the status on purpose
+	ignores='test_ignores_status() { local r; r=$(make_repo)'
 	mkdir -p "$real/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$DEV_DIR/toolchain.pins" "$real/tools/dev/"
 	cp "$DEV_DIR/tests/lib.sh" "$real/tools/dev/tests/"
 	printf '%s\n' 'source "$(dirname "$0")/lib.sh"' \
 		'make_scratch() { :; }' \
-		'test_ignores_status() { local r; r=$(make_repo)' \
+		"$ignores" \
 		'	tgit -C "$r" config user.name intruder' \
 		'	tgit -C "$r" update-ref -d HEAD' \
 		'	tgit -C "$r" commit -q --allow-empty -m intruder' \
@@ -77,7 +80,7 @@ test_empty_repo_path_fails_without_touching_repository()
 test_skip_is_reported_and_passes()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '%s\n' "source '$DEV_DIR/tests/lib.sh'" \
 		'test_needs_tool() { skip "tool missing"; fail "ran past skip"; }' \
 		'run_tests' > "$d/skip_test.sh"
@@ -91,7 +94,7 @@ test_skip_is_reported_and_passes()
 test_test_file_sees_only_allowlisted_environment()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '%s\n' "source '$DEV_DIR/tests/lib.sh'" \
 		'test_env() { echo "token=${SECRET_TOKEN-unset} home=${HOME:+set}" \' \
 		'	"gh=${DXX_GH_TOKEN-unset} jobs=${DXX_JOBS-unset} sdl=${SDL_MAC_BACKGROUND_APP-unset}"; }' \
@@ -106,16 +109,16 @@ test_test_file_sees_only_allowlisted_environment()
 # current directory, as rebase.sh does, acts on nothing.
 test_git_finds_no_repository_above_scratch_root()
 {
-	local r out
+	local r out script
 	r=$(make_repo) || die "make_repo failed"
 	mkdir "$r/tmp"
 	# raw git: what the ceiling must stop
-	out=$(TMPDIR="$r/tmp" bash -c 'source "$1"; git rev-parse --show-toplevel 2>&1
-		d=$(make_scratch) && cd "$d" && git rev-parse --show-toplevel 2>&1' _ "$DEV_DIR/tests/lib.sh")
-	assert_contains "$out" "not a git repository"
-	assert_not_contains "$out" "$r"$'\n'
-	[[ $out != *"$(cd "$r" && pwd -P)"$'\n'* && $out != *"$(cd "$r" && pwd -P)" ]] ||
-		fail "git found the clone above the scratch root: $out"
+	script='source "$1"; git rev-parse --git-dir; cd "$(make_scratch)" && git rev-parse --git-dir'
+	out=$(TMPDIR="$r/tmp" bash -c "$script" _ "$DEV_DIR/tests/lib.sh" 2>&1)
+	assert_not_contains "$out" "$r"
+	assert_not_contains "$out" "$(cd "$r" && pwd -P)"
+	# raw git: git's own message
+	assert_contains "$out" "fatal: not a git repository"
 }
 
 # Print what sourcing env.sh with DXX_JOBS=$1 prints, and its status.

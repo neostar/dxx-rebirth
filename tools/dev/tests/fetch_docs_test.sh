@@ -20,7 +20,7 @@ make_fixture()
 test_fetches_manifest_into_dest()
 {
 	local d out
-	d=$(make_scratch); make_fixture "$d"
+	d=$(make_scratch) || die "make_scratch failed"; make_fixture "$d"
 	printf '# comment\nsdl/hello.md file://%s %s\nworld.h file://%s %s\n' \
 		"$d/src/hello.md" "$HELLO_SHA" "$d/src/world.h" "$WORLD_SHA" > "$d/manifest"
 	out=$("$FETCH" --manifest "$d/manifest" --dest "$d/ref" 2>&1)
@@ -33,7 +33,7 @@ test_fetches_manifest_into_dest()
 test_checksum_mismatch_fails()
 {
 	local d out rc
-	d=$(make_scratch); make_fixture "$d"
+	d=$(make_scratch) || die "make_scratch failed"; make_fixture "$d"
 	printf 'hello.md file://%s %s\n' "$d/src/hello.md" "$WORLD_SHA" > "$d/manifest"
 	out=$("$FETCH" --manifest "$d/manifest" --dest "$d/ref" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1

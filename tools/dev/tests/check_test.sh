@@ -68,7 +68,7 @@ test_fast_runs_shell_tests_in_parallel()
 {
 	local r d out rc
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '#!/usr/bin/env bash
 echo a-start
 for _ in $(seq 50); do [[ -e %s/b ]] && { echo a-done; exit 0; }; sleep 0.1; done
@@ -95,7 +95,7 @@ test_fast_runs_shell_tests_windowless()
 {
 	local r d out rc
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	printf '#!/usr/bin/env bash\necho $$ > "%s/pid"; sleep 1\n' "$d" > "$r/tools/dev/tests/focus_test.sh"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
@@ -280,6 +280,27 @@ test_fast_fails_on_raw_git_in_tests()
 	assert_not_contains "$(grep '^check.sh: failed' <<<"$out")" "test_git"
 }
 
+# Test that the fast subset fails, naming file and line, on a scratch
+# directory or repository assigned without a check of its result.
+test_fast_fails_on_unchecked_scratch()
+{
+	local r out rc plant
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	# unchecked: planted
+	plant=('x() { d=$(make_scratch); }')
+	# unchecked: planted
+	plant+=('y() { r=$(make_repo) || die "make_repo failed"; b=$(make_ci_repo "$d"); }')
+	plant+=('z() { d=$(make_scratch) && [[ -d $d ]] || die; }' '# unchecked: planted' "${plant[0]}")
+	printf '%s\n' '#!/usr/bin/env bash' "${plant[@]}" > "$r/tools/dev/tests/raw_test.sh"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/dev/tests/raw_test.sh:2:${plant[0]}"
+	assert_contains "$out" "tools/dev/tests/raw_test.sh:3:${plant[1]}"
+	assert_not_contains "$out" 'tools/dev/tests/raw_test.sh:4:'
+	assert_not_contains "$out" 'tools/dev/tests/raw_test.sh:6:'
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "test_git"
+}
+
 # Test that the fast subset fails on fork code creating an SDL_GPU device
 # without debug_mode true, naming file and line, and that the check lets
 # true through, however the call is spread over lines.
@@ -453,7 +474,7 @@ test_fast_checks_repo_config_from_worktree()
 	local r wt out rc
 	r=$(make_dev_repo) || die "make_dev_repo failed"
 	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
-	wt=$(make_scratch)/wt
+	wt=$(make_scratch) || die "make_scratch failed"; wt=$wt/wt
 	tgit -C "$r" worktree add -q -b side "$wt"
 	out=$("$wt/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
@@ -502,7 +523,7 @@ asan_options_on()
 {
 	local r bin
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	bin=$(make_scratch)
+	bin=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\necho %s\n' "$1" > "$bin/uname"; chmod +x "$bin/uname"
 	printf '#!/usr/bin/env bash\necho "asan=$ASAN_OPTIONS"\n' > "$r/tools/dev/tests/env_test.sh"
 	# A faked Darwin on Linux sends no-window.sh to its macOS sampler:

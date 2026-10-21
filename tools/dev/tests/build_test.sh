@@ -10,7 +10,7 @@ source "$(dirname "$0")/lib.sh"
 scons_args()
 {
 	local bin
-	bin=$(make_scratch)
+	bin=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\n[ -n "${SCONS_PID_FILE-}" ] && echo $$ > "$SCONS_PID_FILE" && sleep 1\nprintf "%%s\\n" "$@"\n' \
 		> "$bin/scons"; chmod +x "$bin/scons"
 	PATH="$bin:$PATH" "$DEV_DIR/build.sh" "$@"
@@ -21,11 +21,11 @@ scons_args()
 test_check_runs_windowless()
 {
 	local d rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		SCONS_PID_FILE="$d/pid" scons_args dev >/dev/null 2>&1
 	assert_eq "$?" 0 'plain build'
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		SCONS_PID_FILE="$d/pid" scons_args dev check >/dev/null 2>&1 && rc=0 || rc=$?
 	assert_eq "$rc" 1 'check'
@@ -36,7 +36,7 @@ test_check_runs_windowless()
 fake_scons()
 {
 	local fake
-	fake=$(make_scratch)
+	fake=$(make_scratch) || die "make_scratch failed"
 	mkdir "$fake/SCons"
 	: > "$fake/SCons/__init__.py"
 	printf 'ConstructionEnvironment = {"_CPPINCFLAGS": "$INC"}\n' > "$fake/SCons/Defaults.py"

@@ -8,7 +8,7 @@ GUARD="$DEV_DIR/guard-licensed-data.sh"
 test_source_files_pass()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf 'int main() {}\n' > "$d/main.cpp"
 	printf '# notes\n' > "$d/README.md"
 	out=$("$GUARD" "$d/main.cpp" "$d/README.md" 2>&1)
@@ -20,7 +20,7 @@ test_source_files_pass()
 test_game_data_extensions_rejected()
 {
 	local d out rc f
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	for f in descent2.hog groupa.pig descent2.ham descent2.s11 hires.mvl intro-h.mve level01.rl2 game.dem DESCENT.HOG; do
 		printf 'x' > "$d/$f"
 	done
@@ -35,7 +35,7 @@ test_game_data_extensions_rejected()
 test_game_data_magic_rejected()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf 'DHF\0\0\0\0' > "$d/a.bin"
 	printf 'PPIG\2\0\0\0' > "$d/b.dat"
 	printf 'HAM!\3\0\0\0' > "$d/c"
@@ -52,7 +52,7 @@ test_game_data_magic_rejected()
 test_magic_detection_needs_no_xxd()
 {
 	local d bin out rc
-	d=$(make_scratch); bin=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"; bin=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\nexit 127\n' > "$bin/xxd"; chmod +x "$bin/xxd"
 	printf 'DHF\0\0\0\0' > "$d/a.bin"
 	out=$(PATH="$bin:$PATH" "$GUARD" "$d/a.bin" 2>&1) && rc=0 || rc=$?
@@ -64,7 +64,7 @@ test_magic_detection_needs_no_xxd()
 test_captures_and_goldens_rejected_unless_synthetic()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	mkdir -p "$d/captures" "$d/goldens" "$d/synthetic/goldens"
 	printf 'x' > "$d/captures/frame1.png"
 	printf 'x' > "$d/level1.rtr"

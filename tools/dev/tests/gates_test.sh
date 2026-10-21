@@ -50,7 +50,7 @@ gate_tidy()
 gate_strict()
 {
 	local d rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	cp "$1" "$d/plant.cpp"
 	# shellcheck disable=SC2046  # the flags are words
 	"${gate_tool[strict]}" -std=c++23 $(python3 "$DEV_DIR/fork_warnings.py") \
@@ -66,7 +66,7 @@ gate_strict()
 build_plant()
 {
 	local d
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	cp "$1" "$d/plant.cpp"
 	# shellcheck disable=SC2046  # the flags are words
 	# The flags follow the sources, so that GNU ld sees libraries last.

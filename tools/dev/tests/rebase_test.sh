@@ -25,7 +25,7 @@ test_rebases_runs_exec_per_commit_and_prints_range_diff()
 {
 	local r out log
 	r=$(make_fork_repo) || die "make_fork_repo failed"
-	log=$(make_scratch)/exec.log
+	log=$(make_scratch) || die "make_scratch failed"; log=$log/exec.log
 	out=$(cd "$r" && "$REBASE" --upstream up --exec "echo run >> $log" 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_eq "$(wc -l < "$log" | tr -d ' ')" 2
@@ -61,7 +61,7 @@ test_default_exec_skips_commits_without_dev_tools()
 {
 	local r out log
 	r=$(make_fork_repo) || die "make_fork_repo failed"
-	log=$(make_scratch)/exec.log
+	log=$(make_scratch) || die "make_scratch failed"; log=$log/exec.log
 	tgit -C "$r" checkout -q fork
 	mkdir -p "$r/tools/dev"
 	printf '#!/bin/sh\necho build >> %s\n' "$log" > "$r/tools/dev/build.sh"

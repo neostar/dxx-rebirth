@@ -28,7 +28,7 @@ run_doctor()
 test_matching_tools_pass()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_tool "$d" cmake 'cmake version 4.4.4' '' 'CMake suite maintained'
 	fake_tool "$d" gcc '13.3.0'
 	printf 'tool cmake any 4.4.4\ntool gcc linux 13.3.0\n' > "$d/manifest"
@@ -41,7 +41,7 @@ test_matching_tools_pass()
 test_drifted_tool_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_tool "$d" cmake 'cmake version 4.5.0'
 	printf 'tool cmake any 4.4.4\n' > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
@@ -53,7 +53,7 @@ test_drifted_tool_fails()
 test_missing_tool_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf 'tool cmake any 4.4.4\n' > "$d/manifest"
 	out=$(PATH="$d:/usr/bin:/bin" DXX_VENV="$d/no-venv" DXX_DEPS_PREFIX="$d/no-prefix" DOCTOR_PLATFORM=linux "$DOCTOR" --manifest "$d/manifest" 2>&1) &&
 		rc=0 || rc=$?
@@ -65,7 +65,7 @@ test_missing_tool_fails()
 test_other_platform_ignored()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_tool "$d" gcc '9.9.9'
 	printf 'tool gcc linux 13.3.0\n' > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
@@ -91,7 +91,7 @@ llvm_fixture()
 test_one_llvm_passes()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	llvm_fixture "$d/prefix" 23.1.3 0d261d1
 	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
 	out=$(DXX_DEPS_PREFIX="$d/prefix" DXX_VENV="$d/no-venv" DOCTOR_PLATFORM=linux \
@@ -103,7 +103,7 @@ test_one_llvm_passes()
 test_mixed_llvm_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	llvm_fixture "$d/prefix" 23.1.3 0d261d1 22.1.8
 	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
 	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
@@ -116,7 +116,7 @@ test_mixed_llvm_fails()
 test_swapped_llvm_tool_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	llvm_fixture "$d/prefix" 23.1.3 0d261d1
 	fake_tool "$d/prefix/opt/llvm/bin" clangd 'Homebrew clangd version 23.1.3'
 	printf 'tool llvm any 23.1.3\n' > "$d/manifest"
@@ -129,7 +129,7 @@ test_swapped_llvm_tool_fails()
 test_llvm_from_two_sources_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	llvm_fixture "$d/prefix" 23.1.3 0d261d1
 	fake_tool "$d/prefix/opt/llvm/bin" clang-format 'clang-format version 23.1.3 (https://example.invalid/llvm abc1234)'
 	(cd "$d/prefix/opt/llvm" && for f in bin/*; do echo "$(dev_sha256 "$f")  $f"; done > bin.sha256)
@@ -152,7 +152,7 @@ fake_pkg_config()
 test_matching_pkg_passes()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_pkg_config "$d" physfs 3.2.0
 	printf 'pkg physfs darwin 3.2.0\n' > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
@@ -164,7 +164,7 @@ test_matching_pkg_passes()
 test_drifted_or_missing_pkg_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_pkg_config "$d" physfs 3.2.1
 	printf 'pkg physfs darwin 3.2.0\npkg sdl2 darwin 2.32.74\n' > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
@@ -177,7 +177,7 @@ test_drifted_or_missing_pkg_fails()
 test_scons_and_ccache_probed()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_tool "$d" scons 'SCons by Steven Knight et al.:' '	SCons: v4.11.1.abc, 2026, by bdbaddog'
 	fake_tool "$d" ccache 'ccache version 4.14.2' 'Features: file-storage'
 	printf 'tool scons darwin 4.11.1\ntool ccache darwin 4.14.2\n' > "$d/manifest"
@@ -198,7 +198,7 @@ dep_manifest()
 test_stale_prefix_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	dep_manifest "$d"
 	mkdir "$d/prefix"
 	echo 'source SDL3 3.4.16 https://example.invalid/old.tar.gz 00' > "$d/prefix/deps.stamp"
@@ -212,7 +212,7 @@ test_stale_prefix_fails()
 test_current_prefix_passes()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	dep_manifest "$d"
 	mkdir "$d/prefix"
 	"$DEV_DIR/deps.sh" --manifest "$d/manifest" stamp > "$d/prefix/deps.stamp"
@@ -225,7 +225,7 @@ test_current_prefix_passes()
 test_prefix_with_other_build_options_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	dep_manifest "$d"
 	mkdir "$d/prefix"
 	{ cat "$d/manifest"; echo "options $(printf '0%.0s' {1..64})"; } > "$d/prefix/deps.stamp"
@@ -238,7 +238,7 @@ test_prefix_with_other_build_options_fails()
 test_unbuilt_prefix_skips()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	dep_manifest "$d"
 	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/none") && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
@@ -263,7 +263,7 @@ venv_fixture()
 test_venv_packages_differ_from_lock_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	venv_fixture "$d" 3.13.16 3.13.16 numpy==2.5.5
 	printf 'python 3.13.16\nlock %s\n' "$(dev_sha256 "$d/requirements.lock")" \
 		> "$d/venv/venv.stamp"
@@ -276,7 +276,7 @@ test_venv_packages_differ_from_lock_fails()
 test_current_venv_passes()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	venv_fixture "$d" 3.13.16 3.13.16
 	printf 'python 3.13.16\nlock %s\n' "$(dev_sha256 "$d/requirements.lock")" \
 		> "$d/venv/venv.stamp"
@@ -289,7 +289,7 @@ test_current_venv_passes()
 test_stale_venv_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	venv_fixture "$d" 3.13.16 3.13.16
 	printf 'python 3.13.16\nlock 0000\n' > "$d/venv/venv.stamp"
 	out=$(run_doctor "$d" linux --manifest "$d/manifest" --venv "$d/venv") && rc=0 || rc=$?
@@ -301,7 +301,7 @@ test_stale_venv_fails()
 test_venv_python_drift_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	venv_fixture "$d" 3.13.16 3.13.17
 	printf 'python 3.13.16\nlock %s\n' "$(dev_sha256 "$d/requirements.lock")" \
 		> "$d/venv/venv.stamp"
@@ -314,7 +314,7 @@ test_venv_python_drift_fails()
 test_missing_venv_skips()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	venv_fixture "$d" 3.13.16 3.13.16
 	out=$(run_doctor "$d" linux --manifest "$d/manifest" --venv "$d/none") && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
@@ -344,7 +344,7 @@ fake_machine()
 test_reports_cores_ram_and_disk()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	unset DXX_JOBS
 	fake_machine "$d" hw.perflevel0.physicalcpu=6 hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
@@ -357,7 +357,7 @@ test_reports_cores_ram_and_disk()
 test_jobs_fall_back_to_all_cpus()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	unset DXX_JOBS
 	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
@@ -369,7 +369,7 @@ test_jobs_fall_back_to_all_cpus()
 test_low_disk_warns_then_fails()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
 	out=$(DF_FREE_KB=$((30 * 1048576)) run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
@@ -384,7 +384,7 @@ test_low_disk_warns_then_fails()
 test_counts_reference_images()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
 	out=$(DOCKER_IMAGES='dxx-rebirth-ref:a dxx-rebirth-ref:b' run_doctor "$d" darwin --manifest "$d/manifest")

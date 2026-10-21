@@ -10,7 +10,7 @@ NO_WINDOW="$DEV_DIR/no-window.sh"
 test_unchanged_frontmost_passes()
 {
 	local d out rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c 'exit 0' 2>&1)
 	assert_eq "$?" 0 "$out"
@@ -23,7 +23,7 @@ test_unchanged_frontmost_passes()
 test_child_of_run_taking_focus_fails()
 {
 	local d out rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c "sleep 2 & echo \$! > '$d/pid'; wait" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -35,7 +35,7 @@ test_child_of_run_taking_focus_fails()
 test_unrelated_app_taking_focus_passes()
 {
 	local d out
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "$$ Terminal" "1 Google Chrome") \
 		NO_WINDOW_REPORTS_DIR="$d/reports" "$NO_WINDOW" sh -c 'sleep 1' 2>&1)
 	assert_eq "$?" 0 "$out"
@@ -46,7 +46,7 @@ test_unrelated_app_taking_focus_passes()
 test_new_crash_report_of_run_fails()
 {
 	local d out rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c "sleep 1; printf '{\"pid\" : 99999, \"parentPid\" : %s}' \$\$ > '$d/reports/probe-1.ips'" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -57,7 +57,7 @@ test_new_crash_report_of_run_fails()
 test_unrelated_crash_report_passes()
 {
 	local d out
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c "printf '{\"pid\" : 1, \"parentPid\" : 1}' > '$d/reports/other-1.ips'" 2>&1)
 	assert_eq "$?" 0 "$out"
@@ -68,7 +68,7 @@ test_unrelated_crash_report_passes()
 test_empty_frontmost_sample_fails()
 {
 	local d out rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" '') NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$NO_WINDOW" sh -c "touch '$d/ran'" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -82,7 +82,7 @@ test_headless_sdl_gpu_tool_stays_in_background()
 {
 	[[ $(uname -s) == Darwin ]] || return 0
 	local d out sdl3_flags
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	pkg-config --exists sdl3 2>/dev/null || skip 'pkg-config finds no sdl3; install SDL3 to run this check'
 	read -ra sdl3_flags < <(pkg-config --cflags --libs sdl3)
 	cc -std=c11 "$DEV_DIR/tests/headless_probe.c" -o "$d/headless_probe" "${sdl3_flags[@]}" ||

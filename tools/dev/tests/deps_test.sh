@@ -43,7 +43,7 @@ run_deps()
 test_builds_pinned_source_into_prefix()
 {
 	local d t out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	t=$(make_tarball "$d" demo)
 	echo "source demo 1.0 file://$t $(dev_sha256 "$t")" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
@@ -58,7 +58,7 @@ test_builds_pinned_source_into_prefix()
 test_stamp_records_pins_and_build_options()
 {
 	local d out
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	echo "source demo 1.0 file:///nowhere $(printf '0%.0s' {1..64})" > "$d/manifest"
 	out=$(run_deps "$d" stamp)
 	assert_eq "$(head -n 1 <<< "$out")" "$(cat "$d/manifest")"
@@ -72,7 +72,7 @@ test_stamp_records_pins_and_build_options()
 test_prebuilt_installs_listed_members()
 {
 	local d t out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	t=$d/src/LLVM-1.0
 	mkdir -p "$t/bin" "$t/lib/clang/1/include" "$t/share"
 	for f in clangd clang-format clang-tidy clang; do echo "$f" > "$t/bin/$f"; done
@@ -97,7 +97,7 @@ test_prebuilt_installs_listed_members()
 test_refuses_download_with_wrong_sha256()
 {
 	local d t out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	t=$(make_tarball "$d" demo)
 	echo "source demo 1.0 file://$t $(printf '0%.0s' {1..64})" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
@@ -112,7 +112,7 @@ test_refuses_download_with_wrong_sha256()
 test_offline_build_refuses_tampered_cache()
 {
 	local d t out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	t=$(make_tarball "$d" demo)
 	echo "source demo 1.0 file://$t $(dev_sha256 "$t")" > "$d/manifest"
 	run_deps "$d" fetch >/dev/null || fail "fetch failed"
@@ -128,7 +128,7 @@ test_offline_build_refuses_tampered_cache()
 test_build_is_offline()
 {
 	local d t out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	t=$(make_tarball "$d" demo)
 	echo "source demo 1.0 file://$t $(dev_sha256 "$t")" > "$d/manifest"
 	out=$(run_deps "$d" build) && rc=0 || rc=$?
@@ -140,7 +140,7 @@ test_build_is_offline()
 test_builds_pinned_git_commit()
 {
 	local d r c out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	r=$(make_repo) || die "make_repo failed"
 	cmake_project "$r" gitdemo
 	tgit -C "$r" add CMakeLists.txt
@@ -158,7 +158,7 @@ test_builds_pinned_git_commit()
 test_refuses_unknown_git_commit()
 {
 	local d r out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	r=$(make_repo) || die "make_repo failed"
 	# raw git: a manifest line, not a command
 	echo "git gitdemo $(printf 'b%.0s' {1..40}) $r" > "$d/manifest"
@@ -173,7 +173,7 @@ test_refuses_unknown_git_commit()
 test_fetchcontent_comes_from_the_cache()
 {
 	local d x c out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	x=$(make_repo) || die "make_repo failed"
 	echo extra > "$x/data"
 	tgit -C "$x" add data
@@ -248,7 +248,7 @@ test_build_does_not_depend_on_its_path()
 test_build_records_no_build_time()
 {
 	local d a
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	mkdir -p "$d/src/stamp-1.0"
 	printf '%s\n' \
 		'cmake_minimum_required(VERSION 3.20)' \

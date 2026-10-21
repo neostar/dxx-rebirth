@@ -31,7 +31,7 @@ test_runs_binary_with_dev_environment()
 test_focus_change_fails()
 {
 	local d out rc
-	d=$(make_scratch); mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$RUN" /bin/sh -c "echo \$\$ > '$d/pid'; sleep 1" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -45,7 +45,7 @@ test_unresolved_library_fails_before_launch()
 	[[ $(uname -s) == Darwin ]] || skip 'otool -L check is macOS only'
 	command -v cc >/dev/null || skip 'no cc to build the test binary'
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf 'int lib_answer(void) { return 42; }\n' > "$d/lib.c"
 	printf 'int lib_answer(void);\nint main(void) { return lib_answer() == 42 ? 0 : 1; }\n' > "$d/main.c"
 	if ! cc -dynamiclib "$d/lib.c" -install_name @rpath/libanswer.dylib -o "$d/libanswer.dylib" ||

@@ -10,7 +10,7 @@ source "$(dirname "$0")/lib.sh"
 validate()
 {
 	local d out rc
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\nprintf "%%s\\n" "$MSG"\nexit %s\n' "${2:-0}" > "$d/probe"
 	chmod +x "$d/probe"
 	out=$(MSG=$1 "$DEV_DIR/gpu-validate.sh" "$d/probe" 2>&1) && rc=0 || rc=$?
