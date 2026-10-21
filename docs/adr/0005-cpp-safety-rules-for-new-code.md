@@ -34,8 +34,8 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 | Tier | Budget | Runs | Checked by |
 |---|---|---|---|
 | editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`) | `gates_test.sh` |
-| pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files) | `gates_test.sh`, timing the real hook |
-| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds `tools/dev/rtrace-tests.sh` | `check.sh`, timing its own full run |
+| pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files), gitleaks on the staged changes | `gates_test.sh`, timing the real hook |
+| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: gitleaks over the whole history of HEAD, unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds `tools/dev/rtrace-tests.sh` | `check.sh`, timing its own full run |
 | nightly | none | #59 | #59 |
 
 The editor and pre-commit budgets are the Mac's, where the owner edits and commits: their tests

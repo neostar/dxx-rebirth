@@ -1,0 +1,15 @@
+# gitleaks configuration for the fork: the pre-commit tier scans the staged
+# changes, tools/dev/check.sh the whole history of HEAD, and
+# .github/workflows/secret-scan.yml every push and pull request.
+#
+#   tools/dev/check.sh --pre-commit    gitleaks git --staged
+#   tools/dev/check.sh                 gitleaks git --log-opts=HEAD
+#
+# gitleaks' default rules, unchanged.  The fake token the tests plant is
+# assembled at run time in a throwaway repository, so no file here holds
+# one and nothing is allowlisted.  An allowlist entry ([[allowlists]]) is
+# for a proven test fixture only; upstream's history (upstream/master)
+# had no findings at 8.30.1 (2026-10-21), so it needs none either.
+
+[extend]
+useDefault = true

@@ -22,6 +22,7 @@ make_dev_repo()
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
+	cp "$REPO_ROOT/.gitleaks.toml" "$r/"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	printf '%s\n' "$r"
 }
@@ -441,6 +442,82 @@ test_pre_commit_hook_runs_pre_commit_tier_only()
 	out=$(tgit -C "$r" commit -q -m bad 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "tools/bad.cpp: not formatted"
+}
+
+# Print a fake GitHub token, assembled here so that this file itself holds
+# none for a scanner to find.
+fake_token()
+{
+	printf 'gh%s_%s' p aB3dE5fG7hJ9kL1mN2pQ4rS6tU8vW0xY2zA4
+}
+
+# Skip the current test unless the pinned gitleaks is in the prefix.
+need_gitleaks()
+{
+	[[ -x $dev_deps_prefix/opt/gitleaks/bin/gitleaks ]] ||
+		skip "gitleaks not in $dev_deps_prefix; run tools/dev/deps.sh build"
+}
+
+# Test that the pre-commit hook refuses a staged secret, naming the file
+# and the rule without printing the secret, and allows a clean commit.
+test_pre_commit_hook_blocks_staged_secret()
+{
+	local r out rc
+	need_gitleaks
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf 'token = "%s"\n' "$(fake_token)" > "$r/settings.txt"
+	tgit -C "$r" add settings.txt
+	out=$(tgit -C "$r" commit -q -m secret 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "settings.txt"
+	assert_contains "$out" "github-pat"
+	assert_contains "$out" "failed: secrets"
+	assert_not_contains "$out" "$(fake_token)"
+	tgit -C "$r" rm -q --cached settings.txt
+	printf 'int y;\n' > "$r/b.cpp"
+	tgit -C "$r" add b.cpp
+	out=$(tgit -C "$r" commit -q -m code 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "== secrets"
+}
+
+# Test that the full checks scan the whole history of HEAD: a secret
+# committed past the hook fails them, a clean history passes the scan.
+test_full_fails_on_secret_in_history()
+{
+	local r out rc
+	need_gitleaks
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1)
+	assert_contains "$out" "== secrets_history"
+	assert_not_contains "$(grep '^check.sh: failed' <<<"$out")" "secrets_history"
+	printf 'token = "%s"\n' "$(fake_token)" > "$r/settings.txt"
+	tgit -C "$r" add settings.txt
+	tgit -C "$r" commit -q --no-verify -m secret
+	tgit -C "$r" rm -q settings.txt
+	tgit -C "$r" commit -q --no-verify -m removed
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "github-pat"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "secrets_history"
+	assert_not_contains "$out" "$(fake_token)"
+}
+
+# Test that a missing gitleaks is a SKIP naming it, except in the reference
+# image (DXX_REFERENCE_IMAGE=1), which must have it: there it fails.
+test_secrets_skip_without_gitleaks_except_in_image()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	out=$(CHECK_GITLEAKS=no-such-gitleaks "$r/tools/dev/check.sh" --pre-commit 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP secrets: gitleaks not found (no-such-gitleaks)"
+	out=$(CHECK_GITLEAKS=no-such-gitleaks DXX_REFERENCE_IMAGE=1 \
+		"$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL secrets: gitleaks not found (no-such-gitleaks)"
+	assert_contains "$out" "failed: secrets"
 }
 
 # Test that setup.sh installs the hooks and enables rerere in a fresh clone.

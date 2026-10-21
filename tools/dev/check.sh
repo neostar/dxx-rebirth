@@ -122,6 +122,41 @@ step_workflows()
 	return "$rc"
 }
 
+# Run gitleaks (the pinned one in the prefix; CHECK_GITLEAKS overrides it)
+# with the repository's .gitleaks.toml (without one, gitleaks' default
+# rules) and the remaining arguments, redacted, from the repository root.  A missing gitleaks is a SKIP naming
+# it, except in the reference image (DXX_REFERENCE_IMAGE=1), which has
+# every pinned tool: there it fails.  $1 names the step.
+run_gitleaks()
+{
+	local step=$1 gitleaks=${CHECK_GITLEAKS:-$dev_deps_prefix/opt/gitleaks/bin/gitleaks} config=()
+	shift
+	[[ -f $root/.gitleaks.toml ]] && config=(--config .gitleaks.toml)
+	if ! command -v "$gitleaks" >/dev/null; then
+		if [[ ${DXX_REFERENCE_IMAGE-} == 1 ]]; then
+			echo "FAIL $step: gitleaks not found ($gitleaks); the reference image must have it"
+			return 1
+		fi
+		echo "SKIP $step: gitleaks not found ($gitleaks); run tools/dev/deps.sh build"
+		return 0
+	fi
+	(cd "$root" && env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML "$gitleaks" git "$@" \
+		"${config[@]+"${config[@]}"}" --redact --verbose --no-banner --no-color --log-level warn .)
+}
+
+# Fail on a secret in the staged changes (the pre-commit tier).
+step_secrets()
+{
+	run_gitleaks secrets --staged
+}
+
+# Fail on a secret anywhere in the history of HEAD, upstream's included;
+# other branches and remotes are left out.
+step_secrets_history()
+{
+	run_gitleaks secrets_history --log-opts=HEAD
+}
+
 # Run every tools/dev/tests/*_test.sh, each under its own no-window.sh,
 # env.sh's dev_jobs (DXX_JOBS) at a time; print each one's output whole,
 # in file order, and fail if any failed.
@@ -320,10 +355,10 @@ step_leaks()
 	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/no-window.sh" "$dev_dir/leaks.sh"
 }
 
-pre_commit_steps=(repo_config guard staged)
-fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows test_git
+pre_commit_steps=(repo_config guard staged secrets)
+fast_steps=(repo_config doctor guard format staged secrets shellcheck stale_hashes workflows test_git
 	gpu_gate shell_tests)
-full_steps=(unit_tests leaks gpu_tests tidy sanitizer_tests)
+full_steps=(secrets_history unit_tests leaks gpu_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in

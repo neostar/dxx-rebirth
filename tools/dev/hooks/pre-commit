@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Installed by tools/dev/setup.sh (core.hooksPath): the pre-commit tier of
 # ADR 5, under 10 s: the commit size limit, then check.sh --pre-commit (repo
-# config, licensed-data guard, the gate on the staged fork files).  The rest
-# of check.sh --fast, the shell tests among them, runs in check.sh and ci.sh.
+# config, licensed-data guard, the gate on the staged fork files, gitleaks on
+# the staged changes).  The rest of check.sh --fast, the shell tests among
+# them, runs in check.sh and ci.sh.
 dev_dir=$(git rev-parse --show-toplevel)/tools/dev
 "$dev_dir/commit-size.sh" || exit 1
 exec "$dev_dir/check.sh" --pre-commit

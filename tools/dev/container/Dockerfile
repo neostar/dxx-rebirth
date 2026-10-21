@@ -60,7 +60,9 @@ RUN /opt/dxx/dev/deps.sh venv
 RUN --network=none --mount=type=bind,from=deps-cache,target=/cache,rw \
     PATH=/opt/dxx/venv/bin:$PATH /opt/dxx/dev/deps.sh --cache /cache build
 
-ENV PATH=/opt/dxx/venv/bin:$PATH \
+# DXX_REFERENCE_IMAGE: the checks run in this image, which has every pinned
+# tool, so a missing one fails instead of being a SKIP.
+ENV PATH=/opt/dxx/venv/bin:$PATH DXX_REFERENCE_IMAGE=1 \
     SDL_VIDEO_DRIVER=offscreen SDL_GPU_DRIVER=vulkan \
     VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json \
     VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf
