@@ -243,20 +243,25 @@ test_leaks()
 	run_planted leaks
 }
 
+# Skip the current test unless the pinned SDL3 is built.  The container's
+# image holds it: missing there, the gate is broken, not unavailable.
+need_pinned_sdl3()
+{
+	[[ -e $dev_deps_prefix/include/SDL3/SDL_gpu.h ]] && return
+	in_container && die "no pinned SDL3 in $dev_deps_prefix, which the image builds"
+	skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
+}
+
 test_gpu()
 {
-	# The container's image holds the pinned SDL3: missing there, the gate
-	# is broken, not unavailable.
-	if [[ ! -e $dev_deps_prefix/include/SDL3/SDL_gpu.h ]]; then
-		in_container && die "no pinned SDL3 in $dev_deps_prefix, which the image builds"
-		skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
-	fi
+	need_pinned_sdl3
 	run_planted gpu
 }
 
 test_gpumetal()
 {
 	[[ $dev_os == darwin ]] || skip "Metal is macOS only; gate gpu covers Vulkan here"
+	need_pinned_sdl3
 	run_planted gpumetal
 }
 
@@ -311,8 +316,9 @@ test_sanitizer_gates_never_abort_under_inherited_options()
 	[[ $out =~ ubsan=[^$'\n']*abort_on_error=0($'\n'|$) ]] || fail "UBSAN_OPTIONS may abort: $out"
 }
 
-# Test that the GPU gate fails without the pinned SDL3 in the container,
-# whose image builds it, and skips without it elsewhere.
+# Test that the GPU gates fail without the pinned SDL3 in the container,
+# whose image builds it, and skip without it elsewhere.
+# shellcheck disable=SC2329  # in_container is run by need_pinned_sdl3
 test_gpu_without_pinned_sdl3_fails_only_in_container()
 {
 	local out rc empty
@@ -322,6 +328,9 @@ test_gpu_without_pinned_sdl3_fails_only_in_container()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "no pinned SDL3 in $empty, which the image builds"
 	out=$(exec 2>&1; dev_deps_prefix=$empty; in_container() { false; }; test_gpu; echo ran) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 77 "$out"
+	out=$(exec 2>&1; dev_deps_prefix=$empty; in_container() { false; }; test_gpumetal; echo ran) &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 77 "$out"
 }
