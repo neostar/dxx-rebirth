@@ -75,7 +75,8 @@ test_tgit_refuses_paths_outside_scratch()
 	rm -rf "$outside"
 	[[ -e $_scratch_root/refused ]] || fail "no refusal marked the test failed"
 	rm -f "$_scratch_root/refused"
-	tgit -C "$r" clone -q --shared "$REPO_ROOT" "$r/clone" || fail "a clone of this clone was refused"
+	tgit -C "$r" clone -q --shared "$REPO_ROOT" "$r/clone" ||
+		fail "a clone of this clone was refused"
 	tgit -C "$r" remote add self "$r" || fail "a remote in the scratch root was refused"
 	tgit -C "$r" config core.hooksPath >/dev/null; tgit -C "$r" config --unset core.hooksPath
 	[[ ! -e $_scratch_root/refused ]] || fail "reading or unsetting core.hooksPath was refused"

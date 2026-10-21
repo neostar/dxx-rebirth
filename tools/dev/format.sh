@@ -156,7 +156,8 @@ tidy()
 		for f in "${headers[@]}"; do
 			flags+=(-I "$root/$(dirname "$(rel "$f")")")
 		done
-		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" --quiet "${headers[@]}" -- -x c++-header -std=c++23 "${flags[@]}" \
+		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" --quiet "${headers[@]}" -- \
+			-x c++-header -std=c++23 "${flags[@]}" \
 			-isystem "$dev_deps_prefix/include" 2>&1 | strip_tree
 		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
 	fi

@@ -31,7 +31,10 @@ run_doctor()
 # free, so that no test depends on this machine's disk.
 fake_df()
 {
-	printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/fake 999999999 1 ${DF_FREE_KB:-104857600} 1%% /"\n' > "$1/df"
+	{
+		printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\n'
+		printf 'echo "/dev/fake 999999999 1 ${DF_FREE_KB:-104857600} 1%% /"\n'
+	} > "$1/df"
 	chmod +x "$1/df"
 }
 

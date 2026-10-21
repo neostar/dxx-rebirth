@@ -171,7 +171,8 @@ tgit()
 		a=${!i}
 		case $a in
 		-c) ((i++)) ;;
-		-C|--git-dir|--git-dir=*|--work-tree|--work-tree=*) why="'$a': one -C names the repository" ;;
+		-C|--git-dir|--git-dir=*|--work-tree|--work-tree=*)
+			why="'$a': one -C names the repository" ;;
 		-*|GIT_*=*) ;;
 		*) break ;;
 		esac

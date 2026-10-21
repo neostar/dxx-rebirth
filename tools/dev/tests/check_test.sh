@@ -414,7 +414,8 @@ test_fast_fails_on_gpu_program_run_outside_the_wrapper()
 	ok=('# runs $gpu_program' 'k() { "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" \'
 		'	"$root/$gpu_program" || rc=1; }' 'l() { local gpu_program; }')
 	printf '%s\n' "${bad[@]}" "${ok[@]}" >> "$r/tools/dev/check.sh"
-	printf '#!/usr/bin/env bash\n%s\n' 'x() { "$1" "$gpu_program"; }' > "$r/tools/dev/rtrace-tests.sh"
+	printf '#!/usr/bin/env bash\n%s\n' 'x() { "$1" "$gpu_program"; }' \
+		> "$r/tools/dev/rtrace-tests.sh"
 	out=$(python3 "$r/tools/dev/gpu_wrapper.py" "$r/tools/dev/gpu-programs" \
 		"$r/tools/dev/check.sh" "$r/tools/dev/rtrace-tests.sh" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -621,8 +622,8 @@ test_secrets_fall_back_to_pinned_gitleaks_on_path()
 	d=$(make_scratch) || die "make_scratch failed"
 	pin=$(awk '$2 == "gitleaks" {print $4; exit}' "$DEV_DIR/toolchain.pins" |
 		sed -nE 's|.*/download/v([0-9.]+)/.*|\1|p')
-	printf '#!/bin/sh\n[ "$1" = version ] && { echo "$FAKE_VERSION"; exit 0; }\necho fake-gitleaks-ran\n' \
-		> "$d/fake-gitleaks"
+	printf '#!/bin/sh\n%s\necho fake-gitleaks-ran\n' \
+		'[ "$1" = version ] && { echo "$FAKE_VERSION"; exit 0; }' > "$d/fake-gitleaks"
 	chmod +x "$d/fake-gitleaks"
 	export CHECK_GITLEAKS=no-such-gitleaks CHECK_GITLEAKS_FALLBACK=$d/fake-gitleaks
 	out=$(FAKE_VERSION=$pin "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
