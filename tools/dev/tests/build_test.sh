@@ -139,7 +139,7 @@ toolsx: '
 # fork file and the same code in an upstream file still builds.
 test_strict_warnings_fail_fork_file_in_real_build()
 {
-	local r out rc probe='int dxx_strict_probe(long); int dxx_strict_probe(long v) { return v; }'
+	local d r out rc probe='int dxx_strict_probe(long); int dxx_strict_probe(long v) { return v; }'
 	[[ ${DXX_BUILD_TESTS-} == 1 ]] || skip "builds D2X objects; set DXX_BUILD_TESTS=1 to run"
 	command -v scons >/dev/null || skip "scons not found"
 	# A real build needs the whole source tree (SConstruct, common/,
@@ -147,8 +147,9 @@ test_strict_warnings_fail_fork_file_in_real_build()
 	# clone of this repository.  --shared reads its objects in place and
 	# writes nothing to it; every change below is made in the clone, under
 	# the scratch directory.
-	r=$(make_scratch)/clone
-	git clone -q --shared "$REPO_ROOT" "$r"
+	d=$(make_scratch) || die "make_scratch failed"
+	r=$d/clone
+	tgit -C "$d" clone -q --shared "$REPO_ROOT" "$r" || die "clone failed"
 	rm -rf "$r/tools/dev" && cp -R "$DEV_DIR" "$r/tools/dev"
 	printf '%s\n' "$probe" > "$r/tools/strictprobe.cpp"
 	printf '%s\n' "$probe" >> "$r/common/misc/strutil.cpp"

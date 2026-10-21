@@ -141,11 +141,11 @@ test_builds_pinned_git_commit()
 {
 	local d r c out rc
 	d=$(make_scratch)
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	cmake_project "$r" gitdemo
 	tgit -C "$r" add CMakeLists.txt
 	tgit -C "$r" commit -q -m project
-	c=$(git -C "$r" rev-parse HEAD)
+	c=$(tgit -C "$r" rev-parse HEAD)
 	tgit -C "$r" commit -q --allow-empty -m 'later commit'
 	echo "git gitdemo $c $r" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
@@ -158,7 +158,7 @@ test_refuses_unknown_git_commit()
 {
 	local d r out rc
 	d=$(make_scratch)
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	echo "git gitdemo $(printf 'b%.0s' {1..40}) $r" > "$d/manifest"
 	out=$(run_deps "$d") && rc=0 || rc=$?
 	assert_eq "$rc" 1
@@ -172,11 +172,11 @@ test_fetchcontent_comes_from_the_cache()
 {
 	local d x c out rc
 	d=$(make_scratch)
-	x=$(make_repo)
+	x=$(make_repo) || die "make_repo failed"
 	echo extra > "$x/data"
 	tgit -C "$x" add data
 	tgit -C "$x" commit -q -m data
-	c=$(git -C "$x" rev-parse HEAD)
+	c=$(tgit -C "$x" rev-parse HEAD)
 	mkdir -p "$d/src/main-1.0"
 	printf '%s\n' \
 		'cmake_minimum_required(VERSION 3.24)' \

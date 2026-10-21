@@ -85,13 +85,13 @@ test_captures_and_goldens_rejected_unless_synthetic()
 test_staged_mode_checks_index()
 {
 	local r out rc
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	printf 'int x;\n' > "$r/ok.cpp"
-	git -C "$r" add ok.cpp
+	tgit -C "$r" add ok.cpp
 	out=$(cd "$r" && "$GUARD" --staged 2>&1)
 	assert_eq "$?" 0
 	printf 'DHF\0\0\0\0' > "$r/data.bin"
-	git -C "$r" add data.bin
+	tgit -C "$r" add data.bin
 	rm "$r/data.bin"
 	out=$(cd "$r" && "$GUARD" --staged 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1
@@ -102,11 +102,11 @@ test_staged_mode_checks_index()
 test_staged_deletion_passes()
 {
 	local r out
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	printf 'x' > "$r/old.hog"
-	git -C "$r" add old.hog
+	tgit -C "$r" add old.hog
 	tgit -C "$r" commit -q -m add --no-verify
-	git -C "$r" rm -q old.hog
+	tgit -C "$r" rm -q old.hog
 	out=$(cd "$r" && "$GUARD" --staged 2>&1)
 	assert_eq "$?" 0
 }
@@ -119,10 +119,10 @@ test_gitignore_covers_licensed_data()
 	local p
 	for p in descent2.hog d2/groupa.pig descent2.ham hires.mvl game.dem level01.rdl level01.rl2 \
 		traces/local/run.rtr captures/frame1.png goldens/corridor.png d2x-rebirth/goldens/x.png; do
-		(cd "$REPO_ROOT" && git check-ignore -q --no-index "$p") || fail "$p is not ignored"
+		(real_git check-ignore -q --no-index "$p") || fail "$p is not ignored"
 	done
 	for p in tools/dev/tests/synthetic/goldens/quad.png traces/synthetic/quad.rtr; do
-		(cd "$REPO_ROOT" && git check-ignore -q --no-index "$p") && fail "$p is ignored"
+		(real_git check-ignore -q --no-index "$p") && fail "$p is ignored"
 	done
 	return 0
 }

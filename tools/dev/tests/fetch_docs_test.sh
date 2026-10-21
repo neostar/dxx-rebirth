@@ -44,7 +44,7 @@ test_checksum_mismatch_fails()
 # Test that the default destination is ignored by git.
 test_default_dest_is_ignored()
 {
-	(cd "$REPO_ROOT" && git check-ignore -q docs/reference/SDL_gpu.h) || fail 'docs/reference is not ignored'
+	(real_git check-ignore -q docs/reference/SDL_gpu.h) || fail 'docs/reference is not ignored'
 }
 
 # Test that an option without its value is a usage error.

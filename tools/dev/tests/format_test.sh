@@ -80,7 +80,7 @@ test_root_tidy_config_enables_no_checks()
 test_staged_checks_staged_fork_files_only()
 {
 	local r out rc
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/common/upstream.cpp"
 	cp "$r/common/upstream.cpp" "$r/src/unstaged.cpp"
 	tgit -C "$r" add common/upstream.cpp
@@ -100,7 +100,7 @@ test_staged_checks_staged_fork_files_only()
 test_nolint_needs_check_and_reason()
 {
 	local r out rc
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	printf '%s\n' \
 		'int one(); // NOLINT' \
 		'// NOLINTNEXTLINE(bugprone-branch-clone)' \
@@ -110,7 +110,7 @@ test_nolint_needs_check_and_reason()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/bare.cpp:1: NOLINT without a check and a reason"
 	assert_contains "$out" "src/bare.cpp:2: NOLINT without a check and a reason"
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	printf '%s\n' \
 		'// NOLINTNEXTLINE(bugprone-branch-clone): both branches mirror the SDL2 path' \
 		'int two();' > "$r/src/justified.cpp"
@@ -124,7 +124,7 @@ test_nolint_needs_check_and_reason()
 test_fork_dir_needs_current_tidy_config()
 {
 	local r out rc
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	rm "$r/src/.clang-tidy"
 	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -140,7 +140,7 @@ test_fork_dir_needs_current_tidy_config()
 test_tidy_checks_config_and_nolint()
 {
 	local r out rc
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	printf 'int probe(void); // NOLINT\n' > "$r/src/probe.c"
 	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -160,7 +160,7 @@ test_tidy_checks_config_and_nolint()
 test_staged_c_file_skips_tidy()
 {
 	local r out rc
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	rm "$r/build/dev/compile_commands.json"
 	printf 'int probe(void)\n{\n\treturn 0;\n}\n' > "$r/src/probe.c"
 	tgit -C "$r" add src/probe.c

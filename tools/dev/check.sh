@@ -155,6 +155,22 @@ step_shell_tests()
 	return "$rc"
 }
 
+# Fail on a git command in tools/dev/tests outside lib.sh's tgit and
+# real_git, which refuse any repository but a scratch one (tgit) and any
+# change to this clone (real_git).  A line ending in "# raw git: <why>" is
+# let through.
+step_test_git()
+{
+	local hits lines
+	hits=$(cd "$dev_dir/tests" && grep -nHE '(^|[[:space:];|&(])git[[:space:]]' -- *.sh |
+		grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -v '# raw git: ')
+	[[ -z $hits ]] && return 0
+	mapfile -t lines <<<"$hits"
+	printf 'tools/dev/tests/%s\n' "${lines[@]}"
+	echo "test_git: run git in a test through tgit or real_git (tools/dev/tests/lib.sh)"
+	return 1
+}
+
 # Check the toolchain against tools/dev/toolchain.pins.
 step_doctor()
 {
@@ -230,7 +246,8 @@ step_leaks()
 }
 
 pre_commit_steps=(repo_config guard staged)
-fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows shell_tests)
+fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows test_git
+	shell_tests)
 full_steps=(unit_tests leaks tidy sanitizer_tests)
 
 mode=full

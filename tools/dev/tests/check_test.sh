@@ -10,7 +10,7 @@ source "$(dirname "$0")/lib.sh"
 make_dev_repo()
 {
 	local r
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
@@ -26,9 +26,9 @@ make_dev_repo()
 test_fast_passes_clean_index()
 {
 	local r out
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf 'int x;\n' > "$r/a.cpp"
-	git -C "$r" add a.cpp
+	tgit -C "$r" add a.cpp
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "guard"
@@ -38,9 +38,9 @@ test_fast_passes_clean_index()
 test_fast_fails_on_staged_game_data()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf 'x' > "$r/descent2.hog"
-	git -C "$r" add descent2.hog
+	tgit -C "$r" add descent2.hog
 	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1
 	assert_contains "$out" "descent2.hog"
@@ -50,7 +50,7 @@ test_fast_fails_on_staged_game_data()
 test_fast_runs_shell_tests()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\necho ran-passing\n' > "$r/tools/dev/tests/pass_test.sh"
 	printf '#!/usr/bin/env bash\necho ran-failing; exit 3\n' > "$r/tools/dev/tests/zfail_test.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
@@ -66,7 +66,7 @@ test_fast_runs_shell_tests()
 test_fast_runs_shell_tests_in_parallel()
 {
 	local r d out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	d=$(make_scratch)
 	printf '#!/usr/bin/env bash
 echo a-start
@@ -93,7 +93,7 @@ echo b-done
 test_fast_runs_shell_tests_windowless()
 {
 	local r d out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	d=$(make_scratch); mkdir "$d/reports"
 	printf '#!/usr/bin/env bash\necho $$ > "%s/pid"; sleep 1\n' "$d" > "$r/tools/dev/tests/focus_test.sh"
 	out=$(NO_WINDOW_FRONTMOST_CMD=$(run_sampler "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
@@ -108,7 +108,7 @@ test_fast_runs_shell_tests_windowless()
 test_fast_fails_on_misformatted_fork_code()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
 	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -122,9 +122,9 @@ test_fast_fails_on_misformatted_fork_code()
 test_fast_runs_gate_on_staged_fork_code()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
-	git -C "$r" add tools/bad.cpp
+	tgit -C "$r" add tools/bad.cpp
 	"$r/tools/dev/format.sh"
 	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -138,7 +138,7 @@ test_fast_runs_gate_on_staged_fork_code()
 test_full_runs_build_tests_and_tidy()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
 	printf '#!/usr/bin/env bash\necho "build_tests=${DXX_BUILD_TESTS-}"\n' \
 		> "$r/tools/dev/tests/env_test.sh"
@@ -157,7 +157,7 @@ test_full_runs_build_tests_and_tidy()
 test_full_fails_over_its_budget()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
 	out=$(DXX_CHECK_BUDGET=-1 "$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -174,7 +174,7 @@ test_fast_fails_on_shellcheck_finding()
 {
 	local r out rc
 	command -v shellcheck >/dev/null || skip 'shellcheck not installed'
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\ncd "$1"\n' > "$r/tools/bad.sh"
 	printf '#!/bin/sh\ncd "$1"\n' > "$r/tools/noext"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
@@ -189,7 +189,7 @@ test_fast_fails_on_shellcheck_finding()
 test_fast_skips_shellcheck_when_absent()
 {
 	local r out
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\ncd "$1"\n' > "$r/tools/bad.sh"
 	out=$(CHECK_SHELLCHECK=no-such-shellcheck "$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
@@ -209,9 +209,9 @@ make_forked_dev_repo_in()
 {
 	local r=$1
 	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
-	git -C "$r" update-ref refs/remotes/upstream/master HEAD
+	tgit -C "$r" update-ref refs/remotes/upstream/master HEAD
 	tgit -C "$r" commit -q --no-verify --allow-empty -m 'fork change'
-	printf '%s %s %s\n' "$r" "$(git -C "$r" rev-parse HEAD~1)" "$(git -C "$r" rev-parse HEAD)"
+	printf '%s %s %s\n' "$r" "$(tgit -C "$r" rev-parse HEAD~1)" "$(tgit -C "$r" rev-parse HEAD)"
 }
 
 # Test that the fast subset fails on a fork-only commit hash cited in
@@ -221,6 +221,7 @@ test_fast_fails_on_fork_commit_hash_in_docs()
 {
 	local r up fork out rc
 	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	mkdir -p "$r/docs/agents"
 	printf 'Like %s and (%s).\nsha256 %s, pin %s.\n' "${up:0:9}" "$up" \
 		"$(printf x | shasum -a 256 | cut -c1-64)" 0123456789abcdef0123456789abcdef01234567 \
@@ -242,18 +243,35 @@ test_fast_skips_hash_check_without_upstream()
 {
 	local r up fork out
 	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	printf 'Done in %s.\n' "${fork:0:9}" > "$r/GLOSSARY.md"
-	git -C "$r" update-ref -d refs/remotes/upstream/master
+	tgit -C "$r" update-ref -d refs/remotes/upstream/master
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP stale_hashes"
+}
+
+# Test that the fast subset fails, naming file and line, on a test that
+# runs git outside tgit and real_git, and lets a marked line through.
+test_fast_fails_on_raw_git_in_tests()
+{
+	local r out rc body='never() { git -C "$1" status; }' # raw git: what test_git must find
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '%s\n' '#!/usr/bin/env bash' "$body" > "$r/tools/dev/tests/raw_test.sh"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/dev/tests/raw_test.sh:2:"
+	assert_contains "$out" "failed: test_git"
+	printf '%s\n' '#!/usr/bin/env bash' "$body # raw git: a test" > "$r/tools/dev/tests/raw_test.sh"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
 }
 
 # Test that an unknown option is a usage error with exit status 2.
 test_unknown_option_is_usage_error()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	out=$("$r/tools/dev/check.sh" --bogus 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 2
 	assert_contains "$out" "usage"
@@ -264,15 +282,15 @@ test_unknown_option_is_usage_error()
 test_pre_commit_hook_blocks_game_data()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf 'DHF\0\0\0\0' > "$r/renamed.bin"
-	git -C "$r" add renamed.bin
+	tgit -C "$r" add renamed.bin
 	out=$(tgit -C "$r" commit -q -m data 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "renamed.bin"
-	git -C "$r" rm -q --cached renamed.bin
+	tgit -C "$r" rm -q --cached renamed.bin
 	printf 'int y;\n' > "$r/b.cpp"
-	git -C "$r" add b.cpp
+	tgit -C "$r" add b.cpp
 	out=$(tgit -C "$r" commit -q -m code 2>&1)
 	assert_eq "$?" 0 "$out"
 }
@@ -283,15 +301,15 @@ test_pre_commit_hook_blocks_game_data()
 test_pre_commit_hook_runs_pre_commit_tier_only()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\nexit 3\n' > "$r/tools/dev/tests/zfail_test.sh"
 	printf 'int y;\n' > "$r/b.cpp"
-	git -C "$r" add b.cpp
+	tgit -C "$r" add b.cpp
 	out=$(tgit -C "$r" commit -q -m code 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_not_contains "$out" "shell_tests"
 	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
-	git -C "$r" add tools/bad.cpp
+	tgit -C "$r" add tools/bad.cpp
 	out=$(tgit -C "$r" commit -q -m bad 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "tools/bad.cpp: not formatted"
@@ -301,11 +319,11 @@ test_pre_commit_hook_runs_pre_commit_tier_only()
 test_setup_installs_hooks()
 {
 	local r
-	r=$(make_dev_repo)
-	git -C "$r" config --unset core.hooksPath
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	tgit -C "$r" config --unset core.hooksPath
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
-	assert_eq "$(git -C "$r" config core.hooksPath)" "tools/dev/hooks"
-	assert_eq "$(git -C "$r" config rerere.enabled)" "true"
+	assert_eq "$(tgit -C "$r" config core.hooksPath)" "tools/dev/hooks"
+	assert_eq "$(tgit -C "$r" config rerere.enabled)" "true"
 }
 
 # Test that the fast subset fails, naming the key, when the repository's
@@ -313,10 +331,10 @@ test_setup_installs_hooks()
 test_fast_fails_on_repo_config_deviation()
 {
 	local r out rc
-	r=$(make_dev_repo)
-	git -C "$r" config user.name intruder
-	git -C "$r" config commit.gpgsign false
-	git -C "$r" config --unset rerere.enabled
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	tgit -C "$r" config user.name intruder
+	tgit -C "$r" config commit.gpgsign false
+	tgit -C "$r" config --unset rerere.enabled
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "user.name"
@@ -329,13 +347,13 @@ test_fast_fails_on_repo_config_deviation()
 test_fast_checks_repo_config_from_worktree()
 {
 	local r wt out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
 	wt=$(make_scratch)/wt
-	git -C "$r" worktree add -q -b side "$wt"
+	tgit -C "$r" worktree add -q -b side "$wt"
 	out=$("$wt/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
-	git -C "$r" config user.email intruder@example.invalid
+	tgit -C "$r" config user.email intruder@example.invalid
 	out=$(cd "$wt" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "user.email"
@@ -347,10 +365,10 @@ test_fast_checks_repo_config_from_worktree()
 test_hook_environment_does_not_leak_into_decoy_repo()
 {
 	local decoy r config_before head_before
-	decoy=$(make_repo)
-	r=$(make_dev_repo)
+	decoy=$(make_repo) || die "make_repo failed"
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	config_before=$(cat "$decoy/.git/config")
-	head_before=$(git -C "$decoy" rev-parse HEAD)
+	head_before=$(tgit -C "$decoy" rev-parse HEAD)
 	GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
 		bash "$DEV_DIR/tests/guard_test.sh" >/dev/null 2>&1
 	GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
@@ -358,7 +376,7 @@ test_hook_environment_does_not_leak_into_decoy_repo()
 	(cd "$r" && GIT_DIR="$decoy/.git" GIT_INDEX_FILE="$decoy/.git/index" \
 		tools/dev/check.sh --fast >/dev/null 2>&1)
 	assert_eq "$(cat "$decoy/.git/config")" "$config_before"
-	assert_eq "$(git -C "$decoy" rev-parse HEAD)" "$head_before"
+	assert_eq "$(tgit -C "$decoy" rev-parse HEAD)" "$head_before"
 }
 
 # Test that the shell tests run without any of git's repository variables,
@@ -366,7 +384,7 @@ test_hook_environment_does_not_leak_into_decoy_repo()
 test_shell_tests_see_no_git_repository_variables()
 {
 	local r out
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\necho "ns=${GIT_NAMESPACE-unset} alt=${GIT_ALTERNATE_OBJECT_DIRECTORIES-unset}"\n' \
 		> "$r/tools/dev/tests/env_test.sh"
 	out=$(cd "$r" && GIT_NAMESPACE=decoy GIT_ALTERNATE_OBJECT_DIRECTORIES=/nonexistent \
@@ -379,7 +397,7 @@ test_shell_tests_see_no_git_repository_variables()
 asan_options_on()
 {
 	local r bin
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	bin=$(make_scratch)
 	printf '#!/bin/sh\necho %s\n' "$1" > "$bin/uname"; chmod +x "$bin/uname"
 	printf '#!/usr/bin/env bash\necho "asan=$ASAN_OPTIONS"\n' > "$r/tools/dev/tests/env_test.sh"
@@ -403,7 +421,7 @@ test_leak_detection_on_except_macos()
 test_shell_tests_see_only_allowlisted_environment()
 {
 	local r out
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	printf '#!/usr/bin/env bash\necho "token=${SECRET_TOKEN-unset} dxx=${DXX_DECOY-unset}"\n' \
 		> "$r/tools/dev/tests/env_test.sh"
 	out=$(SECRET_TOKEN=decoy DXX_DECOY=kept "$r/tools/dev/check.sh" --fast 2>&1)
@@ -415,10 +433,11 @@ test_shell_tests_see_only_allowlisted_environment()
 test_fast_fails_on_new_github_workflow()
 {
 	local r up fork out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	mkdir -p "$r/.github/workflows"
 	echo 'on: push' > "$r/.github/workflows/ci.yml"
 	read -r r up fork < <(make_forked_dev_repo_in "$r")
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	echo 'on: push' > "$r/.github/workflows/fork.yml"
@@ -434,9 +453,10 @@ test_fast_skips_workflow_check_without_upstream()
 {
 	local r up fork out
 	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	mkdir -p "$r/.github/workflows"
 	echo 'on: push' > "$r/.github/workflows/fork.yml"
-	git -C "$r" update-ref -d refs/remotes/upstream/master
+	tgit -C "$r" update-ref -d refs/remotes/upstream/master
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP workflows"
@@ -448,13 +468,13 @@ test_fast_skips_workflow_check_without_upstream()
 test_pre_commit_hook_limits_commit_size()
 {
 	local r out rc
-	r=$(make_dev_repo)
+	r=$(make_dev_repo) || die "make_dev_repo failed"
 	# A generated file of this repository's own, beside requirements.lock,
 	# which doctor.sh checks against the venv.
 	echo gen.lock >> "$r/tools/dev/commit-size-exclude"
 	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
 	seq 301 > "$r/big.txt"
-	git -C "$r" add big.txt
+	tgit -C "$r" add big.txt
 	out=$(tgit -C "$r" commit -q -m big 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "301 changed lines, over 300"
@@ -464,7 +484,7 @@ test_pre_commit_hook_limits_commit_size()
 	assert_contains "$out" "301 changed lines allowed: one generated table"
 	seq 400 > "$r/gen.lock"
 	seq 300 > "$r/small.txt"
-	git -C "$r" add gen.lock small.txt
+	tgit -C "$r" add gen.lock small.txt
 	out=$(tgit -C "$r" commit -q -m lock 2>&1)
 	assert_eq "$?" 0 "$out"
 }

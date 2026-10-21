@@ -34,7 +34,7 @@ declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening
 gate_tidy()
 {
 	local r
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	cp "$1" "$r/src/plant.cpp"
 	tgit -C "$r" add src/plant.cpp
 	"$r/tools/dev/format.sh" --staged 2>&1
@@ -275,7 +275,7 @@ test_editor_tier_clangd_uses_fork_config_within_budget()
 	local r clangd
 	clangd=$(dev_llvm_tool clangd)
 	need "$clangd"
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	cp "$GATES/owning_raw_pointer.cpp.in" "$r/src/owner.cpp"
 	cp "$GATES/owning_raw_pointer.cpp.in" "$r/common/owner.cpp"
 	cp "$REPO_ROOT/.clang-tidy" "$r/.clang-tidy"
@@ -298,7 +298,7 @@ test_precommit_tier_within_budget()
 {
 	local r
 	need "${gate_tool[tidy]}"
-	r=$(fork_repo)
+	r=$(fork_repo) || die "fork_repo failed"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	cp "$GATES/clean.cpp.in" "$r/src/clean.cpp"
 	printf 'int one()\n{\n\treturn 1;\n}\n' > "$r/src/one.cpp"
