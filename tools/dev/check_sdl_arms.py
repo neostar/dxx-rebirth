@@ -7,10 +7,15 @@
 # finds a chain an SDL3 build would silently take the wrong branch of.
 #
 # A chain is one #if/#ifdef/#ifndef with its #elif, #else and #endif at
-# one nesting level.  A branch is an SDL2 one when its condition says
-# SDL_MAJOR_VERSION == 2, an SDL3 one when it says SDL_MAJOR_VERSION == 3
-# or SDL_MAJOR_VERSION >= 2.  Comments are ignored and continued lines
-# joined.
+# one nesting level.  Each condition is evaluated for SDL major versions
+# 1, 2 and 3, its comparisons of SDL_MAJOR_VERSION with a number (either
+# operand first) true or false and every other term unknown.  A branch is
+# an SDL2 one when the chain compares SDL_MAJOR_VERSION up to it and an
+# SDL2 build may take it: an #else after SDL1-only branches, != 1 and
+# < 3 are SDL2 branches.  The chain is covered by a branch an SDL3 build
+# may take whose condition compares explicitly for SDL3: == 3, or >= or >
+# with a bound SDL3 meets (>= 2, > 1); an #else or != 1 does not cover.
+# Comments are ignored and continued lines joined.
 #
 # The allowlist (default tools/dev/sdl-arms-allow) lets a file keep a
 # number of such chains, one entry per line:
@@ -20,6 +25,7 @@
 # slices land.
 #
 #   python3 check_sdl_arms.py ROOT [ALLOWLIST]
+import itertools
 import os
 import re
 import sys
@@ -27,8 +33,49 @@ import sys
 from gpu_debug_mode import sources, strip_comments
 
 DIRECTIVE = re.compile(r'^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)$')
-SDL2 = re.compile(r'\bSDL_MAJOR_VERSION\s*==\s*2\b')
-SDL3 = re.compile(r'\bSDL_MAJOR_VERSION\s*(==\s*3|>=\s*2)\b')
+COMPARISON = re.compile(r'\bSDL_MAJOR_VERSION\s*([=!<>]=|[<>])\s*(\d+)\b'
+	r'|\b(\d+)\s*([=!<>]=|[<>])\s*SDL_MAJOR_VERSION\b')
+REVERSED = {'<': '>', '<=': '>=', '>': '<', '>=': '<='}
+DEFINED = re.compile(r'\bdefined\s*(\(\s*\w+\s*\)|\w+)')
+TOKEN = re.compile(r'&&|\|\||!(?!=)|[()]|(?:[^&|!()]|!=)+')
+OPERATOR = {'&&': ' and ', '||': ' or ', '!': ' not ', '(': '(', ')': ')'}
+VERSIONS = (1, 2, 3)
+
+
+def evaluate(condition):
+	"""Return ({version: True, False or None}, compares, covers): the
+	condition's value for each SDL major version (None when it depends on
+	other terms), whether it compares SDL_MAJOR_VERSION, and whether it
+	compares explicitly for SDL3."""
+	comparisons = []
+
+	def compare(m):
+		op, bound = (m.group(1), m.group(2)) if m.group(1) else (REVERSED.get(m.group(4), m.group(4)), m.group(3))
+		comparisons.append((op, int(bound)))
+		return f' SDL_COMPARISON_{len(comparisons) - 1} '
+
+	text = COMPARISON.sub(compare, DEFINED.sub(' defined_term ', condition))
+	expr, terms = [], 0
+	for token in TOKEN.findall(text):
+		if token in OPERATOR:
+			expr.append(OPERATOR[token])
+		elif m := re.fullmatch(r'\s*SDL_COMPARISON_(\d+)\s*', token):
+			op, bound = comparisons[int(m.group(1))]
+			expr.append(f'(v {op} {bound})')
+		elif token.strip():
+			expr.append(f'u[{terms}]')
+			terms += 1
+	covers = any((op, bound) == ('==', 3) or (op, bound) in (('>=', 2), ('>=', 3), ('>', 1), ('>', 2))
+		for op, bound in comparisons)
+	values = {}
+	for v in VERSIONS:
+		try:
+			seen = {bool(eval(''.join(expr), {'__builtins__': {}}, {'v': v, 'u': u}))
+				for u in itertools.product((False, True), repeat=terms)}
+		except SyntaxError:
+			seen = {False, True}
+		values[v] = seen.pop() if len(seen) == 1 else None
+	return values, bool(comparisons), covers
 
 
 def directives(text):
@@ -48,11 +95,13 @@ def directives(text):
 
 
 def uncovered(text):
-	"""Return the line of the SDL2 branch of each chain with no SDL3 branch."""
+	"""Return the line of the first SDL2 branch of each chain with no SDL3
+	branch."""
 	stack, found = [], []
 	for line, keyword, condition in directives(text):
 		if keyword in ('if', 'ifdef', 'ifndef'):
-			stack.append({'sdl2': None, 'sdl3': False})
+			stack.append({'sdl2': None, 'sdl3': False, 'compares': False,
+				'taken': {v: False for v in VERSIONS}})
 		elif not stack:
 			continue
 		if keyword == 'endif':
@@ -61,11 +110,22 @@ def uncovered(text):
 				found.append(chain['sdl2'])
 			continue
 		chain = stack[-1]
-		if SDL2.search(condition) and chain['sdl2'] is None:
+		if keyword == 'else':
+			values, compares, covers = {v: True for v in VERSIONS}, False, False
+		elif keyword in ('ifdef', 'ifndef'):
+			values, compares, covers = {v: None for v in VERSIONS}, False, False
+		else:
+			values, compares, covers = evaluate(condition)
+		chain['compares'] = chain['compares'] or compares
+		taken = chain['taken']
+		may_take = {v: not taken[v] and values[v] is not False for v in VERSIONS}
+		if chain['compares'] and may_take[2] and chain['sdl2'] is None:
 			chain['sdl2'] = line
-		if SDL3.search(condition):
+		if covers and may_take[3]:
 			chain['sdl3'] = True
-	return found
+		for v in VERSIONS:
+			taken[v] = taken[v] or values[v] is True
+	return sorted(found)
 
 
 ENTRY = re.compile(r'^(\S+)\s+(\d+)\s+--\s+\S')

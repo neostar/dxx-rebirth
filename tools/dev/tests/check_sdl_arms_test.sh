@@ -33,6 +33,53 @@ test_sdl2_chain_without_sdl3_reported()
 	assert_eq "$(grep -c 'SDL2 branch without' <<<"$out")" 2 "$out"
 }
 
+# Test that every branch an SDL2 build takes counts as an SDL2 one: an
+# #else after SDL1-only branches, != 1, < 2 and reversed operands, also
+# beside other conditions; a chain no SDL2 build enters is not reported.
+test_every_form_of_sdl2_branch_reported()
+{
+	local r out rc
+	r=$(make_lint_repo) || die "make_lint_repo failed"
+	printf '%s\n' '#if SDL_MAJOR_VERSION == 1' 'a' '#else' 'b' '#endif' \
+		'#if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1' '#else' '#endif' \
+		'#if defined(__linux__) || SDL_MAJOR_VERSION != 1' '#endif' \
+		'#if SDL_MAJOR_VERSION < 2' '#elif X' '#endif' \
+		'#if 2 == SDL_MAJOR_VERSION' '#endif' \
+		'#if SDL_MAJOR_VERSION <= 2 && (X || !Y)' '#endif' \
+		'#if SDL_MAJOR_VERSION == 1' '#endif' \
+		'#ifdef X' '#elif !(SDL_MAJOR_VERSION == 1)' '#endif' > "$r/g.cpp"
+	out=$(python3 "$LINT" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	local line
+	for line in 3 7 9 12 14 16 21; do
+		assert_contains "$out" "g.cpp:$line: SDL2 branch without an SDL3 or >= 2 branch"
+	done
+	assert_eq "$(grep -c 'SDL2 branch without' <<<"$out")" 7 "$out"
+}
+
+# Test that only an explicit SDL3 or >= 2-style branch that an SDL3 build
+# takes covers a chain: == 3, >= 2, > 1 and their reversed forms do; an
+# #else, != 1, and an SDL3 branch after one an SDL3 build already took do
+# not.
+test_only_an_sdl3_branch_sdl3_takes_covers()
+{
+	local r out rc
+	r=$(make_lint_repo) || die "make_lint_repo failed"
+	printf '%s\n' '#if SDL_MAJOR_VERSION == 3' '#else' '#endif' \
+		'#if SDL_MAJOR_VERSION == 1' '#elif SDL_MAJOR_VERSION == 3' '#else' '#endif' \
+		'#if SDL_MAJOR_VERSION > 1' '#endif' \
+		'#if 1 < SDL_MAJOR_VERSION' '#endif' \
+		'#if 3 == SDL_MAJOR_VERSION' '#else' '#endif' \
+		'#if X && SDL_MAJOR_VERSION >= 2' '#endif' \
+		'#if SDL_MAJOR_VERSION != 1' '#elif SDL_MAJOR_VERSION == 3' '#endif' \
+		'#if SDL_MAJOR_VERSION == 2' '#elif SDL_MAJOR_VERSION != 1' '#endif' > "$r/h.cpp"
+	out=$(python3 "$LINT" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "h.cpp:17: SDL2 branch without an SDL3 or >= 2 branch"
+	assert_contains "$out" "h.cpp:20: SDL2 branch without an SDL3 or >= 2 branch"
+	assert_eq "$(grep -c 'SDL2 branch without' <<<"$out")" 2 "$out"
+}
+
 # Test that a chain is the run of #if, #elif, #else and #endif at one
 # nesting level: a nested chain's SDL3 branch does not cover the outer
 # chain's SDL2 branch, and the outer chain's SDL3 branch, after the nested
