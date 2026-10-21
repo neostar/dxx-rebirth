@@ -173,4 +173,20 @@ test_staged_c_file_skips_tidy()
 	assert_contains "$out" "compile_commands.json"
 }
 
+# Test that a staged fork header is tidied with the fork's own flags, not
+# a compilation database entry it does not have: a finding fails it.
+test_staged_header_is_tidied_without_database_entry()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s\n' '#pragma once' 'inline int *null_pointer() { return 0; }' > "$r/src/plant.h"
+	tgit -C "$r" add src/plant.h
+	rm "$r/build/dev/compile_commands.json"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "modernize-use-nullptr"
+	assert_not_contains "$out" "no $r/build/dev/compile_commands.json"
+	assert_not_contains "$out" "pragma-once"
+}
+
 run_tests

@@ -95,21 +95,35 @@ check_nolint()
 }
 
 # clang-tidy the C++ files among "$@" with the compilation database; the
-# clang-tidy rules are C++ rules, so C files are left out.
+# clang-tidy rules are C++ rules, so C files are left out.  A header has
+# no entry of its own, and the one clang-tidy would borrow may be GCC's
+# (the container), with flags clang rejects; headers are tidied with the
+# fork's own flags instead (fork_warnings.py, the pinned dependencies).
 tidy()
 {
-	local f cxx=()
+	local f rc=0 cxx=() headers=() flags=()
 	for f in "$@"; do
-		[[ $f == *.c ]] || cxx+=("$f")
+		case $f in
+		*.c) ;;
+		*.h|*.hh|*.hpp) headers+=("$f") ;;
+		*) cxx+=("$f") ;;
+		esac
 	done
-	[[ ${#cxx[@]} -eq 0 ]] && return 0
+	if [[ ${#headers[@]} -gt 0 ]]; then
+		read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
+		[[ $dev_os == darwin ]] && flags+=(-isysroot "$(xcrun --show-sdk-path)")
+		"$clang_tidy" --quiet "${headers[@]}" -- -x c++-header -std=c++23 "${flags[@]}" \
+			-isystem "$dev_deps_prefix/include" 2>&1 | grep -v '^[0-9]* warnings\? generated\.$'
+		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
+	fi
+	[[ ${#cxx[@]} -eq 0 ]] && return "$rc"
 	if [[ ! -f $database/compile_commands.json ]]; then
 		echo "format.sh: no $database/compile_commands.json; run tools/dev/build.sh first" >&2
 		return 1
 	fi
 	"$clang_tidy" -p "$database" --quiet "${cxx[@]}" 2>&1 |
 		grep -v '^[0-9]* warnings\? generated\.$'
-	[[ ${PIPESTATUS[0]} -eq 0 ]]
+	[[ ${PIPESTATUS[0]} -eq 0 && $rc -eq 0 ]]
 }
 
 style="--style=file:$dev_dir/style/clang-format"
