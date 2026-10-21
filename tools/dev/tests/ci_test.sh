@@ -29,7 +29,7 @@ echo "\$*" >> "$bin/docker.log"
 case "\$1 \${2-}" in
 'image inspect') exit 0 ;;
 'image ls') printf '%s\n' \${FAKE_IMAGES-}; exit 0 ;;
-'run '*) touch "$bin/container-started" ;;
+'run '*) sleep "\${FAKE_DOCKER_DELAY:-0}"; touch "$bin/container-started" ;;
 'save '*) echo image-bytes; exit 0 ;;
 'build '*|'rmi '*|'image prune'|'builder prune'|'system prune') exit 0 ;;
 esac
@@ -50,14 +50,18 @@ run_ci()
 
 # Test that ci.sh runs the native and the container leg at once, and
 # prints each leg's output whole, native first: the fake native check
-# passes only once the container leg has started.
+# passes only once the container leg has started.  Legs run one after the
+# other would never meet, so the wait's bound only ends that case; 120 s
+# keeps a loaded machine (ci.sh's own shell tests in parallel) from failing
+# a correct ci.sh: here the container leg starts 6 s late.
 test_runs_legs_concurrently()
 {
 	local bin r out rc
 	bin=$(make_scratch) || die "make_scratch failed"
-	FAKE_CHECK_WAIT="for _ in \$(seq 50); do [[ -e $bin/container-started ]] && exit 0; sleep 0.1; done; exit 1" \
+	FAKE_CHECK_WAIT="for _ in \$(seq 1200); do [[ -e $bin/container-started ]] && exit 0; sleep 0.1; done; exit 1" \
 		r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
-	out=$(run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	# The container leg starting 6 s late, as on a loaded machine.
+	out=$(FAKE_DOCKER_DELAY=6 run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 	assert_contains "$out" $'== ci: native check.sh --fast\nnative check --fast'
 	assert_contains "$out" $'container ran\nci.sh: passed'

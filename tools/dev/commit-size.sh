@@ -25,12 +25,29 @@ dev_dir=$(cd "$(dirname "$0")" && pwd)
 max=300
 binary_lines=100
 
+# Print process $1's parent pid and its whole command line: from /proc
+# where there is one (Linux), else from ps -ww, which never cuts it to the
+# terminal's width.  A defensive change: the one missed --amend (container
+# leg, under load) has no known cause.
+ancestor()
+{
+	local stat
+	if [[ -r /proc/$1/cmdline ]]; then
+		stat=$(< "/proc/$1/stat") || return 1
+		stat=${stat##*) }
+		read -r _ stat _ <<<"$stat"
+		printf '%s %s\n' "$stat" "$(tr '\0' ' ' < "/proc/$1/cmdline")"
+	else
+		ps -ww -o ppid= -o args= -p "$1" 2>/dev/null
+	fi
+}
+
 # Succeed if an ancestor of this process is `git commit ... --amend`.
 amending()
 {
 	local pid=$$ ppid args
 	for _ in 1 2 3 4 5 6; do
-		read -r ppid args < <(ps -o ppid= -o args= -p "$pid" 2>/dev/null) || return 1
+		read -r ppid args < <(ancestor "$pid") || return 1
 		if [[ " $args " =~ (^|[[:space:]/])git[[:space:]].*[[:space:]]commit[[:space:]] &&
 			" $args " == *" --amend "* ]]; then
 			return 0
