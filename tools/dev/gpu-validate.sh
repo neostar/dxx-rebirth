@@ -20,7 +20,8 @@
 #     Metal shader validation's "... executing kernel function: ..." ones,
 #     the Vulkan layer's "Validation Error/Warning" messages;
 #   - no SDL_GPU device, or its validation not active (on Vulkan, the
-#     layer's status must list synchronization validation and no disables).
+#     layer's status must list synchronization validation and no disables,
+#     naming any it lists).
 # Otherwise CMD's own exit status.
 set -u
 [[ $# -gt 0 ]] || { echo "usage: $0 CMD [ARG...]" >&2; exit 2; }
@@ -55,8 +56,13 @@ elif matches 'SDL_GPU Driver: Vulkan' >/dev/null; then
 			"(debug_mode, vulkan-validationlayers)")
 	matches 'Current Enables: .*SYNCHRONIZATION_VALIDATION' >/dev/null ||
 		problems+=("Vulkan synchronization validation was not active")
-	matches 'Current Disables: None' >/dev/null ||
-		problems+=("Vulkan thread-safety validation was not active")
+	# The layer disables thread safety by default; the settings clear it.
+	disables=$(sed -nE 's/.*Current Disables: (.*)\.$/\1/p' "$log" | head -n 1)
+	if [[ -z $disables ]]; then
+		problems+=("the Vulkan layer printed no Current Disables status")
+	elif [[ $disables != None ]]; then
+		problems+=("Vulkan validation disabled: $disables")
+	fi
 else
 	problems+=("no SDL_GPU device was created, so nothing was validated")
 fi

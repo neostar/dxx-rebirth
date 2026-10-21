@@ -173,10 +173,14 @@ tightening is its own small commit that leaves the tree green and updates the le
   nothing measurable (1.3 s either way). Vulkan synchronization and thread-safety validation,
   from `tools/dev/vk_layer_settings.txt`, to which the wrapper points `VK_LAYER_SETTINGS_PATH`
   (VVL 1.3.275's environment settings print no status); a Vulkan run whose layer status lacks
-  "Current Enables: ...SYNCHRONIZATION_VALIDATION" or "Current Disables: None" fails. On
+  "Current Enables: ...SYNCHRONIZATION_VALIDATION" fails, as does one whose "Current Disables"
+  is not None, naming what it disables. On
   lavapipe they cost nothing measurable on the probe (1.22 s against 1.21 s). No plant proves
   sync validation reports a hazard: SDL puts a barrier between passes, and the one race it
   leaves (two dispatches writing one buffer in one compute pass) VVL 1.3.275 does not report.
+  So Vulkan sync validation is on but unproven: no gate shows it goes red. **Open item**: when a
+  fork GPU path creates a real hazard SDL does not barrier (#24, #28), plant it and make the gate
+  expect sync validation's report.
 
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names

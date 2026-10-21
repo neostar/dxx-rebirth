@@ -102,9 +102,12 @@ test_inactive_validation_fails()
 		"probe: Metal API validation was not active"
 	assert_contains "$(validate "${vulkan/ENABLE_SYNCHRONIZATION_VALIDATION/}")" \
 		"probe: Vulkan synchronization validation was not active"
-	local disabled=VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT
-	assert_contains "$(validate "${vulkan/Disables: None/Disables: $disabled}")" \
-		"probe: Vulkan thread-safety validation was not active"
+	local disabled
+	for disabled in VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT \
+		'VK_VALIDATION_FEATURE_DISABLE_SHADERS_EXT, VK_VALIDATION_FEATURE_DISABLE_API_PARAMETERS_EXT'; do
+		assert_contains "$(validate "${vulkan/Disables: None/Disables: $disabled}")" \
+			"probe: Vulkan validation disabled: $disabled"
+	done
 	assert_contains "$(validate "${metal/GPU Validation/}")" \
 		"probe: Metal shader validation was not active"
 	assert_contains "$(validate 'hello')" "probe: no SDL_GPU device was created"
