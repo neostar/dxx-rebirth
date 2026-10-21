@@ -311,22 +311,24 @@ tree_sums()
 
 run_tests()
 {
-	local t rc
+	local t rc start took
 	for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 		[[ ${#_lib_only[@]} -eq 0 || " ${_lib_only[*]} " == *" $t "* ]] || continue
 		# Asserts record failure in _test_failed, so a later passing
 		# assert cannot hide an earlier failing one.
 		rm -f "$_scratch_root/refused"
+		start=$EPOCHSECONDS
 		( _test_failed=0; "$t"; exit "$_test_failed" ) && rc=0 || rc=$?
+		took="$((EPOCHSECONDS - start)) s"
 		if [[ $rc -ne 0 && $rc -ne 77 ]] || [[ -e $_scratch_root/refused ]]; then
 			rc=1
 		fi
 		if [[ $rc -eq 0 ]]; then
-			printf '  ok   %s\n' "$t"
+			printf '  ok   %s (%s)\n' "$t" "$took"
 		elif [[ $rc -eq 77 ]]; then
 			printf '  SKIP %s: %s\n' "$t" "$(cat "$_scratch_root/skip-reason")"
 		else
-			printf '  FAIL %s\n' "$t"
+			printf '  FAIL %s (%s)\n' "$t" "$took"
 			_failures=$((_failures + 1))
 		fi
 	done
