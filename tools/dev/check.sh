@@ -249,11 +249,24 @@ if [[ $mode == full ]]; then
 	export DXX_BUILD_TESTS=1
 fi
 
+# The check tier's budget (ADR 5): the full checks fail when they take
+# longer, in either leg.  DXX_CHECK_BUDGET (seconds) overrides it, for the
+# tests.
+budget=${DXX_CHECK_BUDGET:-$((10 * 60))}
+
 failed=()
+start=$EPOCHSECONDS
 for s in "${steps[@]}"; do
 	echo "== $s"
+	step_start=$EPOCHSECONDS
 	"step_$s" || failed+=("$s")
+	[[ $mode == full ]] && echo "-- $s: $((EPOCHSECONDS - step_start)) s"
 done
+if [[ $mode == full ]]; then
+	took=$((EPOCHSECONDS - start))
+	echo "check.sh: full checks took $took s, budget $budget s"
+	[[ $took -le $budget ]] || failed+=(budget)
+fi
 
 if [[ ${#failed[@]} -ne 0 ]]; then
 	echo "check.sh: failed: ${failed[*]}" >&2

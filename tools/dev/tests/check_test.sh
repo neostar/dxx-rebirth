@@ -151,6 +151,23 @@ test_full_runs_build_tests_and_tidy()
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: tidy' "$out"
 }
 
+# Test that the full checks time each step and fail, naming the budget,
+# when they take longer than the check tier's budget (ADR 5), here
+# DXX_CHECK_BUDGET=-1 s; the fast subset keeps no budget.
+test_full_fails_over_its_budget()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	out=$(DXX_CHECK_BUDGET=-1 "$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "-- unit_tests: "
+	[[ $out =~ check.sh:\ full\ checks\ took\ [0-9]+\ s,\ budget\ -1\ s ]] || fail "no timing: $out"
+	assert_contains "$out" "check.sh: failed: budget"
+	out=$(DXX_CHECK_BUDGET=-1 "$r/tools/dev/check.sh" --fast 2>&1)
+	assert_not_contains "$out" "budget"
+}
+
 # Test that the fast subset runs shellcheck on scripts in the fork
 # directories, found by extension or by shebang.
 test_fast_fails_on_shellcheck_finding()

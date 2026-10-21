@@ -35,7 +35,7 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 |---|---|---|---|
 | editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`) | `gates_test.sh` |
 | pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files) | `gates_test.sh`, timing the real hook |
-| check | minutes | `check.sh --fast` (shell tests, shellcheck, format of every fork file) and `check.sh`: unit tests, `format.sh --tidy` on every fork file, the real-build strict-warning test; #58 adds the rest | `check.sh` |
+| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds them | `check.sh`, timing its own full run |
 | nightly | none | #59 | #59 |
 
 clangd skips `clang-analyzer-*`, `bugprone-use-after-move` and slow checks by design, so the
@@ -58,6 +58,11 @@ validation (`MTL_DEBUG_LAYER=1`) and the Vulkan validation layer
 status (spike #55, K4), so the wrapper scans the output and fails on any validation message, and
 on a run whose validation was not active. Until the fork has GPU code (#24), headless probes in
 the gate self-test prove it on Metal natively and on lavapipe in the container.
+
+**The check tier's budget** is 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
+leg of `ci.sh --clean` took 307 s (shell tests 223 s, unit tests 34 s, sanitizer build and tests
+35 s, under amd64 emulation), the native leg 154 s on a warm build (shell tests 122 s, leaks 23 s).
+`check.sh` prints each step's time and fails the full run as `budget` when it takes longer.
 
 **Justified exceptions** are inline only, `// NOLINT(check): reason` or
 `// NOLINTNEXTLINE(check): reason`; `format.sh` fails on a NOLINT without a check list and a
