@@ -1,0 +1,11 @@
+# S1: the title screen until it times out, then the main menu: move the
+# cursor, open the options menu, move in it and go back.
+# Format: common/debug/input_script.h.  Run: docs/agents/game-data.md.
+150 press DOWN	# Load game
+165 press DOWN	# Multiplayer
+180 press DOWN	# Options
+195 press ENTER
+240 press DOWN
+255 press ESC	# back to the main menu
+300 press UP
+330 end

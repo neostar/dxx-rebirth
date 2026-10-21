@@ -1,0 +1,7 @@
+# S3: a new game's briefing for level 1, typed out, then its next page.
+# Format: common/debug/input_script.h.  Run: docs/agents/game-data.md.
+150 press ENTER	# New game
+200 press ENTER	# start at level 1
+250 press ENTER	# difficulty: the default
+700 press ENTER	# the briefing's next page
+1000 end

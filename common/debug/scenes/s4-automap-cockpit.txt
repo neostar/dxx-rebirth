@@ -1,0 +1,15 @@
+# S4: level 1 with the briefing skipped: the automap, turned, then each
+# cockpit mode (cockpit, status bar, full screen) and back to the cockpit.
+# Format: common/debug/input_script.h.  Run: docs/agents/game-data.md.
+150 press ENTER	# New game
+200 press ENTER	# start at level 1
+250 press ENTER	# difficulty: the default
+300 press ESC	# skip the briefing
+440 press TAB	# automap
+470 down LEFT
+500 up LEFT
+560 press TAB	# back to the game
+600 press F3	# status bar
+660 press F3	# full screen
+720 press F3	# cockpit
+800 end

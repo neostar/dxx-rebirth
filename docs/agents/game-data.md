@@ -62,3 +62,34 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
   With several, the pick depends on every `d_rand` call before it: the seed is fixed (no
   single-player `d_srand`), but nothing makes the calls during the wall-clock-timed screens
   between demos repeat. Compare sections of the same demo, by the name in their header.
+
+## Playing a scene, invisibly
+
+The scripted scenes S1, S3 and S4 (`GLOSSARY.md`, input script) are in `common/debug/scenes/`.
+A `dbg_harness=1` build plays one with no window on screen and writes its frames to a
+`# scene <script name>` section of the frame hash log:
+
+```sh
+tools/dev/build.sh dev dbg_harness=1 builddir=build/harness \
+  compilation_database=build/harness/compile_commands.json
+rm -rf traces/local/s1home && mkdir -p traces/local/s1home
+DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/s1.log \
+  DXX_DBG_INPUT_SCRIPT=$PWD/common/debug/scenes/s1-title-menu.txt \
+  D2X_REBIRTH_HOME=$PWD/traces/local/s1home tools/dev/run.sh build/harness/d2x-rebirth/d2x-rebirth \
+  -hogdir "$DXX_D2_DATA" -window -pilot harness -nomovies
+```
+
+- The run ends by itself at the script's `end` line, with status 0. Two runs of a scene write the
+  same log: compare whole logs.
+- Use a fresh home for every run: the scripts count on a new pilot's defaults (the resolution,
+  each menu's first choice, no level played yet).
+- The scripts are timed for `DXX_DBG_FIXED_FRAMETIME=30`: the title screen's 3 seconds are 90
+  ticks at 30, and other screens time themselves the same way.
+- While a script plays, the harness clock advances one frame step per `timer_update` call, not
+  per frame, and the frame loop calls it until a frame is due: scene logs compare only between
+  runs at the same `-maxfps` and VSync. Real-time timeouts count calls too and collapse, to about
+  30 calls at 30 (the MIDI reset in `hmp.cpp`, the timeouts of `net_udp.cpp`).
+- The `end` line exits with `_Exit(0)`: no `atexit` handlers or static destructors run, and
+  LeakSanitizer prints no report, so ASan scene runs do not check leaks.
+- To write a scene, play a draft script with `press PRSCR` lines and look at the screenshots in
+  the home's `screenshots/`; they are derived from the licensed data and stay there.
