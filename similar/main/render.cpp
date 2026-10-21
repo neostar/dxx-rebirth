@@ -32,6 +32,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <math.h>
 #include <optional>
 #include <ranges>
+#include "common/algorithm/insertion_sort.h"
 #include "render_state.h"
 #include "inferno.h"
 #include "segment.h"
@@ -1066,7 +1067,7 @@ static void sort_seg_children(fvcvertptr &vcvertptr, const vms_vector &Viewer_ey
 	{
 		return compare_children(vcvertptr, Viewer_eye, seg, a, b);
 	};
-		std::sort(r.begin(), r.end(), predicate);
+	insertion_sort(r, predicate);
 }
 
 static void add_obj_to_seglist(render_state_t &rstate, objnum_t objnum, segnum_t segnum)
@@ -1157,7 +1158,7 @@ static void sort_segment_object_list(fvcobjptr &vcobjptr, const vms_vector &View
 {
 	render_compare_context_t context(vcobjptr, Viewer_eye, segstate);
 	auto &v = segstate.objects;
-	std::sort(v.begin(), v.end(), std::cref(context));
+	insertion_sort(v, context);
 }
 
 }
