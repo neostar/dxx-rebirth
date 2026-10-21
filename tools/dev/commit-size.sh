@@ -41,34 +41,33 @@ amending()
 	return 1
 }
 
-# Print the changed lines of the staged change against $1, or with $2 of
-# commit $2 against $1.
+# Sum git's --numstat lines on the standard input, leaving out the files
+# commit-size-exclude lists.  Each line "@HASH [PARENTS]" (git log) starts
+# a commit: print "HASH LINES" for each, a root commit counting 0, as
+# against its missing parent; without them print the one sum.
 count()
 {
-	local range=(--cached "$1")
-	[[ -n ${2-} ]] && range=("$1" "$2")
-	git diff --numstat --no-renames "${range[@]}" |
-		awk -v ex="$dev_dir/commit-size-exclude" -v bin="$binary_lines" '
+	awk -v ex="$dev_dir/commit-size-exclude" -v bin="$binary_lines" '
 		BEGIN { while ((getline l < ex) > 0) if (l !~ /^#/ && l != "") skip[l] = 1 }
-		$3 in skip { next }
+		/^@/ { if (c != "") print c, n + 0; c = substr($1, 2); n = 0; root = NF < 2; next }
+		NF == 0 || root || $3 in skip { next }
 		$1 == "-" { n += bin; next }
 		{ n += $1 + $2 }
-		END { print n + 0 }'
+		END { print (c != "" ? c " " : "") n + 0 }'
 }
 
 if [[ ${1-} == --history ]]; then
 	rc=0
 	allowed=$(sed -nE 's/^(.+) -- [^[:space:]].*$/\1/p' "$dev_dir/commit-size-allow" 2>/dev/null)
-	for c in $(git rev-list --no-merges "$2..HEAD"); do
-		lines=$(count "$c^" "$c")
-		[[ $lines -le $max ]] && continue
+	while read -r c lines; do
+		[[ -n $c && $lines -gt $max ]] || continue
 		git log -1 --format=%B "$c" | grep -qE '^Large-commit: [^[:space:]]' && continue
 		subject=$(git log -1 --format=%s "$c")
 		grep -qxF -- "$subject" <<<"$allowed" && continue
 		echo "commit-size: $lines changed lines, over $max: $subject; split it, or give" \
 			"a Large-commit: <reason> trailer"
 		rc=1
-	done
+	done < <(git log --no-merges --no-renames --numstat --format='@%H %P' "$2..HEAD" | count)
 	exit "$rc"
 fi
 
@@ -77,7 +76,7 @@ if amending; then
 	base=$(git rev-parse -q --verify HEAD^ 2>/dev/null) ||
 		base=$(git hash-object -t tree /dev/null)
 fi
-lines=$(count "$base")
+lines=$(git diff --numstat --no-renames --cached "$base" | count)
 [[ $lines -le $max ]] && exit 0
 if [[ -n ${DXX_ALLOW_LARGE_COMMIT-} ]]; then
 	echo "commit-size: $lines changed lines allowed: $DXX_ALLOW_LARGE_COMMIT"
