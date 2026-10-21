@@ -112,16 +112,17 @@ print(" ".join(" ".join(x) if isinstance(x, list) else x for x in (v[n] for n in
 
 # The asan profile (build.sh asan): run file $1 built with site-asan.py's
 # compiler and linker flags, fork code's among them, under env.sh's
-# sanitizer options (LeakSanitizer on, except on macOS).  AddressSanitizer,
-# LeakSanitizer and UBSan are one build, so gates asan, lsan, ubsan and
-# ubsanclang are one runner.
+# sanitizer options (LeakSanitizer on, except on macOS; reporting, never
+# aborting), under no-window.sh, so that a crash report fails it.
+# AddressSanitizer, LeakSanitizer and UBSan are one build, so gates asan,
+# lsan, ubsan and ubsanclang are one runner.
 gate_sanitizers()
 {
 	local p flags
 	flags=$(asan_site CXXFLAGS FORK_ONLY_CXXFLAGS LINKFLAGS) || return
 	# shellcheck disable=SC2086  # the flags are words
 	p=$(build_plant "$1" $flags) || return
-	"$p" 2>&1
+	"$DEV_DIR/no-window.sh" "$p" 2>&1
 }
 gate_asan() { gate_sanitizers "$@"; }
 gate_lsan() { gate_sanitizers "$@"; }
@@ -139,8 +140,8 @@ gate_leaks()
 }
 
 # The GPU validation gate (gpu-validate.sh): run file $1, built against the
-# pinned SDL3, under it, headless (no window; offscreen video in the
-# container, as its image sets).
+# pinned SDL3, under it and no-window.sh, headless (no window; offscreen
+# video in the container, as its image sets).
 gate_gpu()
 {
 	local p video=()
@@ -148,7 +149,7 @@ gate_gpu()
 	p=$(build_plant "$1" -I"$GATES" -isystem "$dev_deps_prefix/include" \
 		-L"$dev_deps_prefix/lib" -Wl,-rpath,"$dev_deps_prefix/lib" -lSDL3) || return
 	[[ $dev_os == darwin ]] || video=(SDL_VIDEO_DRIVER=offscreen)
-	env "${video[@]}" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
+	env "${video[@]}" "$DEV_DIR/no-window.sh" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
 }
 
 # The GPU validation gate's Metal-only half (shader validation).
