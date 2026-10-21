@@ -537,7 +537,9 @@ int plant_value(const std::optional<int> &o)
 	assert_contains "$out" "src/unittest/plant.cpp:12:22: error: unchecked access to optional value"
 	assert_not_contains "$out" "src/unittest/plant.cpp:6:"
 	assert_not_contains "$out" "src/unittest/plant.cpp:12:9:"
-	out=$("$r/tools/dev/format.sh" --tidy src/unittest 2>&1)
+	add_database_entry "$r" src/unittest/plant.cpp
+	out=$("$r/tools/dev/format.sh" --tidy "$r/src/unittest" 2>&1)
+	assert_contains "$out" "src/unittest/plant.cpp:12:22: error: unchecked access to optional value"
 	assert_not_contains "$out" "throwing-static-initialization"
 }
 

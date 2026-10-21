@@ -160,6 +160,30 @@ test_tidy_checks_config_and_nolint()
 	assert_eq "$?" 0 "$out"
 }
 
+# Test that --tidy fails on a fork C++ file the compilation database has no
+# entry for, naming it and the build that writes one, and tidies it once the
+# entry is there: clang-tidy would borrow a neighbour's command and pass the
+# config's ExtraArgs to the driver as file names, dropping the findings
+# they turn on (-Wunsafe-buffer-usage here).
+test_tidy_needs_a_database_entry()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s
+' 'int third(const int *p);' 'int third(const int *p)' '{' '	return p[2];' '}' \
+		> "$r/src/plant.cpp"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/plant.cpp: no entry in build/dev/compile_commands.json"
+	assert_contains "$out" "run tools/dev/build.sh dev"
+	assert_not_contains "$out" "no such file or directory"
+	add_database_entry "$r" src/plant.cpp
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/plant.cpp:4:9: error: unsafe buffer access"
+	assert_not_contains "$out" "no entry in"
+}
+
 # Test that C files get clang-format but not the C++ clang-tidy rules, so a
 # C file needs no compilation database; a C++ file without one fails.
 test_staged_c_file_skips_tidy()

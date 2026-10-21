@@ -268,6 +268,19 @@ fork_repo()
 	printf '%s\n' "$r"
 }
 
+# Add to the compilation database of fork repository $1 an entry for file
+# $2 (relative to $1) with the flags of its first entry.
+add_database_entry()
+{
+	python3 - "$1/build/dev/compile_commands.json" "$2" <<'PY'
+import json, sys
+path, f = sys.argv[1], sys.argv[2]
+db = json.load(open(path))
+e = dict(db[0], file=f, arguments=db[0]["arguments"][:-1] + [f])
+json.dump(db + [e], open(path, "w"))
+PY
+}
+
 # Write a fake frontmost-app sampler into directory $1 that reports the
 # remaining arguments ("PID NAME") in turn, one per call (the last
 # repeats), and print its path.

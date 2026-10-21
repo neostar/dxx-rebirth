@@ -226,8 +226,12 @@ runner.
 - A new fork directory needs a line in `fork-dirs` and a copy of the clang-tidy config, and each
   `unittest/` in it a copy of `tools/dev/style/clang-tidy-unittest`; the pre-commit gate says so
   when one is missing or stale. Its tests live in that `unittest/`.
-- clang-tidy needs `build/dev/compile_commands.json`; a fork file not yet in it gets its
-  neighbour's flags, and the pre-commit gate fails with a hint when there is no database.
+- clang-tidy needs `build/dev/compile_commands.json`; in the pre-commit gate a fork file not
+  yet in it gets its neighbour's flags, and the gate fails with a hint when there is no database.
+  `format.sh --tidy` fails on a fork C++ source file the database lacks, naming it: clang-tidy
+  would borrow a neighbour's command and pass the config's ExtraArgs to the driver as file
+  names, so the findings they turn on are lost (the run fails on the stray names, but for the
+  wrong reason). `tools/dev/build.sh dev` writes the entry.
 - The pre-commit gate tidies the working-tree file, so a partly staged file is checked as it
   stands on disk. C files get clang-format only: the clang-tidy rules are C++ rules.
 - The hook runs only the pre-commit tier, so a commit takes seconds. The rest of

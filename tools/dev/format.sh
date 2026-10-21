@@ -15,8 +15,10 @@
 # clang-tidy read from there.  --staged checks the staged content only: the
 # staged files are checked out of the index into a temporary tree, and
 # NOLINT and clang-tidy read them there, with the compilation database's
-# flags for the real path; C files get clang-format only.  A file missing
-# from the compilation database gets the flags of its nearest neighbour.
+# flags for the real path; C files get clang-format only.  A staged file
+# missing from the compilation database gets the flags of its nearest
+# neighbour; --tidy fails on a C++ source file missing from it, naming the
+# file (clang-tidy would borrow a neighbour's command and lose ExtraArgs).
 #
 # clang-tidy reports findings in fork headers only (--header-filter built
 # from fork-dirs), none in upstream or third-party ones; a header named
@@ -230,11 +232,26 @@ PY
 # Succeed if the compilation database has an entry for file $1.
 in_database()
 {
-	python3 - "$database/compile_commands.json" "$root/$(rel "$1")" <<'PY' 2>/dev/null
+	local m
+	m=$(not_in_database "$1" 2>/dev/null) && [[ -z $m ]]
+}
+
+# Print, one per line, the files among "$@" the compilation database has
+# no entry for (a staged copy by its real path).
+not_in_database()
+{
+	local f paths=()
+	for f in "$@"; do
+		if [[ -n $tree ]]; then paths+=("$root/$(rel "$f")"); else paths+=("$f"); fi
+	done
+	python3 - "$database/compile_commands.json" "$@" "${paths[@]}" <<'PY'
 import json, os, sys
 entries = json.load(open(sys.argv[1]))
-sys.exit(0 if any(os.path.normpath(os.path.join(e["directory"], e["file"])) == sys.argv[2]
-	for e in entries) else 1)
+known = {os.path.realpath(os.path.join(e["directory"], e["file"])) for e in entries}
+n = (len(sys.argv) - 2) // 2
+for f, p in zip(sys.argv[2:2 + n], sys.argv[2 + n:]):
+    if os.path.realpath(p) not in known:
+        print(f)
 PY
 }
 
@@ -282,7 +299,20 @@ tidy()
 			echo "format.sh: no $database/compile_commands.json; run tools/dev/build.sh first" >&2
 			return 1
 		fi
-		local db=$database flag removed=()
+		local db=$database flag removed=() missing=()
+		# clang-tidy would borrow a neighbour's command for a file the
+		# database lacks and pass the config's ExtraArgs to the driver as
+		# file names, dropping the findings they turn on: such a file fails
+		# untidied.  The staged tree gets a database of its own.
+		[[ -n $tree ]] || mapfile -t missing < <(not_in_database "${cxx[@]}")
+		if [[ ${#missing[@]} -gt 0 ]]; then
+			for f in "${missing[@]}"; do
+				echo "$(rel "$f"): no entry in build/dev/compile_commands.json" >&2
+			done
+			echo "format.sh: run tools/dev/build.sh dev to write the entries" >&2
+			rc=1
+			mapfile -t cxx < <(printf '%s\n' "${cxx[@]}" | grep -vxF -f <(printf '%s\n' "${missing[@]}"))
+		fi
 		if [[ -n $tree ]]; then
 			db=$tree/.database
 			mkdir -p "$db"
