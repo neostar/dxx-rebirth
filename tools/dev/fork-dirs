@@ -3,3 +3,4 @@
 # nowhere else.  Add a directory here when a ticket creates it.
 tools
 common/render
+common/debug

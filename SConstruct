@@ -5003,6 +5003,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-enumerate', (
 			'common/unittest/enumerate.cpp',
 			)),
+		RuntimeTest('test-frame-time-policy', (
+			'common/debug/unittest/frame_time_policy.cpp',
+			)),
 		RuntimeTest('test-mouse-delta', (
 			'common/unittest/mouse_delta.cpp',
 			)),
