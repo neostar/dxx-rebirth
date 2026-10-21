@@ -140,7 +140,9 @@ tightening is its own small commit that leaves the tree green and updates the le
   libc++'s printf-shaped abort hook, has its NOLINT. A query-based custom check (LLVM 23
   `CustomChecks`, experimental: `format.sh` passes `--experimental-custom-checks`),
   `custom-void-pointer-cast`, fails any cast from `void *` (`static_cast`, `reinterpret_cast`,
-  C-style) outside the `sdl_wrap*` files, proven red by `void_cast.cpp.in` and clean by
+  C-style) outside the `sdl_wrap*` files, by canonical type, so a typedef such as
+  `SDL_MetalView` counts (`void_cast_typedef.cpp.in`), and not a cast to `void`, the unused
+  userdata idiom (`clean.cpp.in`), proven red by `void_cast.cpp.in` and clean by
   `void_cast_wrapper.cpp.in`, the same casts staged as `src/sdl_wrap.cpp`; that file now holds
   the userdata and pixel wrappers `clean.cpp.in` had. clangd does not run custom checks, so it
   is a pre-commit check.

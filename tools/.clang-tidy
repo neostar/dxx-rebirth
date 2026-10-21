@@ -48,12 +48,13 @@ Checks: >
 # --experimental-custom-checks): a cast from void * (static_cast,
 # reinterpret_cast, C-style) only in the SDL wrapper layer, the files named
 # sdl_wrap* (ADR 5).  The canonical type catches typedefs of void *, such as
-# SDL_MetalView.
+# SDL_MetalView; a cast to void (an unused userdata) is no cast from it.
 CustomChecks:
   - Name: void-pointer-cast
     Query: |
       match explicitCastExpr(
         hasSourceExpression(hasType(hasCanonicalType(pointerType(pointee(voidType()))))),
+        unless(hasDestinationType(voidType())),
         unless(isExpansionInFileMatching("(^|/)sdl_wrap[^/]*$"))).bind("cast")
     Diagnostic:
       - BindName: cast
