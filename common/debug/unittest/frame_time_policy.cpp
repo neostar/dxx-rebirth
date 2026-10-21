@@ -7,6 +7,11 @@
 
 #include "common/debug/frame_time_policy.h"
 
+#include <cstdlib>
+#include <string_view>
+
+#include "common/debug/frame_time_harness.h"
+
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth frame time policy
 #include <boost/test/unit_test.hpp>
@@ -46,4 +51,30 @@ BOOST_AUTO_TEST_CASE(invalid_rate_is_rejected)
 	const auto max_fps{dcx::frame_time_policy::parse("1000")};
 	BOOST_REQUIRE(max_fps.has_value());
 	BOOST_TEST(max_fps.value().frame_time(0) == 65);
+}
+
+/* Test that the harness reads DXX_DBG_FIXED_FRAMETIME: unset selects the wall clock, a frame
+ * rate selects that rate, and a bad value comes back with no policy for the caller to report.
+ */
+BOOST_AUTO_TEST_CASE(harness_reads_the_environment)
+{
+	unsetenv("DXX_DBG_FIXED_FRAMETIME");
+	const auto unset{dcx::read_harness_frame_time()};
+	BOOST_TEST(unset.value == nullptr);
+	BOOST_REQUIRE(unset.policy.has_value());
+	BOOST_TEST(!unset.policy.value().is_fixed());
+
+	setenv("DXX_DBG_FIXED_FRAMETIME", "30", 1);
+	const auto fixed{dcx::read_harness_frame_time()};
+	BOOST_REQUIRE(fixed.value != nullptr);
+	BOOST_TEST(std::string_view{fixed.value} == "30");
+	BOOST_REQUIRE(fixed.policy.has_value());
+	BOOST_TEST(fixed.policy.value().frame_time(0) == 2184);
+
+	setenv("DXX_DBG_FIXED_FRAMETIME", "fast", 1);
+	const auto bad{dcx::read_harness_frame_time()};
+	BOOST_REQUIRE(bad.value != nullptr);
+	BOOST_TEST(std::string_view{bad.value} == "fast");
+	BOOST_TEST(!bad.policy.has_value());
+	unsetenv("DXX_DBG_FIXED_FRAMETIME");
 }

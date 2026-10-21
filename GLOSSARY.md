@@ -27,5 +27,8 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   data, so never committed.
 - **Synthetic trace**: a trace generated from procedural data; may be committed.
 - **Scene**: a scripted, repeatable game run used as a test (S1-S5).
+- **Debug harness**: developer aids built only with the `dbg_harness=1` build option (default 0).
+  `DXX_DBG_FIXED_FRAMETIME=fps` advances game time by 1/fps per frame, so a demo plays back the
+  same frames at any frame rate.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.

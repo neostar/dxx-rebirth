@@ -1502,6 +1502,11 @@ int main(int argc,char**argv)
 		self._result_check_user_setting(context, self.user_settings.memdebug, 'memory allocation tracking', cpp_defines_with_condition_value=_CPPDEFINES)
 
 	@_custom_test
+	def _check_user_settings_dbg_harness(self,context,_CPPDEFINES=('DXX_USE_DBG_HARNESS',)):
+		self._result_check_user_setting(context, self.user_settings.dbg_harness, 'debug harness',
+			cpp_defines_with_condition_value=_CPPDEFINES)
+
+	@_custom_test
 	def _check_user_settings_editor(self,context,_CPPDEFINES=('DXX_USE_EDITOR',)):
 		self._result_check_user_setting(context, self.user_settings.editor, 'level editor', cpp_defines_with_condition_value=_CPPDEFINES)
 
@@ -3989,6 +3994,7 @@ class DXXCommon(LazyObjectConstructor):
 					('opengl', True, 'build with OpenGL support'),
 					('opengles', self.default_opengles, 'build with OpenGL ES support'),
 					('editor', False, 'include editor into build (!EXPERIMENTAL!)'),
+					('dbg_harness', False, 'build the debug harness (developer option)'),
 					('sdl2', self.default_sdl2, 'use libSDL2+SDL2_mixer (!EXPERIMENTAL!)'),
 					# Build with SDL_Image support for PCX file support
 					# Currently undocumented because the user experience

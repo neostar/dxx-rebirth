@@ -119,6 +119,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "compiler-range_for.h"
 #include "partial_range.h"
 #include "segiter.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/frame_time_harness.h"
+#endif
 
 d_time_fix ThisLevelTime;
 
@@ -640,6 +643,32 @@ void reset_time()
 	last_timer_value = timer_update();
 }
 
+#if DXX_USE_DBG_HARNESS
+static_assert(frame_time_policy::one_second == F1_0);
+
+namespace {
+
+/* The debug harness's frame time policy, read once; a bad
+ * DXX_DBG_FIXED_FRAMETIME is a UserError.
+ */
+const frame_time_policy &harness_frame_time_policy()
+{
+	static const frame_time_policy policy{[]() {
+		const auto [value, parsed]{read_harness_frame_time()};
+		if (!parsed)
+			UserError("DXX_DBG_FIXED_FRAMETIME=\"%s\": expected 1 to %u frames per second",
+				value, frame_time_policy::max_fps);
+		if (value)
+			con_printf(CON_NORMAL, "DXX_DBG_FIXED_FRAMETIME: game time advances 1/%s s a frame",
+				value);
+		return *parsed;
+	}()};
+	return policy;
+}
+
+}
+#endif
+
 }
 
 void calc_frame_time()
@@ -669,6 +698,9 @@ void calc_frame_time()
 		if (may_sleep)
 			timer_delay_ms(1);
 	}
+#if DXX_USE_DBG_HARNESS
+	FrameTime = harness_frame_time_policy().frame_time(FrameTime);
+#endif
 
 	if ( cheats.turbo )
 		FrameTime *= 2;
