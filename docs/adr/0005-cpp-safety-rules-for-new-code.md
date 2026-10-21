@@ -37,7 +37,7 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 | editor | < 1 s | clangd with the fork directory's `.clang-tidy` (a copy of `tools/dev/style/clang-tidy`; in its `unittest/`, of `clang-tidy-unittest`, which inherits it) | `gates_test.sh` |
 | pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files), gitleaks on the staged changes (the pinned one, else one at the pinned version on PATH; without either the tier fails, never skips), no `.gitleaksignore` or `gitleaks:allow` unless `.gitleaks.toml` lists its file with a reason | `gates_test.sh`, timing the real hook |
 | pre-push | seconds | the hook: `check.sh --pre-push`: gitleaks on exactly the commits being pushed (`<remote>..<local>`, or those on no remote-tracking branch for a new ref), the same pinned lookup, failing without it | `check_test.sh` |
-| check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: gitleaks over the whole history of HEAD, the shader headers rebuilt byte for byte (R9, `tools/shaders/check.sh`), unit tests (hardened), `leaks.sh` on them (Mac), the game's `kconfig.udlr.h` generated from clean (the preprocess pass a full game build runs with the hardening flags), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both (below) | `check.sh`, timing its own full run |
+| check | 15 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: gitleaks over the whole history of HEAD, the shader headers rebuilt byte for byte (R9, `tools/shaders/check.sh`), unit tests (hardened), `leaks.sh` on them (Mac), the game's `kconfig.udlr.h` generated from clean (the preprocess pass a full game build runs with the hardening flags), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both (below) | `check.sh`, timing its own full run |
 | nightly | none | #59 | #59 |
 
 The editor and pre-commit budgets are the Mac's, where the owner edits and commits: their tests
@@ -105,10 +105,13 @@ build may define `false` to turn validation off. Any other `SDL_CreateGPUDevice*
 unknown. The step also fails on a GPU program `check.sh` runs outside the wrapper; its `gpu_tests` step runs every program
 `tools/dev/gpu-programs` registers through `gpu-validate.sh`.
 
-**The check tier's budget** is 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
+**The check tier's budget** was 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
 leg of `ci.sh --clean` took 307 s (shell tests 223 s, unit tests 34 s, sanitizer build and tests
 35 s, under amd64 emulation), the native leg 154 s on a warm build (shell tests 122 s, leaks 23 s).
 `check.sh` prints each step's time and fails the full run as `budget` when it takes longer.
+Raised to 15 minutes on 2026-10-21 (owner's decision): with #2, #9, #23 and the wave 2 branches the
+container leg reached 548-651 s on a quiet machine, its shell tests alone 396-450 s; running the
+shell tests in parallel is the follow-up that brings the leg back down.
 
 **The rtrace tests** are #19's to provide: it must add `tools/dev/rtrace-tests.sh`, which takes
 the build profile and a wrapper command (`rtrace-tests.sh asan no-window.sh`, `rtrace-tests.sh dev

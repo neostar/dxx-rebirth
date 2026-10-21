@@ -494,7 +494,7 @@ fi
 # The check tier's budget (ADR 5): the full checks fail when they take
 # longer, in either leg.  DXX_CHECK_BUDGET (seconds) overrides it, for the
 # tests.
-budget=${DXX_CHECK_BUDGET:-$((10 * 60))}
+budget=${DXX_CHECK_BUDGET:-$((15 * 60))}
 
 failed=()
 start=$EPOCHSECONDS
