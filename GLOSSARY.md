@@ -29,6 +29,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Scene**: a scripted, repeatable game run used as a test (S1-S5).
 - **Debug harness**: developer aids built only with the `dbg_harness=1` build option (default 0).
   `DXX_DBG_FIXED_FRAMETIME=fps` advances game time by 1/fps per frame, so a demo plays back the
-  same frames at any frame rate.
+  same frames at any frame rate. `DXX_DBG_FRAMEHASH=path` writes the **frame hash log**: one
+  line per presented frame, `<frame> <w>x<h> <FNV-1a 64 of its RGB pixels>`, in sections headed
+  `# demo playback <demo file>` or `# no demo` that each count frames from 0, so a demo's frames
+  line up across runs.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.

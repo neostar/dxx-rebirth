@@ -5015,6 +5015,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-hash', (
 			'common/debug/unittest/frame_hash.cpp',
 			)),
+		RuntimeTest('test-frame-hash-harness', (
+			'common/debug/unittest/frame_hash_harness.cpp',
+			)),
 		RuntimeTest('test-frame-hash-log', (
 			'common/debug/unittest/frame_hash_log.cpp',
 			)),

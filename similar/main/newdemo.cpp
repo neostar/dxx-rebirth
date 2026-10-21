@@ -87,6 +87,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_levelstate.h"
 #include "partial_range.h"
 #include <utility>
+#if DXX_USE_DBG_HARNESS
+#include <string>
+#endif
 
 #define ND_EVENT_EOF				0	// EOF
 #define ND_EVENT_START_DEMO			1	// Followed by 16 character, NULL terminated filename of .SAV file to use
@@ -4230,6 +4233,20 @@ int newdemo_count_demos()
 
 namespace dsx {
 
+#if DXX_USE_DBG_HARNESS
+namespace {
+
+/* The file newdemo_start_playback last opened. */
+std::string harness_playback_file;
+
+}
+
+const char *newdemo_harness_playback_file()
+{
+	return harness_playback_file.c_str();
+}
+#endif
+
 void newdemo_start_playback(const char * filename)
 {
 	auto &Objects = LevelUniqueObjectState.Objects;
@@ -4291,6 +4308,9 @@ void newdemo_start_playback(const char * filename)
 
 	Game_mode = GM_NORMAL;
 	Newdemo_state = ND_STATE_PLAYBACK;
+#if DXX_USE_DBG_HARNESS
+	harness_playback_file = filename2;
+#endif
 	Newdemo_vcr_state = ND_STATE_PLAYBACK;
 	nd_playback_v_demosize = PHYSFS_fileLength(infile);
 	nd_playback_v_bad_read = 0;

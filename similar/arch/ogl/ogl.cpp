@@ -70,6 +70,12 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
+#if DXX_USE_DBG_HARNESS
+#include <vector>
+#include "common/debug/frame_hash_harness.h"
+#include "common/debug/frame_hash_log.h"
+#include "newdemo.h"
+#endif
 using std::max;
 
 //change to 1 for lots of spew.
@@ -1427,6 +1433,71 @@ void ogl_end_frame(void){
 	glDisable(GL_DEPTH_TEST);
 }
 
+#if DXX_USE_DBG_HARNESS
+namespace {
+
+/* With DXX_DBG_FRAMEHASH set, read back the finished frame before it is
+ * presented and log its hash (frame_hash_log.h).  Any failure ends the run:
+ * a log with a gap would compare as a changed frame.
+ */
+void harness_log_frame_hash()
+{
+	static const char *const path{read_harness_frame_hash_path()};
+	if (!path)
+		return;
+#if DXX_USE_OGLES
+	/* GLES guarantees only a GL_RGBA readback, and the log hashes RGB. */
+	UserError("DXX_DBG_FRAMEHASH: OpenGL ES builds do not hash frames; use a desktop OpenGL build");
+#endif
+	static frame_hash_log log{[]() {
+		auto writer{frame_hash_file_writer::open(path)};
+		if (!writer)
+			UserError("DXX_DBG_FRAMEHASH=\"%s\": cannot write: %s", path, strerror(errno));
+		con_printf(CON_NORMAL, "DXX_DBG_FRAMEHASH: one hash per frame to %s", path);
+		return std::move(writer.value());
+	}()};
+#if DXX_USE_STEREOSCOPIC_RENDER
+	if (VR_stereo == StereoFormat::QuadBuffers)
+		UserError("DXX_DBG_FRAMEHASH: quad-buffer stereo is not hashed, only one eye would be");
+#endif
+	const frame_size size{.width = grd_curscreen->get_screen_width(), .height = grd_curscreen->get_screen_height()};
+	static std::vector<std::byte> pixels;
+	pixels.resize(size.rgb_bytes());
+	/* The game never calls glGetError: an error of earlier drawing would
+	 * still be pending and fail the readback's check below.  Say once that
+	 * there were some, so a real GL error is not hidden.
+	 */
+	static bool reported_pending_errors{false};
+	if (const auto pending{drain_gl_errors(glGetError, GL_NO_ERROR)}; pending.count != 0 && !reported_pending_errors)
+	{
+		reported_pending_errors = true;
+		con_printf(CON_NORMAL, "DXX_DBG_FRAMEHASH: %u GL error(s) were pending before a readback, the first 0x%x; reported only once", pending.count, pending.first);
+	}
+	GLint pack_alignment;
+	glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+#if !DXX_USE_OGLES
+	/* The frame being drawn, whatever a screenshot left selected. */
+	GLint read_buffer;
+	glGetIntegerv(GL_READ_BUFFER, &read_buffer);
+	glReadBuffer(GL_BACK);
+#endif
+	glReadPixels(0, 0, GLsizei{size.width}, GLsizei{size.height}, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+	const GLenum error{glGetError()};
+#if !DXX_USE_OGLES
+	glReadBuffer(static_cast<GLenum>(read_buffer));
+#endif
+	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
+	if (error != GL_NO_ERROR)
+		UserError("DXX_DBG_FRAMEHASH: reading back the frame failed: GL error 0x%x", error);
+	const auto section{Newdemo_state == ND_STATE_PLAYBACK ? frame_hash_section::demo_playback(newdemo_harness_playback_file()) : frame_hash_section::no_demo()};
+	if (!log.log_frame(section, size, pixels))
+		UserError("DXX_DBG_FRAMEHASH=\"%s\": write failed: %s", path, strerror(errno));
+}
+
+}
+#endif
+
 void gr_flip(void)
 {
 	if (CGameArg.DbgRenderStats)
@@ -1436,6 +1507,9 @@ void gr_flip(void)
 	}
 
 	ogl_do_palfx();
+#if DXX_USE_DBG_HARNESS
+	harness_log_frame_hash();
+#endif
 	ogl_swap_buffers_internal();
 	glClear(GL_COLOR_BUFFER_BIT);
 }

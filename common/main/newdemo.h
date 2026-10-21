@@ -85,6 +85,10 @@ icobjptridx_t newdemo_find_object(object_signature_t signature);
 void newdemo_record_kill_sound_linked_to_object(vcobjptridx_t);
 void newdemo_start_playback(const char *filename);
 void newdemo_record_morph_frame(vcobjptridx_t);
+#if DXX_USE_DBG_HARNESS
+/* The file of the demo playing back, for the frame hash log. */
+const char *newdemo_harness_playback_file();
+#endif
 }
 void newdemo_record_sound_3d_once(sound_effect soundno, sound_pan angle, int volume );
 void newdemo_record_sound_once(sound_effect soundno);
