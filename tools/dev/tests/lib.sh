@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # Shared helpers for the shell tests in tools/dev/tests; sourced, not run.
 # Each test file defines functions named test_*; run_tests runs them in
-# order (only the ones named, when the file is run with test names as
-# arguments), reports skipped ones, and exits non-zero if any failed.
+# order, or with `run_tests --parallel` several at once (only the ones
+# named, when the file is run with test names as arguments), reports
+# skipped ones, and exits non-zero if any failed.
 
 DEV_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC2034  # used by the test files
@@ -67,6 +68,9 @@ trap 'rm -rf "$_scratch_root"' EXIT
 # script under test given an empty path acts on the current directory, and
 # there finds no repository to change.
 cd "$_scratch_root" || exit 1
+# Where tgit, real_git and skip leave a refusal or a skip reason: each test
+# gets a directory of its own (run_tests), so tests can run in parallel.
+_test_state=$_scratch_root
 # Nor may git find one above it: a scratch root under a clone (TMPDIR in a
 # worktree) would otherwise make that clone the repository of every git,
 # here or in a script under test, run outside a scratch repository.  git
@@ -108,7 +112,7 @@ die()
 # missing.  run_tests reports it as SKIP; it does not fail the file.
 skip()
 {
-	printf '%s\n' "$*" > "$_scratch_root/skip-reason"
+	printf '%s\n' "$*" > "$_test_state/skip-reason"
 	exit 77
 }
 
@@ -207,7 +211,7 @@ tgit()
 	done
 	if [[ -n $why ]]; then
 		echo "tgit: refusing $why" >&2
-		: > "$_scratch_root/refused"
+		: > "$_test_state/refused"
 		return 1
 	fi
 	local id=(-c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false)
@@ -223,7 +227,7 @@ real_git()
 	rev-parse|check-ignore|ls-files|ls-tree|cat-file) ;;
 	*)
 		echo "real_git: refusing '${1-}': only read-only subcommands" >&2
-		: > "$_scratch_root/refused"
+		: > "$_test_state/refused"
 		return 1 ;;
 	esac
 	# raw git: the helper
@@ -310,28 +314,57 @@ tree_sums()
 	done)
 }
 
+# Run test $1 in a subshell with its own state directory $2 (a refusal
+# and a skip reason land there), printing its output; then print its
+# status line to file $3 and its status (0, 77 or 1) to $3.rc.
+_run_one()
+{
+	local t=$1 rc start=$EPOCHSECONDS took
+	# Asserts record failure in _test_failed, so a later passing assert
+	# cannot hide an earlier failing one.
+	( _test_state=$2 _test_failed=0; "$t"; exit "$_test_failed" ) && rc=0 || rc=$?
+	took="$((EPOCHSECONDS - start)) s"
+	if [[ $rc -ne 0 && $rc -ne 77 ]] || [[ -e $2/refused ]]; then
+		rc=1
+	fi
+	if [[ $rc -eq 0 ]]; then
+		printf '  ok   %s (%s)\n' "$t" "$took"
+	elif [[ $rc -eq 77 ]]; then
+		printf '  SKIP %s: %s\n' "$t" "$(cat "$2/skip-reason")"
+	else
+		printf '  FAIL %s (%s)\n' "$t" "$took"
+	fi > "$3"
+	echo "$rc" > "$3.rc"
+}
+
+# Run the test functions, in order or, with --parallel, dev_jobs
+# (DXX_JOBS) at a time, each one's output printed whole and in order.
 run_tests()
 {
-	local t rc start took
+	local t i=0 parallel=0 dir tests=()
+	[[ ${1-} == --parallel ]] && parallel=1
 	for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
-		[[ ${#_lib_only[@]} -eq 0 || " ${_lib_only[*]} " == *" $t "* ]] || continue
-		# Asserts record failure in _test_failed, so a later passing
-		# assert cannot hide an earlier failing one.
-		rm -f "$_scratch_root/refused"
-		start=$EPOCHSECONDS
-		( _test_failed=0; "$t"; exit "$_test_failed" ) && rc=0 || rc=$?
-		took="$((EPOCHSECONDS - start)) s"
-		if [[ $rc -ne 0 && $rc -ne 77 ]] || [[ -e $_scratch_root/refused ]]; then
-			rc=1
-		fi
-		if [[ $rc -eq 0 ]]; then
-			printf '  ok   %s (%s)\n' "$t" "$took"
-		elif [[ $rc -eq 77 ]]; then
-			printf '  SKIP %s: %s\n' "$t" "$(cat "$_scratch_root/skip-reason")"
+		[[ ${#_lib_only[@]} -eq 0 || " ${_lib_only[*]} " == *" $t "* ]] && tests+=("$t")
+	done
+	for t in "${tests[@]}"; do
+		dir=$_scratch_root/.run-$i
+		mkdir "$dir" || return 1
+		if [[ $parallel -eq 1 ]]; then
+			while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
+				wait -n
+			done
+			_run_one "$t" "$dir" "$dir/status" > "$dir/out" 2>&1 &
 		else
-			printf '  FAIL %s (%s)\n' "$t" "$took"
-			_failures=$((_failures + 1))
+			_run_one "$t" "$dir" "$dir/status"
+			cat "$dir/status"
 		fi
+		i=$((i + 1))
+	done
+	wait
+	for ((i = 0; i < ${#tests[@]}; i++)); do
+		dir=$_scratch_root/.run-$i
+		[[ $parallel -eq 1 ]] && cat "$dir/out" "$dir/status"
+		[[ $(cat "$dir/status.rc") == 1 ]] && _failures=$((_failures + 1))
 	done
 	[[ $_failures -eq 0 ]]
 }

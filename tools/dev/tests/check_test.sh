@@ -895,4 +895,6 @@ test_pre_commit_hook_counts_binary_files()
 	assert_contains "$out" "350 changed lines, over 300"
 }
 
-run_tests
+# The slowest test file: each test runs check.sh in a copy of tools/dev.
+# They share nothing, so they run DXX_JOBS at a time.
+run_tests --parallel

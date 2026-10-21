@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Behaviour of the shared test helpers in tools/dev/tests/lib.sh.
 # Single quotes hold scripts expanded by the shells they are written for.
-# shellcheck disable=SC2016
+# _test_state is set per test, in run_tests' subshell, on purpose.
+# shellcheck disable=SC2016,SC2031
 source "$(dirname "$0")/lib.sh"
 
 # Test that scratch directories and repositories made through command
@@ -41,8 +42,8 @@ test_tgit_refuses_non_scratch_repository()
 	out=$(real_git config user.name intruder 2>&1) && fail "real_git config ran: $out"
 	assert_contains "$out" "real_git: refusing"
 	# A refusal fails the running test; these were meant.
-	[[ -e $_scratch_root/refused ]] || fail "a refusal did not mark the test failed"
-	rm -f "$_scratch_root/refused"
+	[[ -e $_test_state/refused ]] || fail "a refusal did not mark the test failed"
+	rm -f "$_test_state/refused"
 	tgit -C "$(make_repo)" status -s || fail "tgit refused a scratch repository"
 }
 
@@ -73,13 +74,13 @@ test_tgit_refuses_paths_outside_scratch()
 	# raw git: the state of the repository outside, read only
 	assert_eq "$(git -C "$o" for-each-ref; cat "$o/.git/config")" "$before"
 	rm -rf "$outside"
-	[[ -e $_scratch_root/refused ]] || fail "no refusal marked the test failed"
-	rm -f "$_scratch_root/refused"
+	[[ -e $_test_state/refused ]] || fail "no refusal marked the test failed"
+	rm -f "$_test_state/refused"
 	tgit -C "$r" clone -q --shared "$REPO_ROOT" "$r/clone" ||
 		fail "a clone of this clone was refused"
 	tgit -C "$r" remote add self "$r" || fail "a remote in the scratch root was refused"
 	tgit -C "$r" config core.hooksPath >/dev/null; tgit -C "$r" config --unset core.hooksPath
-	[[ ! -e $_scratch_root/refused ]] || fail "reading or unsetting core.hooksPath was refused"
+	[[ ! -e $_test_state/refused ]] || fail "reading or unsetting core.hooksPath was refused"
 }
 
 # Print the state of repository $1 that a stray git could change: every
