@@ -335,8 +335,9 @@ test_missing_venv_skips()
 # Write fakes into directory $1 for the machine probes: sysctl answering
 # "name=value" pairs given as the remaining arguments (any other name
 # fails), df reporting $DF_FREE_KB free, docker listing $DOCKER_IMAGES,
-# logging its calls to $1/docker.log and running df with $DOCKER_FREE_KB
-# free, and a socket $1/docker.sock for DOCKER_HOST to name.
+# logging its calls to $1/docker.log, naming $DOCKER_ROOT as its data root
+# and reporting what images and build cache take, and a socket
+# $1/docker.sock for DOCKER_HOST to name.
 fake_machine()
 {
 	local d=$1 kv; shift
@@ -353,8 +354,8 @@ fake_machine()
 echo "\$*" >> "$d/docker.log"
 case \$1 in
 image) printf '%s\n' \${DOCKER_IMAGES-} ;;
-run) echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
-	echo "overlay 999999999 1 \${DOCKER_FREE_KB:-104857600} 1% /" ;;
+info) echo "\${DOCKER_ROOT-/no-such-docker-root}" ;;
+system) printf 'Images 13.99GB\nContainers 145MB\nLocal Volumes 5GB\nBuild Cache 14.09GB\n' ;;
 esac
 DOCKER
 	chmod +x "$d/sysctl" "$d/docker"
@@ -403,24 +404,24 @@ test_low_disk_warns_then_fails()
 	assert_contains "$out" "FAIL disk host: 10 GiB free"
 }
 
-# Test that free disk in Docker's VM is read, by df in a reference image,
-# only from a daemon that is already running: without its socket docker
-# is never called.
+# Test that Docker's disk is read only from a daemon that is already
+# running (without its socket docker is never called) and never by
+# starting a container: df on its data root when that is local, else what
+# images and build cache take (docker system df).
 test_docker_disk_only_from_running_daemon()
 {
 	local d out rc
 	d=$(make_scratch) || die "make_scratch failed"
 	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
-	out=$(DOCKER_IMAGES=dxx-rebirth-ref:a DOCKER_FREE_KB=$((10 * 1048576)) \
+	out=$(DOCKER_ROOT=$d DF_FREE_KB=$((10 * 1048576)) \
 		DOCKER_HOST="unix://$d/docker.sock" run_doctor "$d" darwin --manifest "$d/manifest") &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "ok   disk host 100 GiB free"
 	assert_contains "$out" "FAIL disk docker: 10 GiB free"
-	assert_contains "$(cat "$d/docker.log")" "--pull never --network none"
 	out=$(DOCKER_HOST="unix://$d/docker.sock" run_doctor "$d" darwin --manifest "$d/manifest")
-	assert_contains "$out" "SKIP disk docker: no dxx-rebirth-ref image"
+	assert_contains "$out" "info disk docker (VM): images 13.99GB, build cache 14.09GB"
+	assert_not_contains "$(cat "$d/docker.log")" "run "
 	rm "$d/docker.log"
 	out=$(DOCKER_IMAGES=dxx-rebirth-ref:a run_doctor "$d" darwin --manifest "$d/manifest")
 	assert_contains "$out" "SKIP disk docker: daemon not running"

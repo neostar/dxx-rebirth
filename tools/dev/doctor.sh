@@ -233,16 +233,18 @@ docker_running()
 }
 
 check_disk host "$(df -Pk "$dev_dir" 2>/dev/null | awk 'NR == 2 {print $4}')"
+# Docker's disk, without starting a container: its data root when that is
+# on this machine (Linux), else (a VM: OrbStack, whose disk grows on the
+# host volume, or Docker Desktop) what images and build cache take.
 if ! docker_running; then
 	echo "SKIP disk docker: daemon not running"
-elif ! ref=$(docker image ls --format '{{.Repository}}:{{.Tag}}' dxx-rebirth-ref | head -n 1) ||
-	[[ -z $ref ]]; then
-	echo "SKIP disk docker: no dxx-rebirth-ref image to run df in"
-elif free_kb=$(docker run --rm --pull never --network none --platform linux/amd64 \
-	--entrypoint df "$ref" -Pk / 2>/dev/null | awk 'NR == 2 {print $4}') && [[ -n $free_kb ]]; then
-	check_disk docker "$free_kb"
+elif data=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null) && [[ -n $data && -d $data ]]; then
+	check_disk docker "$(df -Pk "$data" 2>/dev/null | awk 'NR == 2 {print $4}')"
+elif used=$(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null) && [[ -n $used ]]; then
+	echo "info disk docker (VM): $(awk '/^Images / {i = $2} /^Build Cache / {c = $3}
+		END {print "images " i ", build cache " c}' <<<"$used")"
 else
-	echo "SKIP disk docker: df in $ref failed"
+	echo "SKIP disk docker: docker info and docker system df failed"
 fi
 
 # Reference images: container.sh build keeps one.
