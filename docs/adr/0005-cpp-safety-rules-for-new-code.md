@@ -49,7 +49,12 @@ reach the compilation database, and clang-tidy's `clang-diagnostic-*` reports th
 **Hardened standard library** in every `build.sh` profile (dev and asan), for upstream and fork
 code alike: `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` (libc++, the Mac) and
 `_GLIBCXX_ASSERTIONS` (libstdc++, the container), from `tools/dev/hardening.py` through
-`site-dev.py`, so container bounds, iterator and optional misuse trap at run time.
+`site-dev.py`, so container bounds, iterator and optional misuse trap at run time. On macOS a
+libc++ trap would end in `abort()`, which leaves a crash report; `tools/dev/hardening-exit.h`,
+forced into every compile by the same flags, defines libc++'s `_LIBCPP_VERBOSE_ABORT` hook to
+print the message and exit 1, without touching `SConstruct`. Every step of `check.sh` that runs
+built programs runs them under `tools/dev/no-window.sh` as well, which fails a run that leaves a
+crash report.
 
 **GPU validation is a gate**: every SDL_GPU run in a check runs under `tools/dev/gpu-validate.sh`,
 with SDL's GPU debug mode (the program creates its device with `debug_mode` true), Metal API

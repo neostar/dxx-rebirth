@@ -197,10 +197,11 @@ step_tidy()
 	"$dev_dir/format.sh" --check && "$dev_dir/format.sh" --tidy
 }
 
-# Build D2X with the dev profile and run the unit tests.
+# Build D2X with the dev profile and run the unit tests, under
+# no-window.sh: a test that takes focus or crashes into a report fails.
 step_unit_tests()
 {
-	"$dev_dir/build.sh" dev check
+	"$dev_dir/no-window.sh" "$dev_dir/build.sh" dev check
 }
 
 # Run the rtrace tests (#19) built by profile $1, each through the command
@@ -219,7 +220,8 @@ rtrace_tests()
 # UndefinedBehaviorSanitizer, with LeakSanitizer except on macOS.
 step_sanitizer_tests()
 {
-	"$dev_dir/build.sh" asan check && rtrace_tests asan
+	"$dev_dir/no-window.sh" "$dev_dir/build.sh" asan check &&
+		rtrace_tests asan "$dev_dir/no-window.sh"
 }
 
 # macOS, where LeakSanitizer is unsupported: run the unit tests the
@@ -242,7 +244,7 @@ step_leaks()
 	for t in "${tests[@]}"; do
 		"$dev_dir/no-window.sh" "$dev_dir/leaks.sh" "$t" || rc=1
 	done
-	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/leaks.sh"
+	[[ $rc -eq 0 ]] && rtrace_tests dev "$dev_dir/no-window.sh" "$dev_dir/leaks.sh"
 }
 
 pre_commit_steps=(repo_config guard staged)

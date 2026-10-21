@@ -56,47 +56,36 @@ gate_strict()
 	return "$rc"
 }
 
-# libc++ ends a hardening trap in abort(), which on macOS leaves a crash
-# report; this definition of its abort hook, linked into each run-time
-# plant, prints the message and exits 1 instead.  libstdc++ (Linux) aborts.
-trap_exit='#include <cstdarg>
-#include <cstdio>
-#include <unistd.h>
-#ifdef _LIBCPP_VERSION
-namespace std { inline namespace __1 {
-[[noreturn]] void __libcpp_verbose_abort(const char *format, ...) noexcept
-{
-	va_list ap;
-	va_start(ap, format);
-	std::vfprintf(stderr, format, ap);
-	va_end(ap);
-	_exit(1);
-}
-} }
-#endif'
-
 # Build file $1 as a program with the compiler flags "${@:2}" and the
-# hardened standard library, and print its path.
+# hardened standard library, and print its path.  hardening.py's flags
+# force hardening-exit.h in, so a libc++ trap exits 1, as in the build.
 build_plant()
 {
 	local d
 	d=$(make_scratch)
 	cp "$1" "$d/plant.cpp"
-	printf '%s\n' "$trap_exit" > "$d/trap_exit.cpp"
 	# shellcheck disable=SC2046  # the flags are words
 	# The flags follow the sources, so that GNU ld sees libraries last.
 	c++ -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") \
-		"$d/plant.cpp" "$d/trap_exit.cpp" "${@:2}" -o "$d/plant" >&2 || return
+		"$d/plant.cpp" "${@:2}" -o "$d/plant" >&2 || return
 	printf '%s\n' "$d/plant"
 }
 
 # The hardened standard library (hardening.py) as the dev profile builds
-# it: run file $1, built with it.
+# it: run file $1, built with it.  On macOS a trap must exit 1, never
+# abort() into a crash report (hardening-exit.h); such a run prints only
+# its status, which no expectation matches.
 gate_hardening()
 {
-	local p
+	local p rc out
 	p=$(build_plant "$1") || return
-	"$p" 2>&1
+	out=$("$p" 2>&1) && rc=0 || rc=$?
+	if [[ $dev_os == darwin && $rc -gt 1 ]]; then
+		echo "gate hardening: the trap ended with status $rc, not 1 (abort?)"
+	else
+		printf '%s\n' "$out"
+	fi
+	return "$rc"
 }
 
 # The asan profile (build.sh asan): run file $1 built with site-asan.py's
