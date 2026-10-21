@@ -1,0 +1,9 @@
+// A signed addition that overflows at run time.
+// gate ubsan (#58): signed integer overflow
+#include <climits>
+
+int main(const int argc, char **)
+{
+	const int big{INT_MAX - 1 + argc};
+	return big + argc;
+}

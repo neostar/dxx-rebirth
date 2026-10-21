@@ -1,0 +1,9 @@
+// Memory still allocated at exit, found at run time.
+// gate leaks (#58): leaked
+#include <cstdlib>
+
+int main()
+{
+	void *const p{std::malloc(64)};
+	return p ? 0 : 1;
+}

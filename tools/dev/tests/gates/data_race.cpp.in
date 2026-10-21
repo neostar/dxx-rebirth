@@ -1,0 +1,12 @@
+// Two threads write one int without synchronisation.
+// gate tsan (#59): ThreadSanitizer: data race
+#include <thread>
+
+int main()
+{
+	int shared{0};
+	std::thread t{[&shared] { shared = 1; }};
+	shared = 2;
+	t.join();
+	return shared;
+}
