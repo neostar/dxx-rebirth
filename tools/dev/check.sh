@@ -389,6 +389,19 @@ step_tidy()
 	"$dev_dir/format.sh" --tidy
 }
 
+# R9: the committed shader headers are what the pinned toolchain builds
+# from shaders/hlsl/ (tools/shaders/check.sh: DXIL in the container leg,
+# where DXC runs; MSL through Xcode's Metal compiler on the Mac).  A tree
+# without shaders (the tests' throwaway repositories) is a SKIP.
+step_shaders()
+{
+	if [[ ! -d $root/shaders/hlsl ]]; then
+		echo "SKIP shaders: no shaders/hlsl"
+		return 0
+	fi
+	"$root/tools/shaders/check.sh"
+}
+
 # Build D2X with the dev profile and run the unit tests, under
 # no-window.sh: a test that takes focus or crashes into a report fails.
 # The compilation database, which `check` alone does not write, is for
@@ -458,7 +471,7 @@ step_leaks()
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
 	workflows commit_sizes test_git gpu_gate shell_tests)
-full_steps=(secrets_history unit_tests kconfig leaks gpu_tests tidy sanitizer_tests)
+full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in
