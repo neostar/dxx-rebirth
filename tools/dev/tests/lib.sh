@@ -58,8 +58,20 @@ assert_not_contains()
 # Every scratch directory lives under one root made here, in the test
 # file's own shell, and removed when it exits.  Tests call make_scratch in
 # a command substitution, a subshell that cannot report back what it made.
-_scratch_root=$(mktemp -d "${TMPDIR:-/tmp}/dxx-dev-test.XXXXXX")
+_scratch_root=$(mktemp -d "${TMPDIR:-/tmp}/dxx-dev-test.XXXXXX") || exit 1
 trap 'rm -rf "$_scratch_root"' EXIT
+# Tests run from the scratch root, outside every repository: a git or a
+# script under test given an empty path acts on the current directory, and
+# there finds no repository to change.
+cd "$_scratch_root" || exit 1
+
+# Fail the current test and stop it.  A test runs in a subshell of its own
+# (run_tests), so exit ends the test, not the file.
+die()
+{
+	fail "$@"
+	exit 1
+}
 
 # Skip the rest of the current test, with a reason, when a prerequisite is
 # missing.  run_tests reports it as SKIP; it does not fail the file.
@@ -76,27 +88,45 @@ make_scratch()
 }
 
 # git with a test identity and no signing, set per command so that no
-# repository's config is ever written.  Always pass -C <throwaway repo>:
-# anything but a path under the scratch root is refused, as `git -C ""`
-# would act on the current directory, the real repository.
+# repository's config is ever written.  Every git a test runs goes through
+# tgit or real_git (check.sh's test_git step enforces it).  Always pass
+# -C <throwaway repo>: anything but a path under the scratch root is
+# refused, as `git -C ""` would act on the current directory.  A refusal
+# also fails the running test (run_tests), even from a command
+# substitution whose status nobody checks.
 tgit()
 {
 	if [[ ${1-} != -C || -z ${2-} ||
 		$(cd "$2" 2>/dev/null && pwd -P) != "$(cd "$_scratch_root" && pwd -P)"/* ]]; then
 		echo "tgit: refusing '${2-}': pass -C and a scratch repository" >&2
+		: > "$_scratch_root/refused"
 		return 1
 	fi
-	git -c user.name=test -c user.email=test@example.invalid \
-		-c commit.gpgsign=false "$@"
+	local id=(-c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false)
+	git "${id[@]}" "$@" # raw git: the helper
+}
+
+# Read-only git on this clone (REPO_ROOT): only the subcommands that
+# cannot change a repository are let through.
+real_git()
+{
+	case ${1-} in
+	rev-parse|check-ignore|ls-files|ls-tree|cat-file) ;;
+	*)
+		echo "real_git: refusing '${1-}': only read-only subcommands" >&2
+		: > "$_scratch_root/refused"
+		return 1 ;;
+	esac
+	git -C "$REPO_ROOT" "$@" # raw git: the helper
 }
 
 # Make a throwaway git repository with one empty commit and print its path.
 make_repo()
 {
 	local d
-	d=$(make_scratch)
-	git -C "$d" init -q -b main
-	tgit -C "$d" commit -q --allow-empty -m 'root'
+	d=$(make_scratch) && [[ -d $d ]] || die "make_scratch failed"
+	tgit -C "$d" init -q -b main || return
+	tgit -C "$d" commit -q --allow-empty -m 'root' || return
 	printf '%s\n' "$d"
 }
 
@@ -107,7 +137,7 @@ make_repo()
 fork_repo()
 {
 	local r strict args
-	r=$(make_repo)
+	r=$(make_repo) || die "make_repo failed"
 	read -ra strict <<<"$(python3 "$DEV_DIR/fork_warnings.py")"
 	mkdir -p "$r/tools" "$r/src" "$r/common" "$r/build/dev"
 	cp -R "$DEV_DIR" "$r/tools/dev"
@@ -176,7 +206,11 @@ run_tests()
 	for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
 		# Asserts record failure in _test_failed, so a later passing
 		# assert cannot hide an earlier failing one.
+		rm -f "$_scratch_root/refused"
 		( _test_failed=0; "$t"; exit "$_test_failed" ) && rc=0 || rc=$?
+		if [[ $rc -ne 0 && $rc -ne 77 ]] || [[ -e $_scratch_root/refused ]]; then
+			rc=1
+		fi
 		if [[ $rc -eq 0 ]]; then
 			printf '  ok   %s\n' "$t"
 		elif [[ $rc -eq 77 ]]; then

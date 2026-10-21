@@ -25,7 +25,51 @@ test_tgit_refuses_non_scratch_repository()
 	out=$(cd "$REPO_ROOT" && tgit -C "" status 2>&1) && fail "tgit -C '' ran: $out"
 	assert_contains "$out" "tgit: refusing"
 	out=$(tgit status 2>&1) && fail "tgit without -C ran: $out"
+	out=$(real_git config user.name intruder 2>&1) && fail "real_git config ran: $out"
+	assert_contains "$out" "real_git: refusing"
+	# A refusal fails the running test; these three were meant.
+	[[ -e $_scratch_root/refused ]] || fail "a refusal did not mark the test failed"
+	rm -f "$_scratch_root/refused"
 	tgit -C "$(make_repo)" status -s || fail "tgit refused a scratch repository"
+}
+
+# Print the state of repository $1 that a stray git could change: every
+# ref, HEAD and the sha256 of its config.
+repo_state()
+{
+	tgit -C "$1" for-each-ref
+	tgit -C "$1" rev-parse HEAD
+	dev_sha256 < "$1/.git/config"
+}
+
+# Test that a test whose repository path is empty fails and leaves the
+# repository it runs in unchanged.  A throwaway repository holding tools/dev
+# stands in for this clone: the test file runs from it, and its lib.sh takes
+# it as REPO_ROOT.  make_scratch printing nothing is the empty path; one
+# test ignores make_repo's status, one stops on it.
+test_empty_repo_path_fails_without_touching_repository()
+{
+	local real out rc before
+	real=$(make_repo) || die "make_repo failed"
+	mkdir -p "$real/tools/dev/tests"
+	cp "$DEV_DIR"/*.sh "$DEV_DIR/toolchain.pins" "$real/tools/dev/"
+	cp "$DEV_DIR/tests/lib.sh" "$real/tools/dev/tests/"
+	printf '%s\n' 'source "$(dirname "$0")/lib.sh"' \
+		'make_scratch() { :; }' \
+		'test_ignores_status() { local r; r=$(make_repo)' \
+		'	tgit -C "$r" config user.name intruder' \
+		'	tgit -C "$r" update-ref -d HEAD' \
+		'	tgit -C "$r" commit -q --allow-empty -m intruder' \
+		'	real_git update-ref -d HEAD; return 0; }' \
+		'test_stops_on_status() { local r; r=$(make_repo) || die "make_repo failed"' \
+		'	tgit -C "$r" config user.name intruder; }' \
+		'run_tests' > "$real/tools/dev/tests/empty_test.sh"
+	before=$(repo_state "$real")
+	out=$(cd "$real" && bash tools/dev/tests/empty_test.sh 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL test_ignores_status"
+	assert_contains "$out" "FAIL test_stops_on_status"
+	assert_eq "$(repo_state "$real")" "$before"
 }
 
 # Test that a test calling skip is reported as skipped with its reason and

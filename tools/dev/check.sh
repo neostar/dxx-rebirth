@@ -71,7 +71,7 @@ step_shellcheck()
 		[[ -z $d || $d == \#* ]] || dirs+=("$d")
 	done < "$dev_dir/fork-dirs"
 	while IFS= read -r -d '' f; do
-		[[ $f == *.sh ]] || head -n 1 "$f" | grep -qE '^#!.*[/ ](ba)?sh$' && files+=("$f")
+		[[ $f == *.sh ]] || head -n 1 "$root/$f" | grep -qE '^#!.*[/ ](ba)?sh$' && files+=("$f")
 	done < <(cd "$root" && find "${dirs[@]}" -type f -print0)
 	[[ ${#files[@]} -eq 0 ]] && return 0
 	(cd "$root" && "$shellcheck" -x --source-path=SCRIPTDIR "${files[@]}")
