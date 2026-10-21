@@ -8,9 +8,13 @@
 # Debug mode is asked for by `true` or by the constant `gpu_debug_mode`
 # (namespace-qualified or not), which a release build may define false:
 # - SDL_CreateGPUDevice(formats, DEBUG, name) with DEBUG one of those;
-# - SDL_CreateGPUDeviceWithProperties(props) in a function that also calls
-#   SDL_SetBooleanProperty(p, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, DEBUG);
-# - any other SDL_CreateGPUDevice* is reported as unknown to this gate.
+# - SDL_CreateGPUDeviceWithProperties(props) where the last
+#   SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, X)
+#   before it in the same function, on that same props object, has X DEBUG;
+# - any other SDL_CreateGPUDevice* is reported as unknown to this gate, and
+#   so is one named without being called (its address taken, as in
+#   &SDL_CreateGPUDevice or p = SDL_CreateGPUDevice), which could create a
+#   device unseen.
 # Comments are ignored.
 #
 #   python3 gpu_debug_mode.py ROOT
@@ -88,27 +92,31 @@ def function_body(text, pos):
 	return 0, len(text)
 
 
-def sets_debug_property(body):
-	for call in re.finditer(r'\bSDL_SetBooleanProperty\s*\(', body):
-		args = arguments(body, call.end())
-		if args and len(args) == 3 and args[1] == PROPERTY and DEBUG.match(args[2]):
-			return True
-	return False
+def sets_debug_property(text, start, call, props):
+	"""Is the last debug-mode property set on props before the call true?"""
+	last = None
+	for m in re.finditer(r'\bSDL_SetBooleanProperty\s*\(', text[start:call]):
+		args = arguments(text, start + m.end())
+		if args and len(args) == 3 and args[0] == props and args[1] == PROPERTY:
+			last = args[2]
+	return last is not None and bool(DEBUG.match(last))
 
 
 def problem(text, call):
 	name = call.group(1)
+	if not call.group(2):
+		return f'{name} named but not called (its address taken)'
 	args = arguments(text, call.end())
 	if name == 'SDL_CreateGPUDevice':
 		if args is not None and len(args) == 3 and DEBUG.match(args[1]):
 			return None
 		return 'SDL_CreateGPUDevice without debug_mode true or gpu_debug_mode'
 	if name == 'SDL_CreateGPUDeviceWithProperties':
-		start, end = function_body(text, call.start())
-		if sets_debug_property(text[start:end]):
+		start, _ = function_body(text, call.start())
+		if args and len(args) == 1 and sets_debug_property(text, start, call.start(), args[0]):
 			return None
-		return (f'{name} without {PROPERTY} set to true or gpu_debug_mode '
-			'in the same function')
+		return (f'{name} without {PROPERTY} last set to true or gpu_debug_mode '
+			'on its props before it, in the same function')
 	return f'{name}: a device creation gpu_debug_mode.py does not know'
 
 
@@ -127,7 +135,9 @@ def main(root):
 				text = strip_comments(f.read())
 		except FileNotFoundError:
 			continue
-		for call in re.finditer(r'\b(SDL_CreateGPUDevice\w*)\s*\(', text):
+		# Names inside string literals (a log message) are not uses.
+		code = re.sub(r'"(\\.|[^"\\\n])*"', lambda m: '"' + ' ' * (len(m.group()) - 2) + '"', text)
+		for call in re.finditer(r'\b(SDL_CreateGPUDevice\w*)\b(\s*\()?', code):
 			message = problem(text, call)
 			if message:
 				line = text.count('\n', 0, call.start()) + 1

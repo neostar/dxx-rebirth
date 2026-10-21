@@ -23,7 +23,7 @@ make_dev_repo()
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/gpu-programs" \
-		"$DEV_DIR/gpu_debug_mode.py" "$r/tools/dev/"
+		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
@@ -365,20 +365,67 @@ test_gpu_gate_scans_whole_repository()
 	assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 3 "$out"
 }
 
-# Test that the fast subset fails on a line of check.sh that runs a
-# registered GPU program other than through gpu-validate.sh, in the shape
-# step_gpu_tests runs it, and lets a comment naming one through.
+# Test that a device made from properties needs the last debug-mode
+# property set before it, on the props object it is given, to be true or
+# gpu_debug_mode, and that a creation function named but not called (its
+# address taken) fails; a name in a string literal passes.
+test_gpu_gate_follows_props_and_flags_taken_address()
+{
+	local r out rc set=SDL_SetBooleanProperty p=SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN
+	r=$(make_repo) || die "make_repo failed"
+	printf '%s\n' \
+		"void a() { $set(other, $p, true); $set(props, $p, false);" \
+		'  SDL_CreateGPUDeviceWithProperties(props); }' \
+		"void b() { $set(props, $p, true); $set(props, $p, false);" \
+		'  SDL_CreateGPUDeviceWithProperties(props); }' \
+		"void c() { SDL_CreateGPUDeviceWithProperties(props); $set(props, $p, true); }" \
+		'auto *d = &SDL_CreateGPUDevice;' 'auto e = SDL_CreateGPUDeviceWithProperties;' \
+		"void f() { $set(props, $p, false); $set(props, $p, gpu_debug_mode);" \
+		'  SDL_CreateGPUDeviceWithProperties(props); SDL_Log("SDL_CreateGPUDevice failed"); }' \
+		> "$r/gpu.cpp"
+	out=$(python3 "$DEV_DIR/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "gpu.cpp:2: SDL_CreateGPUDeviceWithProperties without"
+	assert_contains "$out" "gpu.cpp:4: SDL_CreateGPUDeviceWithProperties without"
+	assert_contains "$out" "gpu.cpp:5: SDL_CreateGPUDeviceWithProperties without"
+	assert_contains "$out" "gpu.cpp:6: SDL_CreateGPUDevice named but not called"
+	assert_contains "$out" "gpu.cpp:7: SDL_CreateGPUDeviceWithProperties named but not called"
+	assert_not_contains "$out" "gpu.cpp:9:"
+	assert_eq "$(grep -c . <<<"$out")" 5 "$out"
+}
+
+# Test that the fast subset fails on a command in check.sh or
+# rtrace-tests.sh that runs a registered GPU program other than as an
+# argument of gpu-validate.sh, in the shape step_gpu_tests runs it, also
+# with gpu-validate.sh only mentioned on the line (a trailing comment, an
+# echo, another command), over a continuation, by a registered path; and
+# lets a comment naming one through.
 test_fast_fails_on_gpu_program_run_outside_the_wrapper()
 {
-	local r out rc
+	local r out rc b bad ok
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	printf '%s\n' 'unwrapped() { "$dev_dir/no-window.sh" "$root/$gpu_program" || rc=1; }' \
-		'braced() { ${gpu_program}; }' '# runs $gpu_program' >> "$r/tools/dev/check.sh"
+	echo build/dev/gpu-demo >> "$r/tools/dev/gpu-programs"
+	bad=('unwrapped() { "$dev_dir/no-window.sh" "$root/$gpu_program" || rc=1; }'
+		'braced() { ${gpu_program}; }' 'c() { "$root/$gpu_program"; } # gpu-validate.sh'
+		'e() { echo gpu-validate.sh "$gpu_program"; }'
+		'f() { "$dev_dir/gpu-validate.sh" true; "$root/$gpu_program"; }'
+		'g() { "$root/$gpu_program" "$dev_dir/gpu-validate.sh"; }' 'h() { build/dev/gpu-demo; }')
+	# shellcheck disable=SC1003  # a planted line continuation
+	ok=('# runs $gpu_program' 'k() { "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" \'
+		'	"$root/$gpu_program" || rc=1; }' 'l() { local gpu_program; }')
+	printf '%s\n' "${bad[@]}" "${ok[@]}" >> "$r/tools/dev/check.sh"
+	printf '#!/usr/bin/env bash\n%s\n' 'x() { "$1" "$gpu_program"; }' > "$r/tools/dev/rtrace-tests.sh"
+	out=$(python3 "$r/tools/dev/gpu_wrapper.py" "$r/tools/dev/gpu-programs" \
+		"$r/tools/dev/check.sh" "$r/tools/dev/rtrace-tests.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	for b in "${bad[@]}"; do
+		assert_contains "$out" "$b"
+	done
+	assert_contains "$out" 'rtrace-tests.sh:2:x() { "$1" "$gpu_program"; }'
+	assert_eq "$(grep -c . <<<"$out")" "$((${#bad[@]} + 1))" "$out"
+	rm "$r/tools/dev/rtrace-tests.sh"
 	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" 'unwrapped() { "$dev_dir/no-window.sh" "$root/$gpu_program"'
-	assert_contains "$out" 'braced() { ${gpu_program}; }'
-	assert_not_contains "$out" '# runs $gpu_program'
 	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gpu_gate"
 }
 

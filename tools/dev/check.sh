@@ -317,18 +317,18 @@ step_test_git()
 }
 
 # GPU validation is a gate (ADR 5): fail on an SDL_GPU device created
-# anywhere outside third_party/ without debug mode (gpu_debug_mode.py), and on a line
-# of this file that runs a registered GPU program ($gpu_program) other than
-# through gpu-validate.sh.
+# anywhere outside third_party/ without debug mode (gpu_debug_mode.py), and
+# on a command in this file or tools/dev/rtrace-tests.sh that runs a
+# registered GPU program ($gpu_program or a gpu-programs path) other than
+# as an argument of gpu-validate.sh (gpu_wrapper.py, which parses commands
+# rather than lines).
 step_gpu_gate()
 {
-	local hits rc=0
+	local rc=0
 	python3 "$dev_dir/gpu_debug_mode.py" "$root" || rc=1
-	hits=$(grep -nE '\$\{?gpu_program([^[:alnum:]_]|$)' "$dev_dir/check.sh" |
-		grep -vE '^[0-9]+:[[:space:]]*#' | grep -v 'gpu-validate\.sh')
-	if [[ -n $hits ]]; then
-		printf 'tools/dev/check.sh:%s\n' "$hits"
-		echo "gpu_gate: run a GPU program in check.sh through gpu-validate.sh"
+	if ! (cd "$root" && python3 tools/dev/gpu_wrapper.py tools/dev/gpu-programs \
+		tools/dev/check.sh tools/dev/rtrace-tests.sh); then
+		echo "gpu_gate: run a GPU program through gpu-validate.sh"
 		rc=1
 	fi
 	return "$rc"
