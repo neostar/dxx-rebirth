@@ -84,4 +84,49 @@ test_every_gate_is_planted()
 	done
 }
 
+# Print the seconds between the first and the last timestamp of a clangd
+# log on the standard input (I[HH:MM:SS.mmm] lines).
+clangd_seconds()
+{
+	awk -F'[][]' '/^[IEV]\[/ {split($2, t, ":"); s = t[1] * 3600 + t[2] * 60 + t[3];
+		if (first == "") first = s; last = s} END {printf "%.3f\n", last - first}'
+}
+
+# Test the editor tier: clangd --check on a fork file reports the fork
+# clang-tidy checks from the fork directory's .clang-tidy, within 1 s; the
+# same file in an upstream directory gets none of them.
+test_editor_tier_clangd_uses_fork_config_within_budget()
+{
+	local r out secs
+	r=$(fork_repo)
+	cp "$GATES/owning_raw_pointer.cpp.in" "$r/src/owner.cpp"
+	cp "$GATES/owning_raw_pointer.cpp.in" "$r/common/owner.cpp"
+	cp "$REPO_ROOT/.clang-tidy" "$r/.clang-tidy"
+	out=$(cd "$r" && "$(dev_llvm_tool clangd)" --check=src/owner.cpp 2>&1)
+	assert_contains "$out" "[cppcoreguidelines-owning-memory]"
+	secs=$(clangd_seconds <<<"$out")
+	awk -v s="$secs" 'BEGIN {exit !(s < 1)}' || fail "clangd took $secs s, over the 1 s budget"
+	out=$(cd "$r" && "$(dev_llvm_tool clangd)" --check=common/owner.cpp 2>&1)
+	assert_contains "$out" "All checks completed"
+	assert_not_contains "$out" "cppcoreguidelines-"
+}
+
+# Test the pre-commit tier: the gate on a typical diff (the representative
+# file and two small ones) and the licensed-data guard take under 10 s.
+test_precommit_tier_within_budget()
+{
+	local r start secs
+	r=$(fork_repo)
+	cp "$GATES/clean.cpp.in" "$r/src/clean.cpp"
+	printf 'int one()\n{\n\treturn 1;\n}\n' > "$r/src/one.cpp"
+	printf 'int two()\n{\n\treturn 2;\n}\n' > "$r/src/two.cpp"
+	tgit -C "$r" add src
+	start=$EPOCHREALTIME
+	"$r/tools/dev/format.sh" --staged >/dev/null 2>&1 || fail "the gate failed on clean files"
+	(cd "$r" && tools/dev/guard-licensed-data.sh --staged) || fail "the guard failed"
+	secs=$(awk -v a="$start" -v b="$EPOCHREALTIME" 'BEGIN {printf "%.2f", b - a}')
+	echo "    pre-commit tier: $secs s"
+	awk -v s="$secs" 'BEGIN {exit !(s < 10)}' || fail "the pre-commit tier took $secs s, over 10 s"
+}
+
 run_tests
