@@ -8,6 +8,7 @@
 #include "common/render/trace.h"
 
 #include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 namespace dcx::render::trace {
@@ -18,6 +19,7 @@ enum class kind : std::uint8_t
 {
 	clear = 1,
 	present = 2,
+	texture = 3,
 };
 
 /* The header's length, and a record's before its payload. */
@@ -51,6 +53,7 @@ class cursor
 {
 	std::span<const std::uint8_t> rest_;
 	bool failed_{false};
+	bool invalid_{false};
 
   public:
 	explicit cursor(const std::span<const std::uint8_t> bytes) : rest_{bytes}
@@ -81,6 +84,39 @@ class cursor
 		}
 		return v;
 	}
+	/* An enum of up to last, or a boolean as 0 or 1; another value marks
+	 * the cursor invalid.  An invalid boolean reads as false, so the
+	 * fields it would have added are not read.
+	 */
+	template <typename E>
+	[[nodiscard]]
+	E enumerated(const E last)
+	{
+		const auto v{le<std::underlying_type_t<E>>()};
+		if (v > std::to_underlying(last))
+		{
+			invalid_ = true;
+			return last;
+		}
+		return E{v};
+	}
+	[[nodiscard]]
+	bool boolean()
+	{
+		const auto v{le<std::uint8_t>()};
+		if (v > 1)
+			invalid_ = true;
+		return v == 1;
+	}
+	void invalidate()
+	{
+		invalid_ = true;
+	}
+	[[nodiscard]]
+	bool invalid() const
+	{
+		return invalid_;
+	}
 	[[nodiscard]]
 	std::size_t remaining() const
 	{
@@ -93,15 +129,39 @@ class cursor
 	}
 };
 
-std::expected<record, read_error> decode_clear(cursor &c)
+trace::clear decode_clear(cursor &c)
 {
 	const auto flags{c.le<std::uint8_t>()};
 	if (flags > (clear_color | clear_depth))
-		return std::unexpected{read_error::bad_value};
-	return trace::clear{.color = (flags & clear_color) != 0, .depth = (flags & clear_depth) != 0};
+		c.invalidate();
+	return {.color = (flags & clear_color) != 0, .depth = (flags & clear_depth) != 0};
 }
 
-std::expected<record, read_error> decode(const std::uint8_t k, cursor &c)
+trace::texture decode_texture(cursor &c)
+{
+	trace::texture t{.slot = {c.le<std::uint32_t>()}, .desc = {}, .rgba = {}};
+	if (!c.boolean())
+		return t;
+	extent size{.width = c.le<std::uint32_t>(), .height = c.le<std::uint32_t>()};
+	if (size.width > max_texture_side || size.height > max_texture_side)
+	{
+		c.invalidate();
+		size = {.width = 0, .height = 0};
+	}
+	t.desc = texture_desc{
+	    .size = size,
+	    .format = c.enumerated(texture_format::rgba2),
+	    .filter = c.enumerated(filter::trilinear),
+	    .anisotropic = c.boolean(),
+	    .has_transparency = c.boolean(),
+	};
+	const auto rgba{c.bytes(std::size_t{4} * size.width * size.height)};
+	t.rgba.assign(rgba.begin(), rgba.end());
+	return t;
+}
+
+/* The record of kind k, or nullopt for an unknown kind. */
+std::optional<record> decode(const std::uint8_t k, cursor &c)
 {
 	switch (k)
 	{
@@ -109,8 +169,10 @@ std::expected<record, read_error> decode(const std::uint8_t k, cursor &c)
 		return decode_clear(c);
 	case std::to_underlying(kind::present):
 		return trace::present{};
+	case std::to_underlying(kind::texture):
+		return decode_texture(c);
 	default:
-		return std::unexpected{read_error::unknown_kind};
+		return std::nullopt;
 	}
 }
 
@@ -137,6 +199,43 @@ void writer::present()
 	sink s{bytes_};
 	s.le(std::to_underlying(kind::present));
 	s.le(std::uint32_t{0});
+}
+
+void writer::texture(const texture_slot slot, const texture_image *const image)
+{
+	sink s{bytes_};
+	s.le(std::to_underlying(kind::texture));
+	if (!image)
+	{
+		s.le(std::uint32_t{5});
+		s.le(slot.index);
+		s.le(std::uint8_t{0});
+		return;
+	}
+	const auto &d{image->desc()};
+	if (d.size.width > max_texture_side || d.size.height > max_texture_side)
+		throw std::length_error("trace::writer: texture side over max_texture_side");
+	const auto rgba{image->rgba()};
+	s.le(static_cast<std::uint32_t>(17 + rgba.size()));
+	s.le(slot.index);
+	s.le(std::uint8_t{1});
+	s.le(d.size.width);
+	s.le(d.size.height);
+	s.le(std::to_underlying(d.format));
+	s.le(std::to_underlying(d.filter));
+	s.le(std::uint8_t{d.anisotropic});
+	s.le(std::uint8_t{d.has_transparency});
+	/* Not insert(): GCC 14 reports a false stringop-overflow in it. */
+	bytes_.reserve(bytes_.size() + rgba.size());
+	for (const std::uint8_t b : rgba)
+		bytes_.push_back(b);
+}
+
+std::optional<texture_image> texture::image() const
+{
+	if (!desc)
+		return std::nullopt;
+	return texture_image{desc.value(), rgba};
 }
 
 std::vector<std::uint8_t> writer::take()
@@ -178,13 +277,15 @@ std::expected<std::optional<record>, read_error> reader::next()
 		return fail(read_error::truncated);
 	cursor payload{head.bytes(length)};
 	auto r{decode(k, payload)};
+	if (!r)
+		return fail(read_error::unknown_kind);
 	/* A payload too short reads zeros, which may decode as a bad value:
 	 * its length is the error.
 	 */
-	if (payload.failed() || (r && payload.remaining() != 0))
+	if (payload.failed() || payload.remaining() != 0)
 		return fail(read_error::bad_length);
-	if (!r)
-		return fail(r.error());
+	if (payload.invalid())
+		return fail(read_error::bad_value);
 	offset_ += record_head_size + length;
 	return std::move(r.value());
 }

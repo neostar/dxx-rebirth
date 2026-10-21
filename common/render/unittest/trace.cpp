@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #define BOOST_TEST_MODULE Rebirth trace
 #include <boost/test/unit_test.hpp>
 
+namespace render = dcx::render;
 namespace trace = dcx::render::trace;
 
 namespace {
@@ -94,14 +96,76 @@ BOOST_AUTO_TEST_CASE(clear_and_present_round_trip)
 	BOOST_TEST((records.value() == expected));
 }
 
+/* Test that a texture call is recorded with its pixels, and a release with
+ * none, and both read back as the same records.
+ */
+BOOST_AUTO_TEST_CASE(texture_round_trip)
+{
+	const std::vector<std::uint8_t> rgba{1, 2, 3, 4, 5, 6, 7, 255};
+	const render::texture_desc desc{
+	    .size = {.width = 2, .height = 1},
+	    .format = render::texture_format::luminance4_alpha4,
+	    .filter = render::filter::trilinear,
+	    .anisotropic = true,
+	    .has_transparency = true,
+	};
+	const render::texture_image image{desc, rgba};
+	trace::writer w;
+	w.texture({7}, &image);
+	w.texture({7}, nullptr);
+	const auto out{w.take()};
+	/* kind 3, length 5: slot 7, no image. */
+	BOOST_TEST((bytes(out.end() - 10, out.end()) == bytes{3, 5, 0, 0, 0, 7, 0, 0, 0, 0}));
+	const auto records{trace::read_all(out)};
+	BOOST_REQUIRE(records.has_value());
+	const std::vector<trace::record> expected{
+	    trace::texture{.slot = {7}, .desc = desc, .rgba = rgba},
+	    trace::texture{.slot = {7}, .desc = std::nullopt, .rgba = {}},
+	};
+	BOOST_TEST((records.value() == expected));
+	const auto read_image{std::get<trace::texture>(records.value().front()).image()};
+	BOOST_REQUIRE(read_image.has_value());
+	BOOST_TEST((read_image.value() == image));
+	BOOST_TEST(!std::get<trace::texture>(records.value().back()).image().has_value());
+}
+
+/* Test that the writer refuses a texture over the size bound, which the
+ * reader would reject.
+ */
+BOOST_AUTO_TEST_CASE(texture_over_bound_not_written)
+{
+	const std::vector<std::uint8_t> rgba(std::size_t{4} * (trace::max_texture_side + 1));
+	const render::texture_image image{{.size = {.width = trace::max_texture_side + 1, .height = 1},
+	                                   .format = render::texture_format::rgba8,
+	                                   .filter = render::filter::nearest,
+	                                   .anisotropic = false,
+	                                   .has_transparency = false},
+	                                  rgba};
+	trace::writer w;
+	BOOST_CHECK_THROW(w.texture({1}, &image), std::length_error);
+}
+
 namespace {
 
-/* One malformed trace and the error it must be rejected with. */
+/* A texture record for slot 1 with the given side, format byte, flag byte
+ * and number of pixel bytes; its length field is right.
+ */
+bytes texture_record(const std::uint8_t side, const std::uint8_t format, const std::uint8_t flag,
+                     const std::size_t pixel_bytes)
+{
+	const auto length{static_cast<std::uint8_t>(17 + pixel_bytes)};
+	return bytes{3, length, 0, 0, 0, 1, 0, 0, 0, 1, side, 0, 0, 0, 1, 0, 0, 0, format, 0, flag, 0} +
+	       bytes(pixel_bytes);
+}
+
+/* One malformed trace and the error it must be rejected with; a few
+ * well-formed ones (no error) show that each rejection is for its one flaw.
+ */
 struct malformed
 {
 	std::string_view name;
 	bytes trace;
-	trace::read_error error;
+	std::optional<trace::read_error> error;
 };
 
 /* The malformed corpus: synthetic traces, each broken in one way. */
@@ -133,6 +197,20 @@ const std::vector<malformed> corpus{
     {"clear with a spare byte", header + bytes{1, 2, 0, 0, 0, 3, 0}, trace::read_error::bad_length},
     {"present with a payload", header + bytes{2, 1, 0, 0, 0, 0}, trace::read_error::bad_length},
     {"clear flag bit 2", header + bytes{1, 1, 0, 0, 0, 4}, trace::read_error::bad_value},
+    {"texture with one pixel", header + texture_record(1, 0, 0, 4), std::nullopt},
+    {"texture pixels cut short", header + texture_record(1, 0, 0, 3),
+	 trace::read_error::bad_length},
+    {"texture pixels to spare", header + texture_record(1, 0, 0, 5), trace::read_error::bad_length},
+    {"texture format 5", header + texture_record(1, 5, 0, 4), trace::read_error::bad_value},
+    {"texture flag 2", header + texture_record(1, 0, 2, 4), trace::read_error::bad_value},
+    {"texture image flag 2", header + bytes{3, 5, 0, 0, 0, 1, 0, 0, 0, 2},
+	 trace::read_error::bad_value},
+    {"texture side 4097",
+	 header + bytes{3, 17, 0, 0, 0, 1, 0, 0, 0, 1, 1, 16, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+	 trace::read_error::bad_value},
+    {"texture side 2^32 - 1", header + bytes{3,   17,  0,   0,   0,   1,   0,   0, 0, 1, 255,
+	                                         255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0},
+	 trace::read_error::bad_value},
     {"good record, then garbage", header + bytes{2, 0, 0, 0, 0, 9}, trace::read_error::truncated},
 };
 
@@ -148,6 +226,11 @@ BOOST_AUTO_TEST_CASE(malformed_corpus_rejected)
 		BOOST_TEST_CONTEXT(m.name)
 		{
 			const auto r{trace::read_all(m.trace)};
+			if (!m.error)
+			{
+				BOOST_TEST(r.has_value());
+				continue;
+			}
 			BOOST_REQUIRE(!r.has_value());
 			BOOST_TEST((r.error() == m.error));
 			trace::reader rd{m.trace};

@@ -29,6 +29,8 @@
 #include <variant>
 #include <vector>
 
+#include "common/render/render_device.h"
+
 namespace dcx::render::trace {
 
 inline constexpr std::array<std::uint8_t, 8> magic{{'D', 'X', 'X', 'R', 'T', 'R', '\r', '\n'}};
@@ -53,7 +55,28 @@ struct present
 	constexpr bool operator==(const present &) const = default;
 };
 
-using record = std::variant<clear, present>;
+/* The largest width or height of a texture image in a trace, a bound that
+ * keeps a malformed size from asking for gigabytes.
+ */
+inline constexpr std::uint32_t max_texture_side{4096};
+
+/* A texture call: the image for a slot, its pixels copied, or no image,
+ * which releases the slot.
+ */
+struct texture
+{
+	texture_slot slot{};
+	std::optional<texture_desc> desc{};
+	std::vector<std::uint8_t> rgba{};
+	/* A view of the image, valid while this record lives; nullopt for a
+	 * release.
+	 */
+	[[nodiscard]]
+	std::optional<texture_image> image() const;
+	bool operator==(const texture &) const = default;
+};
+
+using record = std::variant<clear, present, texture>;
 
 /* Turns device calls into the bytes of a trace, header first.  take()
  * hands over the bytes written so far, so a recorder can append them to
@@ -67,6 +90,11 @@ class writer
 	writer();
 	void clear(const trace::clear &c);
 	void present();
+	/* The image for a slot, or nullptr to release it.  Throws
+	 * std::length_error for a side over max_texture_side, which the reader
+	 * would reject.
+	 */
+	void texture(texture_slot slot, const texture_image *image);
 	[[nodiscard]]
 	std::vector<std::uint8_t> take();
 };
