@@ -147,6 +147,92 @@ BOOST_AUTO_TEST_CASE(texture_over_bound_not_written)
 
 namespace {
 
+/* A HUD-like draw: ortho, identity, untextured, no vertices. */
+const render::draw_call hud_draw{
+    .topology = render::topology::line_loop,
+    .vertices = {},
+    .texture = render::texture_slot::none,
+    .state = {.blend = render::blend::normal,
+	          .depth = render::depth::off,
+	          .cull = render::cull::none,
+	          .alpha_ref = 0.5f,
+	          .wrap = render::wrap::clamp,
+	          .line_width = 2.f},
+    .viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}},
+    .transforms = {.projection =
+	                   render::ortho{
+                           .left = 0, .right = 1, .bottom = 0, .top = 1, .z_near = -1, .z_far = 1},
+	               .modelview = render::identity{}},
+};
+
+/* A 3D draw: perspective with stereo offset, translate and scale,
+ * textured, its colours outside [0, 1] as the front end may send them.
+ */
+const std::vector<render::vertex> fan{
+    {.pos = {{-1.f, -0.f, 2.5f}}, .rgba = {{1.5f, -0.25f, 0.f, 1.f}}, .uv = {{0.f, 0.f}}},
+    {.pos = {{1.f, 0.f, 2.5f}}, .rgba = {{1.f, 1.f, 1.f, 0.8f}}, .uv = {{1.f, 0.f}}},
+    {.pos = {{1.f, 1.f, 2.5f}}, .rgba = {{0.f, 0.f, 1.f, 1.f}}, .uv = {{1.f, 1.f}}},
+};
+const render::draw_call world_draw{
+    .topology = render::topology::fan,
+    .vertices = fan,
+    .texture = {42},
+    .state = {.blend = render::blend::additive_c,
+	          .depth = render::depth::test_and_write,
+	          .cull = render::cull::front,
+	          .alpha_ref = 0.8f,
+	          .wrap = render::wrap::repeat,
+	          .line_width = 1.f},
+    .viewport = {.x = -16, .y = 8, .size = {.width = 320, .height = 200}},
+    .transforms = {.projection = render::perspective{.fovy = 90,
+	                                                 .aspect = 1.6,
+	                                                 .z_near = 0.01,
+	                                                 .z_far = 6400,
+	                                                 .stereo_dx = -0.0625f},
+	               .modelview = render::translate_scale{.translate = {{0.f, 0.f, -1.f}},
+	                                                    .scale = {{1.f, 1.f, -1.f}}}},
+};
+
+}
+
+/* Test that draws read back with every field and vertex they were written
+ * with, and give back the same calls.
+ */
+BOOST_AUTO_TEST_CASE(draw_round_trip)
+{
+	trace::writer w;
+	(void)w.take();
+	w.draw(hud_draw);
+	w.draw(world_draw);
+	const auto out{w.take()};
+	/* alpha_ref 0.5 as little-endian IEEE bits, after kind, length,
+	 * topology, slot, blend, depth and cull.
+	 */
+	BOOST_TEST((bytes(out.begin() + 13, out.begin() + 17) == bytes{0, 0, 0, 0x3f}));
+	const auto records{trace::read_all(header + out)};
+	BOOST_REQUIRE(records.has_value());
+	BOOST_REQUIRE(records.value().size() == 2u);
+	BOOST_TEST((std::get<trace::draw>(records.value().front()).call() == hud_draw));
+	const auto &world{std::get<trace::draw>(records.value().back())};
+	BOOST_TEST((world.vertices == fan));
+	BOOST_TEST((world.call() == world_draw));
+}
+
+namespace {
+
+/* hud_draw's record with the byte at `at` (counted from the record's
+ * kind) set to value.
+ */
+bytes draw_record(const std::size_t at, const std::uint8_t value)
+{
+	trace::writer w;
+	(void)w.take();
+	w.draw(hud_draw);
+	auto out{w.take()};
+	out.at(at) = value;
+	return out;
+}
+
 /* A texture record for slot 1 with the given side, format byte, flag byte
  * and number of pixel bytes; its length field is right.
  */
@@ -211,6 +297,14 @@ const std::vector<malformed> corpus{
     {"texture side 2^32 - 1", header + bytes{3,   17,  0,   0,   0,   1,   0,   0, 0, 1, 255,
 	                                         255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0},
 	 trace::read_error::bad_value},
+    {"draw unchanged", header + draw_record(5, 4), std::nullopt},
+    {"draw topology 6", header + draw_record(5, 6), trace::read_error::bad_value},
+    {"draw blend 5", header + draw_record(10, 5), trace::read_error::bad_value},
+    {"draw wrap 2", header + draw_record(17, 2), trace::read_error::bad_value},
+    {"draw projection 2", header + draw_record(38, 2), trace::read_error::bad_value},
+    {"draw modelview 2", header + draw_record(87, 2), trace::read_error::bad_value},
+    {"draw vertex missing", header + draw_record(88, 1), trace::read_error::bad_length},
+    {"draw 2^24 vertices", header + draw_record(91, 1), trace::read_error::bad_length},
     {"good record, then garbage", header + bytes{2, 0, 0, 0, 0, 9}, trace::read_error::truncated},
 };
 

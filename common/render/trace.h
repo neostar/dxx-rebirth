@@ -76,7 +76,22 @@ struct texture
 	bool operator==(const texture &) const = default;
 };
 
-using record = std::variant<clear, present, texture>;
+/* A draw call, its vertices copied. */
+struct draw
+{
+	render::topology topology{};
+	std::vector<vertex> vertices{};
+	texture_slot texture{};
+	draw_state state{};
+	render::viewport viewport{};
+	render::transforms transforms{};
+	/* The call, viewing this record's vertices. */
+	[[nodiscard]]
+	draw_call call() const;
+	bool operator==(const draw &) const = default;
+};
+
+using record = std::variant<clear, present, texture, draw>;
 
 /* Turns device calls into the bytes of a trace, header first.  take()
  * hands over the bytes written so far, so a recorder can append them to
@@ -95,6 +110,7 @@ class writer
 	 * would reject.
 	 */
 	void texture(texture_slot slot, const texture_image *image);
+	void draw(const draw_call &call);
 	[[nodiscard]]
 	std::vector<std::uint8_t> take();
 };
