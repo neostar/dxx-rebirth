@@ -112,7 +112,8 @@ Done when every touched line follows the rules for its kind of code.
   for reported bugs.
 - One concern per commit, at most about 300 changed lines, test and change together; style changes
   ride along with the change that needs them. The pre-commit hook enforces the 300, leaving out
-  the generated files `tools/dev/commit-size-exclude` lists; for a larger change that cannot be
+  the generated files `tools/dev/commit-size-exclude` lists, counting a binary file as 100 lines
+  and an amend as the whole amended commit; for a larger change that cannot be
   split, commit with `DXX_ALLOW_LARGE_COMMIT=<reason>`, which the hook prints, and give the reason
   in the body.
 - Docs change in the same series as the code they describe.

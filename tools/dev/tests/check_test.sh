@@ -583,4 +583,39 @@ test_pre_commit_hook_limits_commit_size()
 	assert_eq "$?" 0 "$out"
 }
 
+# Test that an amend is measured as the whole commit: a 250-line commit
+# amended by 250 more lines is over 300, though each step is not.
+test_pre_commit_hook_measures_amend_as_whole_commit()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
+	seq 250 > "$r/a.txt"
+	tgit -C "$r" add a.txt
+	out=$(tgit -C "$r" commit -q -m a 2>&1)
+	assert_eq "$?" 0 "$out"
+	seq 251 500 > "$r/b.txt"
+	tgit -C "$r" add b.txt
+	out=$(tgit -C "$r" commit -q --amend -m a 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "500 changed lines, over 300"
+	out=$(tgit -C "$r" commit -q -m b 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a binary file counts as a fixed 100 lines.
+test_pre_commit_hook_counts_binary_files()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	tgit -C "$r" add -A && tgit -C "$r" commit -q --no-verify -m tools
+	printf 'bin\0%s\n' 1 2 3 > "$r/one.bin"
+	printf 'bin\0%s\n' 4 5 6 > "$r/two.bin"
+	seq 150 > "$r/a.txt"
+	tgit -C "$r" add one.bin two.bin a.txt
+	out=$(tgit -C "$r" commit -q -m bin 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "350 changed lines, over 300"
+}
+
 run_tests
