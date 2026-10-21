@@ -122,6 +122,27 @@ check_nolint()
 	return "$rc"
 }
 
+# Fail on each #include "..." in files "$@" whose path climbs through `..`:
+# clang-tidy reports no finding in a header named that way (header_filter),
+# so fork code includes fork headers by their path from the top.
+check_includes()
+{
+	local f n line rc=0
+	local name
+	for f in "$@"; do
+		n=0
+		name=$(rel "$f")
+		while IFS= read -r line; do
+			n=$((n + 1))
+			[[ $line =~ ^[[:space:]]*#[[:space:]]*include[[:space:]]*\"([^\"]*/)?\.\./ ]] || continue
+			echo "$name:$n: #include through ..; include fork headers by their path" \
+				"from the top (\"common/debug/x.h\")"
+			rc=1
+		done < "$f"
+	done
+	return "$rc"
+}
+
 # Succeed if the compilation database has an entry for file $1.
 in_database()
 {
@@ -133,6 +154,22 @@ sys.exit(0 if any(os.path.normpath(os.path.join(e["directory"], e["file"])) == s
 PY
 }
 
+# Print the regular expression for clang-tidy's --header-filter: headers
+# in a fork directory, named relative to the repository (the database's
+# directory), absolutely, or in the staged tree.  Upstream and third-party
+# headers are not fork code, and their findings would be reported against
+# the fork file including them.  A path climbing through `..` may leave the
+# fork directory it starts in (src/../common/x.h), so --exclude-header-filter
+# drops it: fork code includes fork headers by their path from the root.
+header_filter()
+{
+	local esc='s/[][\\.*^$+?(){}|]/\\&/g' pre dirs
+	# A doubled slash (TMPDIR's trailing one) names the same directory.
+	pre=$(printf '%s/\n' "$root" ${tree:+"$tree"} | sed "$esc" | sed 's|/|/+|g' | paste -sd '|' -)
+	dirs=$(printf '%s\n' "${fork_dirs[@]}" | sed "$esc" | paste -sd '|' -)
+	printf '^(%s|\\./)?(%s)/\n' "$pre" "$dirs"
+}
+
 # clang-tidy the C++ files among "$@" with the compilation database; the
 # clang-tidy rules are C++ rules, so C and Objective-C files are left out,
 # and Objective-C++ ones are tidied only when the database has them.  A header has
@@ -141,7 +178,8 @@ PY
 # fork's own flags instead (fork_warnings.py, the pinned dependencies).
 tidy()
 {
-	local f rc=0 cxx=() headers=() flags=()
+	local f rc=0 cxx=() headers=() flags=() filter
+	filter=(--header-filter="$(header_filter)" --exclude-header-filter='(^|/)\.\./')
 	for f in "$@"; do
 		case $f in
 		*.c|*.m) ;;
@@ -157,7 +195,7 @@ tidy()
 		for f in "${headers[@]}"; do
 			flags+=(-I "$root/$(dirname "$(rel "$f")")")
 		done
-		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" --quiet "${headers[@]}" -- \
+		"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "${headers[@]}" -- \
 			-x c++-header -std=c++23 "${flags[@]}" \
 			-isystem "$dev_deps_prefix/include" 2>&1 | strip_tree
 		[[ ${PIPESTATUS[0]} -eq 0 ]] || rc=1
@@ -174,7 +212,7 @@ tidy()
 		staged_database "$database/compile_commands.json" "${cxx[@]}" \
 			> "$db/compile_commands.json" || return 1
 	fi
-	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" -p "$db" --quiet "${cxx[@]}" 2>&1 | strip_tree
+	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" -p "$db" --quiet "${cxx[@]}" 2>&1 | strip_tree
 	[[ ${PIPESTATUS[0]} -eq 0 && $rc -eq 0 ]]
 }
 
@@ -240,6 +278,7 @@ tidy|staged)
 		done
 	fi
 	check_nolint "${files[@]}" || rc=1
+	check_includes "${files[@]}" || rc=1
 	tidy "${files[@]}" || rc=1
 	exit "$rc" ;;
 esac

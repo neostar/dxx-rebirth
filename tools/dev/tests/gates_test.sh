@@ -348,6 +348,66 @@ test_gpu_without_pinned_sdl3_fails_only_in_container()
 	assert_eq "$rc" 77 "$out"
 }
 
+# Rewrite the compilation database of fork repository $1 so its entry also
+# has the include flags "${@:2}" before -c.
+add_database_flags()
+{
+	local r=$1
+	shift
+	python3 - "$r/build/dev/compile_commands.json" "$@" <<'PY'
+import json, sys
+path, extra = sys.argv[1], sys.argv[2:]
+db = json.load(open(path))
+for e in db:
+    i = e["arguments"].index("-c")
+    e["arguments"][i:i] = extra
+json.dump(db, open(path, "w"))
+PY
+}
+
+# Test that the tidy gate reports findings in fork headers and none in
+# upstream or third-party ones: a staged fork file includes a fork header,
+# an upstream one by its path from the top and another by its bare name
+# through -I (as timer.h), each with a typedef (modernize-use-using).
+test_tidy_reports_fork_headers_only()
+{
+	local r out
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	add_database_flags "$r" -I . -I common
+	printf '#pragma once\ntypedef int upstream_int;\n' > "$r/common/upstream.h"
+	printf '#pragma once\ntypedef int bare_int;\n' > "$r/common/bare.h"
+	printf '#pragma once\ntypedef int fork_int;\n' > "$r/src/fork.h"
+	printf '#include "bare.h"\n#include "common/upstream.h"\n#include "src/fork.h"\n%s\n' \
+		'fork_int f();' 'upstream_int u();' 'bare_int b();' > "$r/src/plant.cpp"
+	tgit -C "$r" add src/plant.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_contains "$out" "src/fork.h:2:1: error: use 'using' instead of 'typedef' [modernize-use-using"
+	assert_not_contains "$out" "upstream.h"
+	assert_not_contains "$out" "bare.h"
+}
+
+# Test that a fork file including a header through `..` fails the tidy
+# gate, staged and not, naming the rule: clang-tidy reports nothing in a
+# header named that way, so a template instantiated from it would pass.
+test_tidy_rejects_includes_through_dotdot()
+{
+	local r out rc
+	need "${gate_tool[tidy]}"
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/src/sub" "$r/src/x"
+	printf '#pragma once\ntemplate <class T>\nint conv(T t)\n{\n\tint r = t;\n\treturn r;\n}\n' \
+		> "$r/src/sub/h.h"
+	printf '#include "../sub/h.h"\nint g();\nint g()\n{\n\treturn conv(2L);\n}\n' > "$r/src/x/plant.cpp"
+	tgit -C "$r" add src
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/x/plant.cpp:1: #include through ..; include fork headers by their path from the top"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/x/plant.cpp:1: #include through .."
+}
+
 # Test that each gate a planted file names without a runner has an owning
 # ticket, and skip, naming those gates and tickets.
 test_later_gates()
