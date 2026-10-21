@@ -21,6 +21,10 @@ metal='2026-10-21 03:39:30.424 probe[1:2] Metal API Validation Enabled
 2026-10-21 03:39:30.424 probe[1:2] Metal GPU Validation Enabled
 2026-10-21 03:39:30.438 probe[1:2] SDL_GPU Driver: Metal'
 vulkan='Validation layers enabled, expect debug level performance!
+WARNING-CreateInstance-status-message(INFO / SPEC): msgNum: 601872502 - Validation Information: [ WARNING-CreateInstance-status-message ] | vkCreateInstance():  Khronos Validation Layer Active:
+    Settings File: Found at /x/vk_layer_settings.txt specified by environment variable (VK_LAYER_SETTINGS_PATH).
+    Current Enables: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION.
+    Current Disables: None.
 SDL_GPU Driver: Vulkan'
 
 # Test that a run with validation active and no message passes with the
@@ -67,6 +71,19 @@ test_metal_shader_validation_reports_to_stderr()
 	assert_contains "$out" "shader validation 1,1"
 }
 
+# Test that the program runs with the Vulkan layer's settings file, which
+# turns on synchronization and thread-safety validation.
+test_vulkan_settings_turn_on_sync_and_thread_safety()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	printf '#!/bin/sh\ncat "$VK_LAYER_SETTINGS_PATH"\n' > "$d/probe"
+	chmod +x "$d/probe"
+	out=$("$DEV_DIR/gpu-validate.sh" "$d/probe" 2>&1)
+	assert_contains "$out" "khronos_validation.validate_sync = true"
+	assert_contains "$out" "khronos_validation.thread_safety = true"
+}
+
 # Test that an SDL warning, such as a failed debug-mode assertion, fails.
 test_sdl_warning_fails()
 {
@@ -83,6 +100,11 @@ test_inactive_validation_fails()
 		"probe: the Vulkan validation layer was not active"
 	assert_contains "$(validate 'SDL_GPU Driver: Metal')" \
 		"probe: Metal API validation was not active"
+	assert_contains "$(validate "${vulkan/ENABLE_SYNCHRONIZATION_VALIDATION/}")" \
+		"probe: Vulkan synchronization validation was not active"
+	local disabled=VK_VALIDATION_FEATURE_DISABLE_THREAD_SAFETY_EXT
+	assert_contains "$(validate "${vulkan/Disables: None/Disables: $disabled}")" \
+		"probe: Vulkan thread-safety validation was not active"
 	assert_contains "$(validate "${metal/GPU Validation/}")" \
 		"probe: Metal shader validation was not active"
 	assert_contains "$(validate 'hello')" "probe: no SDL_GPU device was created"

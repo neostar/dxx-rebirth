@@ -1,0 +1,7 @@
+# Vulkan validation layer settings for tools/dev/gpu-validate.sh, which
+# points VK_LAYER_SETTINGS_PATH here (ADR 5).  Written for VVL 1.3.275, the
+# reference image's; info messages are reported so that the layer's
+# "Khronos Validation Layer Active" status, which the wrapper checks, shows.
+khronos_validation.validate_sync = true
+khronos_validation.thread_safety = true
+khronos_validation.report_flags = error,warn,perf,info

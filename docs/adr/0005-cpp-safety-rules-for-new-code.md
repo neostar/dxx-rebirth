@@ -72,11 +72,11 @@ crash report.
 **GPU validation is a gate**: every SDL_GPU run in a check runs under `tools/dev/gpu-validate.sh`,
 with SDL's GPU debug mode (the program creates its device with `debug_mode` true), Metal API
 validation (`MTL_DEBUG_LAYER=1`), Metal shader validation (Level 2 below) and the Vulkan
-validation layer (`VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf`). Neither SDL nor the layer
-changes the exit status (spike #55, K4), so the wrapper scans the output and fails on any
-validation message, and on a run whose validation was not active. Until the fork has GPU code
-(#24), headless probes in the gate self-test prove it on Metal natively and on lavapipe in the
-container.
+validation layer (errors, warnings, performance warnings; synchronization and thread safety,
+Level 2 below). Neither SDL nor the layer changes the exit status (spike #55, K4), so the
+wrapper scans the output and fails on any validation message, and on a run whose validation was
+not active. Until the fork has GPU code (#24), headless probes in the gate self-test prove it on
+Metal natively and on lavapipe in the container.
 `check.sh`'s `gpu_gate` step (`tools/dev/gpu_debug_mode.py`) scans every C, C++ and
 Objective-C(++) source outside `third_party/`, game code included, with comments stripped: a
 device is created as `SDL_CreateGPUDevice(formats, DEBUG, name)`, or by
@@ -167,7 +167,13 @@ tightening is its own small commit that leaves the tree green and updates the le
   not to os_log): its reports name the shader function they stopped ("executing kernel
   function"), and a Metal run without "Metal GPU Validation Enabled" fails. The gate `gpumetal`
   (macOS only) proves it with a compute shader writing past its buffer; on the probe it costs
-  nothing measurable (1.3 s either way).
+  nothing measurable (1.3 s either way). Vulkan synchronization and thread-safety validation,
+  from `tools/dev/vk_layer_settings.txt`, to which the wrapper points `VK_LAYER_SETTINGS_PATH`
+  (VVL 1.3.275's environment settings print no status); a Vulkan run whose layer status lacks
+  "Current Enables: ...SYNCHRONIZATION_VALIDATION" or "Current Disables: None" fails. On
+  lavapipe they cost nothing measurable on the probe (1.22 s against 1.21 s). No plant proves
+  sync validation reports a hazard: SDL puts a barrier between passes, and the one race it
+  leaves (two dispatches writing one buffer in one compute pass) VVL 1.3.275 does not report.
 
 **Gate self-test.** `tools/dev/tests/gates_test.sh` copies each planted file in
 `tools/dev/tests/gates/` into a throwaway repository and asserts that every gate the file names
