@@ -16,15 +16,16 @@ test_no_binary_is_usage_error()
 }
 
 # Test that a binary runs with its arguments and the dev environment
-# (sanitizer settings from env.sh, SDL in the background).
+# (sanitizer settings from env.sh, SDL in the background, Retina off).
 test_runs_binary_with_dev_environment()
 {
 	local out
-	out=$(env -u ASAN_OPTIONS "$RUN" /bin/sh -c 'echo "arg=$0 asan=$ASAN_OPTIONS sdl=$SDL_MAC_BACKGROUND_APP"' bar 2>&1)
+	out=$(env -u ASAN_OPTIONS "$RUN" /bin/sh -c 'echo "arg=$0 asan=$ASAN_OPTIONS sdl=$SDL_MAC_BACKGROUND_APP hidpi=${SDL_VIDEO_HIGHDPI_DISABLED-}"' bar 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "arg=bar"
 	assert_contains "$out" "abort_on_error=0"
 	assert_contains "$out" "sdl=1"
+	assert_contains "$out" "hidpi=1"
 }
 
 # Test that the binary taking focus fails the run.

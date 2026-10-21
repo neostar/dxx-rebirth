@@ -11,10 +11,15 @@
 # name) fails the run with status 1 and is named (macOS).  TERM, INT or HUP
 # to run.sh ends the run: run.sh waits for all of it to quit, and kills what
 # still runs RUN_KILL_AFTER seconds (default 10) later.
+#
+# SDL_VIDEO_HIGHDPI_DISABLED=1 renders at 1x on Retina: a bare dev binary
+# has no Info.plist with NSHighResolutionCapable=false, so the game's
+# SDL_WINDOW_ALLOW_HIGHDPI would otherwise draw into a quarter of the window.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 source "$dev_dir/env.sh"
 [[ $# -gt 0 ]] || { echo "usage: $0 BINARY [ARG...]" >&2; exit 2; }
+export SDL_VIDEO_HIGHDPI_DISABLED=1
 bin=$1
 [[ $bin == */* ]] || bin=$(command -v "$bin") || { echo "run.sh: $1: not found" >&2; exit 1; }
 
