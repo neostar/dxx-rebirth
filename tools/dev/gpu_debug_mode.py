@@ -132,9 +132,13 @@ def main(root):
 	for rel in sources(root):
 		try:
 			with open(os.path.join(root, rel), errors='replace') as f:
-				text = strip_comments(f.read())
+				text = f.read()
 		except FileNotFoundError:
 			continue
+		# Stripping only blanks text out, so a file without the name has no call.
+		if 'SDL_CreateGPUDevice' not in text:
+			continue
+		text = strip_comments(text)
 		# Names inside string literals (a log message) are not uses.
 		code = re.sub(r'"(\\.|[^"\\\n])*"', lambda m: '"' + ' ' * (len(m.group()) - 2) + '"', text)
 		for call in re.finditer(r'\b(SDL_CreateGPUDevice\w*)\b(\s*\()?', code):
