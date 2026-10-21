@@ -27,7 +27,7 @@ need()
 
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++
-	[asan]=c++ [lsan]=c++ [ubsan]=c++ [leaks]=c++)
+	[asan]=c++ [lsan]=c++ [ubsan]=c++ [leaks]=c++ [gpu]=c++)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
@@ -84,8 +84,9 @@ build_plant()
 	cp "$1" "$d/plant.cpp"
 	printf '%s\n' "$trap_exit" > "$d/trap_exit.cpp"
 	# shellcheck disable=SC2046  # the flags are words
-	c++ -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") "${@:2}" \
-		"$d/plant.cpp" "$d/trap_exit.cpp" -o "$d/plant" >&2 || return
+	# The flags follow the sources, so that GNU ld sees libraries last.
+	c++ -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") \
+		"$d/plant.cpp" "$d/trap_exit.cpp" "${@:2}" -o "$d/plant" >&2 || return
 	printf '%s\n' "$d/plant"
 }
 
@@ -122,6 +123,18 @@ gate_leaks()
 	local p
 	p=$(build_plant "$1") || return
 	"$DEV_DIR/leaks.sh" "$p" 2>&1
+}
+
+# The GPU validation gate (gpu-validate.sh): run file $1, built against the
+# pinned SDL3, under it, headless (no window; offscreen video in the
+# container, as its image sets).
+gate_gpu()
+{
+	local p video=()
+	p=$(build_plant "$1" -isystem "$dev_deps_prefix/include" -L"$dev_deps_prefix/lib" \
+		-Wl,-rpath,"$dev_deps_prefix/lib" -lSDL3) || return
+	[[ $dev_os == darwin ]] || video=(SDL_VIDEO_DRIVER=offscreen)
+	env "${video[@]}" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
 }
 
 # Run gate $1 on every planted file that names it, and fail unless one does.
@@ -184,6 +197,13 @@ test_leaks()
 {
 	[[ $dev_os == darwin ]] || skip "leaks is macOS only; gate lsan covers Linux"
 	run_planted leaks
+}
+
+test_gpu()
+{
+	[[ -e $dev_deps_prefix/include/SDL3/SDL_gpu.h ]] ||
+		skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
+	run_planted gpu
 }
 
 # Test that each gate a planted file names without a runner has an owning

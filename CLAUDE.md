@@ -10,7 +10,8 @@ Scripts in `tools/dev/`, each documented in its header: `setup.sh` once per clon
 quick subset); `build.sh [dev|asan]`
 (D2X profiles, `check` runs the unit tests); `rebase.sh` (rebase on upstream with per-commit
 checks); `fetch-docs.sh` (SDL3/SDL_GPU reference docs into `docs/reference/`). Launch binaries
-with `run.sh`; `leaks.sh` runs one under macOS's `leaks --atExit`. Toolchain (ADR 1, ADR 4): `toolchain.pins` pins every tool and dependency;
+with `run.sh`; `leaks.sh` runs one under macOS's `leaks --atExit`,
+`gpu-validate.sh` an SDL_GPU one with GPU validation as a gate. Toolchain (ADR 1, ADR 4): `toolchain.pins` pins every tool and dependency;
 `doctor.sh` fails on drift (a `check.sh --fast` step); `deps.sh` builds the pinned dependencies
 from a sha256-verified cache into `third_party/<os>-<arch>/`, `deps.sh venv` makes the hashed
 Python venv; `container.sh build|check|prune|save|load` is the Linux reference container.

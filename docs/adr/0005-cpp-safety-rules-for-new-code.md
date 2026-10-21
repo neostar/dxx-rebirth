@@ -51,6 +51,14 @@ code alike: `_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG` (libc++, the M
 `_GLIBCXX_ASSERTIONS` (libstdc++, the container), from `tools/dev/hardening.py` through
 `site-dev.py`, so container bounds, iterator and optional misuse trap at run time.
 
+**GPU validation is a gate**: every SDL_GPU run in a check runs under `tools/dev/gpu-validate.sh`,
+with SDL's GPU debug mode (the program creates its device with `debug_mode` true), Metal API
+validation (`MTL_DEBUG_LAYER=1`) and the Vulkan validation layer
+(`VK_KHRONOS_VALIDATION_REPORT_FLAGS=error,warn,perf`). Neither SDL nor the layer changes the exit
+status (spike #55, K4), so the wrapper scans the output and fails on any validation message, and
+on a run whose validation was not active. Until the fork has GPU code (#24), headless probes in
+the gate self-test prove it on Metal natively and on lavapipe in the container.
+
 **Justified exceptions** are inline only, `// NOLINT(check): reason` or
 `// NOLINTNEXTLINE(check): reason`; `format.sh` fails on a NOLINT without a check list and a
 reason.
