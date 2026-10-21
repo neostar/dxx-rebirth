@@ -109,7 +109,9 @@ constexpr std::optional<harness_tick> parse_tick(const std::string_view word)
  *     <tick> end            the run ends
  *
  * with words separated by blanks, `#` starting a comment, blank lines
- * skipped, and ticks never going back from one line to the next.
+ * skipped, and ticks never going back from one line to the next.  Exactly
+ * one end line ends the script, and its event comes last: a hidden run
+ * without one would never end.
  * `key_of` maps a key's name to its code, nullopt for an unknown name.
  * The events come back ordered by tick, in script order within a tick.
  */
@@ -123,9 +125,11 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 	std::vector<input_event> events;
 	harness_tick last_tick{0};
 	std::size_t line_number{0};
+	/* The end line's number; 0 before it. */
+	std::size_t end_line{0};
 	const auto fail{[&line_number](std::string message) {
-		return std::unexpected{
-		    input_script_error{.line = line_number, .message = std::move(message)}};
+		return std::unexpected{input_script_error{.line = std::max(line_number, std::size_t{1}),
+		                                          .message = std::move(message)}};
 	}};
 	while (!text.empty())
 	{
@@ -137,6 +141,8 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 		const auto tick_word{next_word(rest)};
 		if (tick_word.empty())
 			continue;
+		if (end_line != 0)
+			return fail("nothing may follow the end line");
 		const auto tick{input_script_detail::parse_tick(tick_word)};
 		if (!tick)
 			return fail("expected a tick from 0 to 4294967295, not \"" + std::string{tick_word} +
@@ -150,6 +156,7 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 			if (!next_word(rest).empty())
 				return fail("end takes no key");
 			events.push_back({.tick = tick.value(), .action = input_action::end, .key = {}});
+			end_line = line_number;
 			continue;
 		}
 		if (action != "down" && action != "up" && action != "press")
@@ -179,7 +186,14 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 				 .action = action == "down" ? input_action::key_down : input_action::key_up,
 				 .key = key.value()});
 	}
+	if (end_line == 0)
+		return fail("the script needs an end line, which ends the run");
 	std::ranges::stable_sort(events, {}, &input_event::tick);
+	if (events.back().action != input_action::end)
+	{
+		line_number = end_line;
+		return fail("end comes before the up of a press: move it a tick later");
+	}
 	return events;
 }
 

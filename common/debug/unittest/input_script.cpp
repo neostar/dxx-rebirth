@@ -141,6 +141,21 @@ BOOST_AUTO_TEST_CASE(ticks_going_back_are_rejected)
 	BOOST_TEST(error_line("5 down ENTER\n5 up ENTER\n4 end") == 3);
 }
 
+/* Test that a script needs exactly one end line, as its last event: without one, a hidden
+ * run would never end.
+ */
+BOOST_AUTO_TEST_CASE(script_needs_one_end_as_its_last_event)
+{
+	BOOST_TEST(error_line("") == 1);
+	BOOST_TEST(error_line("# nothing\n\n") == 2);
+	BOOST_TEST(error_line("1 down ENTER\n2 up ENTER\n") == 2);
+	BOOST_TEST(error_line("1 end\n2 end") == 2);
+	BOOST_TEST(error_line("1 end\n2 down ENTER") == 2);
+	BOOST_TEST(error_line("1 end\n# done\n") == 0);
+	BOOST_TEST(error_line("1 press ENTER\n1 end") == 2);
+	BOOST_TEST(error_line("1 press ENTER\n2 end") == 0);
+}
+
 /* Test that the player hands out each tick's events once, at that tick, counting the ticks
  * itself.
  */
