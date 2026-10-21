@@ -158,10 +158,24 @@ step_doctor()
 	"$dev_dir/doctor.sh"
 }
 
-# Check fork code against tools/dev/style/clang-format.
+# Check every fork file against tools/dev/style/clang-format.
 step_format()
 {
 	"$dev_dir/format.sh" --check
+}
+
+# The pre-commit gate (ADR 5): clang-format, NOLINT reasons and clang-tidy
+# on the staged fork files; nothing to do with nothing staged.
+step_staged()
+{
+	"$dev_dir/format.sh" --staged
+}
+
+# clang-format and clang-tidy on every fork file, with the compilation
+# database the dev build (unit_tests) writes.
+step_tidy()
+{
+	"$dev_dir/format.sh" --check && "$dev_dir/format.sh" --tidy
 }
 
 # Build D2X with the dev profile and run the unit tests.
@@ -176,8 +190,8 @@ step_sanitizer_tests()
 	"$dev_dir/build.sh" asan check
 }
 
-fast_steps=(repo_config doctor guard format shellcheck stale_hashes workflows shell_tests)
-full_steps=(unit_tests sanitizer_tests)
+fast_steps=(repo_config doctor guard format staged shellcheck stale_hashes workflows shell_tests)
+full_steps=(unit_tests tidy sanitizer_tests)
 
 mode=full
 case "${1-}" in

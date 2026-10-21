@@ -74,4 +74,99 @@ test_root_tidy_config_enables_no_checks()
 	assert_not_contains "$out" "clang-analyzer-"
 }
 
+# Make a throwaway repository holding a copy of tools/dev whose fork-dirs
+# lists src/, with the fork clang-tidy config in src/ and a compilation
+# database for src/ in build/dev, and print its path.
+fork_repo()
+{
+	local r
+	r=$(make_repo)
+	mkdir -p "$r/tools" "$r/src" "$r/common" "$r/build/dev"
+	cp -R "$DEV_DIR" "$r/tools/dev"
+	printf 'src\n' > "$r/tools/dev/fork-dirs"
+	cp "$DEV_DIR/style/clang-tidy" "$r/src/.clang-tidy"
+	printf '[{"directory": "%s", "file": "src/anchor.cpp", "arguments": ["c++", "-std=c++23", "-c", "src/anchor.cpp"]}]\n' \
+		"$r" > "$r/build/dev/compile_commands.json"
+	printf '%s\n' "$r"
+}
+
+# Test that --staged checks the staged C++ files in fork directories only:
+# a misformatted staged fork file fails and is named; the same file staged
+# in an upstream directory, or unstaged in a fork directory, is ignored.
+test_staged_checks_staged_fork_files_only()
+{
+	local r out rc
+	r=$(fork_repo)
+	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/common/upstream.cpp"
+	cp "$r/common/upstream.cpp" "$r/src/unstaged.cpp"
+	tgit -C "$r" add common/upstream.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+	cp "$r/common/upstream.cpp" "$r/src/bad.cpp"
+	tgit -C "$r" add src/bad.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/bad.cpp"
+	assert_not_contains "$out" "unstaged.cpp"
+	assert_not_contains "$out" "upstream.cpp"
+}
+
+# Test that a NOLINT needs a check list and a reason: a bare NOLINT and one
+# without a reason fail and are named by line; NOLINT(check): reason passes.
+test_nolint_needs_check_and_reason()
+{
+	local r out rc
+	r=$(fork_repo)
+	printf '%s\n' \
+		'int one(); // NOLINT' \
+		'// NOLINTNEXTLINE(bugprone-branch-clone)' \
+		'int two();' > "$r/src/bare.cpp"
+	tgit -C "$r" add src/bare.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/bare.cpp:1: NOLINT without a check and a reason"
+	assert_contains "$out" "src/bare.cpp:2: NOLINT without a check and a reason"
+	r=$(fork_repo)
+	printf '%s\n' \
+		'// NOLINTNEXTLINE(bugprone-branch-clone): both branches mirror the SDL2 path' \
+		'int two();' > "$r/src/justified.cpp"
+	tgit -C "$r" add src/justified.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a fork directory without the fork clang-tidy config, or with a
+# stale copy, fails: clangd and clang-tidy read the config from there.
+test_fork_dir_needs_current_tidy_config()
+{
+	local r out rc
+	r=$(fork_repo)
+	rm "$r/src/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/.clang-tidy"
+	printf 'Checks: -*\n' > "$r/src/.clang-tidy"
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/.clang-tidy"
+}
+
+# Test that C files get clang-format but not the C++ clang-tidy rules, so a
+# C file needs no compilation database; a C++ file without one fails.
+test_staged_c_file_skips_tidy()
+{
+	local r out rc
+	r=$(fork_repo)
+	rm "$r/build/dev/compile_commands.json"
+	printf 'int probe(void)\n{\n\treturn 0;\n}\n' > "$r/src/probe.c"
+	tgit -C "$r" add src/probe.c
+	out=$("$r/tools/dev/format.sh" --staged 2>&1)
+	assert_eq "$?" 0 "$out"
+	printf 'int probe()\n{\n\treturn 0;\n}\n' > "$r/src/probe.cpp"
+	tgit -C "$r" add src/probe.cpp
+	out=$("$r/tools/dev/format.sh" --staged 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "compile_commands.json"
+}
+
 run_tests

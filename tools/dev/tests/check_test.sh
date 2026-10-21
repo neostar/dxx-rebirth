@@ -16,6 +16,7 @@ make_dev_repo()
 	cp "$DEV_DIR/fork-dirs" "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$r/tools/dev/"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
+	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	printf '%s\n' "$r"
@@ -102,7 +103,8 @@ test_fast_runs_shell_tests_windowless()
 	assert_contains "$out" "FAILED: tests/focus_test.sh"
 }
 
-# Test that the fast subset runs the format check on the fork directories.
+# Test that the fast subset checks the format of every fork file, staged or
+# not, with nothing staged.
 test_fast_fails_on_misformatted_fork_code()
 {
 	local r out rc
@@ -111,7 +113,23 @@ test_fast_fails_on_misformatted_fork_code()
 	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "bad.cpp"
-	assert_contains "$out" "failed: format"
+	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: format' "$out"
+}
+
+# Test that the fast subset runs the pre-commit gate on the staged content
+# of fork files: a misformatted file staged, then formatted on disk, passes
+# the format step and fails the staged one.
+test_fast_runs_gate_on_staged_fork_code()
+{
+	local r out rc
+	r=$(make_dev_repo)
+	printf 'static int twice(const int& x) {\n    return x*2;\n}\n' > "$r/tools/bad.cpp"
+	git -C "$r" add tools/bad.cpp
+	"$r/tools/dev/format.sh"
+	out=$(cd "$r" && tools/dev/check.sh --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/bad.cpp: not formatted"
+	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: staged' "$out"
 }
 
 # Test that the fast subset runs shellcheck on scripts in the fork
