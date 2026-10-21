@@ -19,7 +19,8 @@
 #   CMake FetchContent download of that name in every build.
 # build: verify the cache again, then build every source offline into a
 #   fresh prefix, which records the pins and a hash of the build options in
-#   deps.stamp, and remove the build tree.  Never downloads.
+#   deps.stamp, and remove the build tree.  Never downloads.  An existing
+#   prefix is replaced only if build made it (check_prefix).
 # stamp: print what build records in deps.stamp (doctor.sh compares the
 #   two).
 # all (default): fetch, then build.
@@ -67,6 +68,27 @@ refuse()
 {
 	echo "deps.sh: $*" >&2
 	exit 1
+}
+
+# The file build writes into a fresh prefix first: a directory holding it
+# (or deps.stamp) is one build made, and may be wiped.
+prefix_marker=.dxx-deps-prefix
+
+# Refuse to wipe $prefix unless build made it: a missing or empty
+# directory, or one holding the marker or deps.stamp; never /, $HOME or the
+# repository, whatever they hold.
+check_prefix()
+{
+	local p repo
+	p=$(cd "$prefix" 2>/dev/null && pwd -P) || return 0
+	repo=$(cd "$dev_dir/../.." && pwd -P)
+	case $p in
+	/|"$(cd "$HOME" 2>/dev/null && pwd -P)"|"$repo")
+		refuse "--prefix $prefix is /, \$HOME or the repository; refusing to remove it" ;;
+	esac
+	[[ -f $p/$prefix_marker || -f $p/deps.stamp || -z $(ls -A "$p") ]] ||
+		refuse "--prefix $prefix holds no $prefix_marker or deps.stamp, so deps.sh did" \
+			"not make it; refusing to remove it"
 }
 
 # Fail unless file $2 (dependency $1) has sha256 $3.
@@ -393,8 +415,10 @@ if [[ $mode != fetch ]]; then
 	# libraries.
 	export PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=
 	work=$prefix-build
+	check_prefix
 	rm -rf "$prefix" "$work"
 	mkdir -p "$prefix" "$work"
+	: > "$prefix/$prefix_marker"
 	reproducible_options
 	# Every build sees every `fetchcontent` checkout in place of its
 	# download, and may download nothing else.

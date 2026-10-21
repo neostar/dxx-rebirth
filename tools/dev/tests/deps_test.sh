@@ -322,4 +322,34 @@ test_build_records_no_build_time()
 	assert_eq "$(cat "$d/prefix/share/when")" "$a"
 }
 
+# Test that build refuses to wipe a prefix it did not make: /, $HOME, the
+# repository, or a directory with files but no marker, leaving it as it
+# was; and replaces one it made, even after a failed build.
+test_build_refuses_a_prefix_it_did_not_make()
+{
+	local d t p out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	t=$(make_tarball "$d" demo)
+	echo "source demo 1.0 file://$t $(dev_sha256 "$t")" > "$d/manifest"
+	run_deps "$d" fetch >/dev/null || die "fetch failed"
+	# Should the guard fail, an rm that removes nothing stands in for the
+	# real one where it matters: it logs its arguments and fails.
+	mkdir "$d/bin" && printf '#!/bin/sh\necho "$*" >> "%s/rm.log"\nexit 1\n' "$d" > "$d/bin/rm"
+	chmod +x "$d/bin/rm"
+	mkdir "$d/precious" && echo keep > "$d/precious/file"
+	for p in / "$HOME" "$REPO_ROOT" "$d/precious"; do
+		out=$(PATH="$d/bin:$PATH" "$DEPS" --manifest "$d/manifest" --cache "$d/cache" \
+			--prefix "$p" build 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$p: $out"
+		assert_contains "$out" "refusing to remove it"
+	done
+	[[ ! -e $d/rm.log ]] || fail "rm ran: $(cat "$d/rm.log")"
+	assert_eq "$(cat "$d/precious/file")" keep
+	out=$(run_deps "$d" build) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	rm "$d/prefix/deps.stamp"
+	out=$(run_deps "$d" build) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "a prefix with the marker only: $out"
+}
+
 run_tests
