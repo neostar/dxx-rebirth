@@ -174,8 +174,8 @@ step_test_git()
 	return 1
 }
 
-# GPU validation is a gate (ADR 5): fail on an SDL_CreateGPUDevice call in
-# fork code whose debug_mode is not true (gpu_debug_mode.py), and on a line
+# GPU validation is a gate (ADR 5): fail on an SDL_GPU device created
+# anywhere outside third_party/ without debug mode (gpu_debug_mode.py), and on a line
 # of this file that runs a registered GPU program ($gpu_program) other than
 # through gpu-validate.sh.
 step_gpu_gate()

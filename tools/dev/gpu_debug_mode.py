@@ -1,14 +1,54 @@
-# Print every SDL_CreateGPUDevice call in the fork's C and C++ files
-# (tools/dev/fork-dirs) whose debug_mode argument is not literally true, as
-# "file:line: ...", and exit 1 if there is one (ADR 5: GPU validation is a
-# gate, and SDL's debug mode is the program's own).
+# Print every SDL_GPU device creation in the repository's C, C++ and
+# Objective-C(++) sources (every file git tracks or would track, outside
+# third_party/) that does not ask for SDL's debug mode, as "file:line: ...",
+# and exit 1 if there is one (ADR 5: GPU validation is a gate, and SDL's
+# debug mode is the program's own).  Game code creates the device too, so
+# the scan is not limited to tools/dev/fork-dirs.
+#
+# Debug mode is asked for by `true` or by the constant `gpu_debug_mode`
+# (namespace-qualified or not), which a release build may define false:
+# - SDL_CreateGPUDevice(formats, DEBUG, name) with DEBUG one of those;
+# - SDL_CreateGPUDeviceWithProperties(props) in a function that also calls
+#   SDL_SetBooleanProperty(p, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, DEBUG);
+# - any other SDL_CreateGPUDevice* is reported as unknown to this gate.
+# Comments are ignored.
 #
 #   python3 gpu_debug_mode.py ROOT
 import os
 import re
+import subprocess
 import sys
 
-SOURCES = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp')
+SOURCES = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.m', '.mm')
+DEBUG = re.compile(r'^(true|(\w+\s*::\s*)*gpu_debug_mode)$')
+PROPERTY = 'SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN'
+
+
+def strip_comments(text):
+	"""Blank out comments, keeping newlines (line numbers) and literals."""
+	out, i, n = [], 0, len(text)
+	while i < n:
+		ch = text[i]
+		if text.startswith('//', i):
+			j = text.find('\n', i)
+			j = n if j < 0 else j
+			out.append(' ' * (j - i))
+			i = j
+		elif text.startswith('/*', i):
+			j = text.find('*/', i + 2)
+			j = n if j < 0 else j + 2
+			out.append(re.sub(r'[^\n]', ' ', text[i:j]))
+			i = j
+		elif ch in '"\'':
+			j = i + 1
+			while j < n and text[j] != ch and text[j] != '\n':
+				j += 2 if text[j] == '\\' else 1
+			out.append(text[i:j + 1])
+			i = j + 1
+		else:
+			out.append(ch)
+			i += 1
+	return ''.join(out)
 
 
 def arguments(text, start):
@@ -19,7 +59,7 @@ def arguments(text, start):
 			depth += 1
 		elif ch in ')]}':
 			if depth == 0:
-				return args + [current]
+				return [a.strip() for a in args + [current]]
 			depth -= 1
 		elif ch == ',' and depth == 0:
 			args.append(current)
@@ -29,26 +69,70 @@ def arguments(text, start):
 	return None
 
 
+def function_body(text, pos):
+	"""Return (start, end) of the innermost brace block around pos that is
+	not a namespace, extern "C", class, struct or union body."""
+	stack, blocks = [], []
+	for m in re.finditer(r'[{}]', text):
+		if m.group() == '{':
+			stack.append(m.start())
+		elif stack:
+			start = stack.pop()
+			if start < pos < m.start():
+				blocks.append((start, m.start()))
+	# Outermost first: a function's own body, not a block inside it.
+	for start, end in sorted(blocks):
+		head = re.split(r'[;{}]', text[:start])[-1]
+		if not re.search(r'\bnamespace\b|\bextern\s*"C"|\b(class|struct|union)\b[^()]*$', head):
+			return start, end
+	return 0, len(text)
+
+
+def sets_debug_property(body):
+	for call in re.finditer(r'\bSDL_SetBooleanProperty\s*\(', body):
+		args = arguments(body, call.end())
+		if args and len(args) == 3 and args[1] == PROPERTY and DEBUG.match(args[2]):
+			return True
+	return False
+
+
+def problem(text, call):
+	name = call.group(1)
+	args = arguments(text, call.end())
+	if name == 'SDL_CreateGPUDevice':
+		if args is not None and len(args) == 3 and DEBUG.match(args[1]):
+			return None
+		return 'SDL_CreateGPUDevice without debug_mode true or gpu_debug_mode'
+	if name == 'SDL_CreateGPUDeviceWithProperties':
+		start, end = function_body(text, call.start())
+		if sets_debug_property(text[start:end]):
+			return None
+		return (f'{name} without {PROPERTY} set to true or gpu_debug_mode '
+			'in the same function')
+	return f'{name}: a device creation gpu_debug_mode.py does not know'
+
+
+def sources(root):
+	files = subprocess.run(['git', '-C', root, 'ls-files', '-z', '-co', '--exclude-standard'],
+		check=True, capture_output=True, text=True).stdout.split('\0')
+	return sorted(f for f in files
+		if f.endswith(SOURCES) and not f.startswith('third_party/'))
+
+
 def main(root):
-	with open(os.path.join(root, 'tools/dev/fork-dirs')) as f:
-		dirs = [d.strip() for d in f if d.strip() and not d.startswith('#')]
 	bad = 0
-	for d in dirs:
-		for path, _, files in os.walk(os.path.join(root, d)):
-			for name in sorted(files):
-				if not name.endswith(SOURCES):
-					continue
-				file = os.path.join(path, name)
-				with open(file, errors='replace') as f:
-					text = f.read()
-				for call in re.finditer(r'\bSDL_CreateGPUDevice\s*\(', text):
-					args = arguments(text, call.end())
-					if args is not None and len(args) == 3 and args[1].strip() == 'true':
-						continue
-					line = text.count('\n', 0, call.start()) + 1
-					print(f'{os.path.relpath(file, root)}:{line}: SDL_CreateGPUDevice without '
-						'debug_mode true; GPU validation needs it (ADR 5)')
-					bad = 1
+	for rel in sources(root):
+		try:
+			with open(os.path.join(root, rel), errors='replace') as f:
+				text = strip_comments(f.read())
+		except FileNotFoundError:
+			continue
+		for call in re.finditer(r'\b(SDL_CreateGPUDevice\w*)\s*\(', text):
+			message = problem(text, call)
+			if message:
+				line = text.count('\n', 0, call.start()) + 1
+				print(f'{rel}:{line}: {message}; GPU validation needs it (ADR 5)')
+				bad = 1
 	return bad
 
 

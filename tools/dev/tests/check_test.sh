@@ -290,6 +290,36 @@ test_fast_fails_on_gpu_device_without_debug_mode()
 	assert_eq "$?" 0 "$out"
 }
 
+# Test that the GPU debug-mode gate scans game code and Objective-C++
+# outside the fork directories but not third_party/, ignores comments,
+# accepts the gpu_debug_mode constant, wants the debug-mode property set in
+# the function that creates a device from properties, and reports any other
+# device creation.
+test_gpu_gate_scans_whole_repository()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	mkdir -p "$r/similar/main" "$r/common/arch" "$r/third_party/sdl"
+	printf '%s\n' '/* SDL_CreateGPUDevice(f, false, nullptr); */' \
+		'// SDL_CreateGPUDevice(f, false, nullptr);' \
+		'auto *a = SDL_CreateGPUDevice(f, dcx::gpu_debug_mode, nullptr);' \
+		'auto *b = SDL_CreateGPUDevice(f, false, nullptr);' > "$r/similar/main/gpu.mm"
+	printf '%s\n' 'namespace dcx {' 'SDL_GPUDevice *good(SDL_PropertiesID p)' '{' \
+		'	SDL_SetBooleanProperty(p, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, true);' \
+		'	if (p) { return SDL_CreateGPUDeviceWithProperties(p); }' '	return nullptr;' '}' \
+		'SDL_GPUDevice *bad(SDL_PropertiesID p)' '{' \
+		'	return SDL_CreateGPUDeviceWithProperties(p);' '}' \
+		'auto *c = SDL_CreateGPUDeviceForTesting(p);' '}' > "$r/common/arch/gpu.cpp"
+	echo 'auto *d = SDL_CreateGPUDevice(f, false, nullptr);' > "$r/third_party/sdl/gpu.c"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "similar/main/gpu.mm:4: SDL_CreateGPUDevice without debug_mode true"
+	assert_contains "$out" "common/arch/gpu.cpp:10: SDL_CreateGPUDeviceWithProperties without"
+	assert_contains "$out" \
+		"common/arch/gpu.cpp:12: SDL_CreateGPUDeviceForTesting: a device creation"
+	assert_eq "$(wc -l <<<"$out" | tr -d ' ')" 3 "$out"
+}
+
 # Test that the fast subset fails on a line of check.sh that runs a
 # registered GPU program other than through gpu-validate.sh.
 test_fast_fails_on_gpu_program_run_outside_the_wrapper()

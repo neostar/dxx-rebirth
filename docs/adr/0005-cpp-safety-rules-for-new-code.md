@@ -63,8 +63,14 @@ validation (`MTL_DEBUG_LAYER=1`) and the Vulkan validation layer
 status (spike #55, K4), so the wrapper scans the output and fails on any validation message, and
 on a run whose validation was not active. Until the fork has GPU code (#24), headless probes in
 the gate self-test prove it on Metal natively and on lavapipe in the container.
-`check.sh`'s `gpu_gate` step fails on fork code creating a device with `debug_mode` other than
-`true` and on a GPU program it runs outside the wrapper; its `gpu_tests` step runs every program
+`check.sh`'s `gpu_gate` step (`tools/dev/gpu_debug_mode.py`) scans every C, C++ and
+Objective-C(++) source outside `third_party/`, game code included, with comments stripped: a
+device is created as `SDL_CreateGPUDevice(formats, DEBUG, name)`, or by
+`SDL_CreateGPUDeviceWithProperties` in a function that also sets
+`SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN` to `DEBUG` with `SDL_SetBooleanProperty`, where
+`DEBUG` is `true` or the constant `gpu_debug_mode` (namespace-qualified or not), which a release
+build may define `false` to turn validation off. Any other `SDL_CreateGPUDevice*` fails as
+unknown. The step also fails on a GPU program `check.sh` runs outside the wrapper; its `gpu_tests` step runs every program
 `tools/dev/gpu-programs` registers through `gpu-validate.sh`.
 
 **The check tier's budget** is 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
