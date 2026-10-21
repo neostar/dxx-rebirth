@@ -20,6 +20,9 @@ fi
 # Scripts run from a throwaway copy of tools/dev use this clone's pinned
 # tools: the dependency prefix (LLVM's among them) and the venv.
 export DXX_DEPS_PREFIX=$dev_deps_prefix DXX_VENV=$dev_venv
+# Tests run setup.sh with the real PATH: it must not download Xcode's Metal
+# toolchain (or anything else) onto the system.
+export DXX_SETUP_NO_DOWNLOAD=1
 
 # A test may run inside a git hook, where git exports GIT_DIR, GIT_INDEX_FILE
 # and friends for the repository being committed to.  Clear them, so every

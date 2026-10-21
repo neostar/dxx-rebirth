@@ -703,6 +703,47 @@ test_setup_installs_hooks()
 	assert_eq "$(tgit -C "$r" config rerere.enabled)" "true"
 }
 
+# Write fakes of xcrun and xcodebuild into directory $1: `xcrun metal
+# --version` succeeds when $1/metal exists, xcodebuild logs its arguments.
+fake_xcode()
+{
+	printf '#!/bin/sh\n[ "$*" = "metal --version" ] && [ -e "%s/metal" ]\n' "$1" > "$1/xcrun"
+	printf '#!/bin/sh\necho "$*" >> "%s/xcodebuild.log"\n' "$1" > "$1/xcodebuild"
+	chmod +x "$1/xcrun" "$1/xcodebuild"
+}
+
+# Test that setup.sh on macOS downloads Xcode's Metal toolchain, which
+# tools/shaders/check.sh compiles MSL with, only when xcrun cannot run
+# metal.  This is setup.sh's default, outside the tests (lib.sh).
+test_setup_installs_metal_toolchain()
+{
+	local r bin
+	[[ $dev_os == darwin ]] || skip "macOS only: the Metal toolchain is Xcode's"
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	bin=$(make_scratch) || die "make_scratch failed"
+	fake_xcode "$bin"
+	(cd "$r" && PATH="$bin:$PATH" env -u DXX_SETUP_NO_DOWNLOAD tools/dev/setup.sh >/dev/null)
+	assert_eq "$(cat "$bin/xcodebuild.log" 2>/dev/null)" "-downloadComponent MetalToolchain"
+	rm -f "$bin/xcodebuild.log"
+	: > "$bin/metal"
+	(cd "$r" && PATH="$bin:$PATH" env -u DXX_SETUP_NO_DOWNLOAD tools/dev/setup.sh >/dev/null)
+	assert_eq "$(cat "$bin/xcodebuild.log" 2>/dev/null)" ""
+}
+
+# Test that no test reaches the real xcodebuild: setup.sh, which
+# make_dev_repo and other tests run with the real PATH, downloads nothing
+# under lib.sh, even where xcrun cannot run metal.
+test_setup_in_tests_downloads_nothing()
+{
+	local r bin
+	[[ $dev_os == darwin ]] || skip "macOS only: the Metal toolchain is Xcode's"
+	bin=$(make_scratch) || die "make_scratch failed"
+	fake_xcode "$bin"
+	r=$(PATH="$bin:$PATH" make_dev_repo) || die "make_dev_repo failed"
+	(cd "$r" && PATH="$bin:$PATH" tools/dev/setup.sh >/dev/null)
+	assert_eq "$(cat "$bin/xcodebuild.log" 2>/dev/null)" ""
+}
+
 # Test that the fast subset fails, naming the key, when the repository's
 # local config deviates from what setup.sh records.
 test_fast_fails_on_repo_config_deviation()
