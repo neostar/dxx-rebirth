@@ -20,8 +20,8 @@ binary_lines=100
 # Succeed if an ancestor of this process is `git commit ... --amend`.
 amending()
 {
-	local pid=$$ ppid args i
-	for i in 1 2 3 4 5 6; do
+	local pid=$$ ppid args
+	for _ in 1 2 3 4 5 6; do
 		read -r ppid args < <(ps -o ppid= -o args= -p "$pid" 2>/dev/null) || return 1
 		if [[ " $args " =~ (^|[[:space:]/])git[[:space:]].*[[:space:]]commit[[:space:]] &&
 			" $args " == *" --amend "* ]]; then

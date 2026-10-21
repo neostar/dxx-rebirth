@@ -96,12 +96,12 @@ test_test_file_sees_only_allowlisted_environment()
 	local d out
 	d=$(make_scratch) || die "make_scratch failed"
 	printf '%s\n' "source '$DEV_DIR/tests/lib.sh'" \
-		'test_env() { echo "token=${SECRET_TOKEN-unset} home=${HOME:+set}" \' \
-		'	"gh=${DXX_GH_TOKEN-unset} jobs=${DXX_JOBS-unset} sdl=${SDL_MAC_BACKGROUND_APP-unset}"; }' \
+		'test_env() { echo "token=${SECRET_TOKEN-unset} home=${HOME:+set} gh=${DXX_GH_TOKEN-unset}"' \
+		'	echo "jobs=${DXX_JOBS-unset} sdl=${SDL_MAC_BACKGROUND_APP-unset}"; }' \
 		'run_tests' > "$d/env_test.sh"
 	out=$(SECRET_TOKEN=decoy DXX_GH_TOKEN=secret DXX_JOBS=3 SDL_MAC_BACKGROUND_APP=1 \
 		bash "$d/env_test.sh" 2>&1)
-	assert_contains "$out" "token=unset home=set gh=unset jobs=3 sdl=1"
+	assert_contains "$out" "token=unset home=set gh=unset"$'\n'"jobs=3 sdl=1"
 }
 
 # Test that git finds no repository above the scratch root, even with the
