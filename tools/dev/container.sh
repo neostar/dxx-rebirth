@@ -24,7 +24,8 @@
 #     changes are excluded.
 # Both fetch upstream/master from that read-only git directory, so the
 # checks that compare against upstream run (the default also fetches the
-# fork's branches, whose commits those checks look up).
+# fork's branches, whose commits those checks look up); without it the run
+# fails rather than letting those checks SKIP.
 # Neither keeps a build cache.  The Docker daemon must be running (on the
 # Mac: `orb start`).
 set -eu
@@ -73,7 +74,7 @@ run_offline()
 			git clone -q --no-checkout /src.git /work && cd /work
 			git -c advice.detachedHead=false checkout -q --detach "$CI_COMMIT"
 			git fetch -q /src.git "+refs/remotes/upstream/master:refs/remotes/upstream/master" ||
-				echo "container.sh: no upstream/master in the clone" >&2
+				{ echo "container.sh: no upstream/master in the clone; fetch upstream" >&2; exit 1; }
 			tools/dev/setup.sh >/dev/null
 			exec "$@"' bash "$@" < /dev/null
 	else
@@ -89,7 +90,7 @@ run_offline()
 			git -c user.name=ci -c user.email=ci@example.invalid commit -q -m worktree
 			git fetch -q /src.git "+refs/remotes/upstream/master:refs/remotes/upstream/master" \
 				"+refs/heads/*:refs/remotes/origin/*" ||
-				echo "container.sh: no upstream/master in the copy" >&2
+				{ echo "container.sh: no upstream/master in the copy; fetch upstream" >&2; exit 1; }
 			tools/dev/setup.sh >/dev/null
 			exec "$@"' bash "$@"
 	fi

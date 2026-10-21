@@ -124,6 +124,62 @@ test_clean_clones_commit_under_test()
 	[[ ! -s $bin/docker.stdin ]] || fail "--clean sent the working tree"
 }
 
+# Put a fake docker into $1 whose `run` runs the container's script here,
+# with /src.git and /work replaced by the mounted git directory and $1/work.
+exec_docker()
+{
+	cat > "$1/docker" <<DOCKER
+#!/usr/bin/env bash
+[[ \$1 == run ]] || exit 0
+shift
+src= envs=()
+while [[ \$1 == -* ]]; do
+	case \$1 in
+	-v) src=\${2%%:/src.git:ro} ;;
+	-e) envs+=("\$2") ;;
+	--network|--platform) ;;
+	*) shift; continue ;;
+	esac
+	shift 2
+done
+shift 3
+script=\${1//\/src.git/\$src}
+script=\${script//\/work/$1/work}
+shift
+exec env "\${envs[@]}" bash -c "\$script" "\$@"
+DOCKER
+	chmod +x "$1/docker"
+}
+
+# Test that both container runs fail, naming it, when the clone has no
+# upstream/master to fetch, rather than letting the upstream checks SKIP,
+# and run the command once it has.
+test_container_run_needs_upstream()
+{
+	local bin r out rc mode
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	printf '#!/usr/bin/env bash\n' > "$r/tools/dev/setup.sh"
+	chmod +x "$r/tools/dev/setup.sh"
+	tgit -C "$r" add -A && tgit -C "$r" commit -q -m setup
+	exec_docker "$bin"
+	for mode in --clean ''; do
+		rm -rf "$bin/work"
+		out=$(PATH="$bin:$PATH" "$r/tools/dev/container.sh" run $mode echo ran 2>&1) &&
+			rc=0 || rc=$?
+		assert_eq "$rc" 1 "$mode: $out"
+		assert_contains "$out" "no upstream/master in the"
+		assert_not_contains "$out" "ran"$'\n'
+	done
+	tgit -C "$r" update-ref refs/remotes/upstream/master HEAD
+	for mode in --clean ''; do
+		rm -rf "$bin/work"
+		out=$(PATH="$bin:$PATH" "$r/tools/dev/container.sh" run $mode echo ran 2>&1)
+		assert_eq "$?" 0 "$mode: $out"
+		assert_contains "$out" "ran"
+	done
+}
+
 # Test that a successful build removes the older dxx-rebirth-ref images
 # and keeps the new one.
 test_build_removes_older_images()
