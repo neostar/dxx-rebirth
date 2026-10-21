@@ -307,9 +307,12 @@ reproducible_options()
 	link_maps=()
 	if [[ $platform == darwin-* ]]; then
 		rpath=@loader_path/../lib
-		link_maps=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-oso_prefix,$work"
-			"-DCMAKE_EXE_LINKER_FLAGS=-Wl,-oso_prefix,$work"
-			"-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-oso_prefix,$work")
+		# ld records each object as CMake names it, through resolved
+		# links (/private/var), and takes one prefix: the resolved one.
+		m=$(cd "$work" && pwd -P)
+		link_maps=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-oso_prefix,$m"
+			"-DCMAKE_EXE_LINKER_FLAGS=-Wl,-oso_prefix,$m"
+			"-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-oso_prefix,$m")
 		export ZERO_AR_DATE=1
 	else
 		rpath=\$ORIGIN/../lib
@@ -335,6 +338,8 @@ build_one()
 		-DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_RPATH="$rpath" \
 		-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
 		-DCMAKE_C_FLAGS="${path_maps[*]}" -DCMAKE_CXX_FLAGS="${path_maps[*]}" \
+		-DCMAKE_OBJC_FLAGS="${path_maps[*]}" -DCMAKE_OBJCXX_FLAGS="${path_maps[*]}" \
+		-DCMAKE_ASM_FLAGS="${path_maps[*]}" \
 		"${link_maps[@]+"${link_maps[@]}"}" \
 		-DCMAKE_IGNORE_PREFIX_PATH='/opt/homebrew;/usr/local' \
 		-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \

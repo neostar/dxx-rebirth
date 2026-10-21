@@ -37,7 +37,8 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   setting is removed before anything else is installed.
 - **Reproducible dependency builds.** The same pins give the same bytes at any prefix, so every
   worktree's prefix matches: `deps.sh` maps the build, cache and prefix paths to fixed names
-  (`-ffile-prefix-map`, `-fdebug-prefix-map`, `-Wl,-oso_prefix` on the Mac), links with a
+  (`-ffile-prefix-map`, `-fdebug-prefix-map` for C, C++, Objective-C(++) and assembler;
+  `-Wl,-oso_prefix` on the Mac, with links resolved, as `ld` records `/private/var`), links with a
   prefix-relative rpath (`@loader_path/../lib`, `$ORIGIN/../lib`) from the start, as rewriting the
   build rpath at install changes the bytes and the Mach-O UUID left from the link, and writes
   archives without timestamps (`ZERO_AR_DATE=1`; GNU ar is deterministic by default). SPIRV-Cross
@@ -45,7 +46,9 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   `libspirv-cross-c-shared` differed between two builds at one path; `SOURCE_DATE_EPOCH=0` fixes it.
   One leak stays, allowlisted in the test: FluidSynth compiles its prefix into `libfluidsynth`
   (the default soundfont path) and, on the Mac, sets an absolute install name that SDL3_mixer and
-  the `fluidsynth` program record; its CMake overrides `CMAKE_INSTALL_NAME_DIR`. The fix is
+  the `fluidsynth` program record; its CMake overrides `CMAKE_INSTALL_NAME_DIR`. Masking the
+  prefix inside those files would not make them comparable on the Mac: the linker's ad-hoc code
+  signature hashes the bytes that hold it. The fix is
   `-DDEFAULT_SOUNDFONT=` and an `@rpath` install name set after its install. pkg-config
   and CMake files name their prefix by design. `DXX_REPRO_TESTS=1 tools/dev/tests/repro_test.sh`
   builds the pins twice at two prefixes and compares every installed file.

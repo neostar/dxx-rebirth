@@ -196,24 +196,31 @@ test_fetchcontent_comes_from_the_cache()
 	assert_eq "$(cat "$d/prefix/share/main/data" 2>&1)" extra
 }
 
-# Test that two builds of one C project at two different prefixes install
-# byte-identical libraries and programs: no build path, prefix path or
-# archive timestamp leaks into them.
+# Test that two builds of one C project (Objective-C too on the Mac), with
+# debug info, at two different prefixes under the unresolved temporary
+# directory install byte-identical libraries and programs: no build path,
+# prefix path or archive timestamp leaks into them.
 test_build_does_not_depend_on_its_path()
 {
-	local d t a b
+	local d t a b langs=C srcs=lib.c
 	command -v cc >/dev/null || skip "no C compiler"
-	d=$(make_scratch)
+	d=$(make_scratch) || die "make_scratch failed"
 	mkdir -p "$d/src/cdemo-1.0"
 	printf '%s\n' \
 		'const char *where(void) { return __FILE__; }' > "$d/src/cdemo-1.0/lib.c"
+	if [[ $(uname -s) == Darwin ]]; then
+		printf '%s\n' \
+			'const char *where_objc(void) { return __FILE__; }' > "$d/src/cdemo-1.0/objc.m"
+		langs='C OBJC' srcs='lib.c objc.m'
+	fi
 	printf '%s\n' \
 		'const char *where(void);' \
 		'int main(void) { return where()[0] == 0; }' > "$d/src/cdemo-1.0/main.c"
 	printf '%s\n' \
 		'cmake_minimum_required(VERSION 3.20)' \
-		'project(cdemo C)' \
-		'add_library(cdemo SHARED lib.c)' \
+		"project(cdemo $langs)" \
+		'add_compile_options(-g)' \
+		"add_library(cdemo SHARED $srcs)" \
 		'add_library(cdemo_static STATIC lib.c)' \
 		'add_executable(cdemo_main main.c)' \
 		'target_link_libraries(cdemo_main cdemo)' \
