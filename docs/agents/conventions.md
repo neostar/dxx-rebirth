@@ -114,10 +114,11 @@ are the calls it cannot make:
   ride along with the change that needs them. For a larger change that cannot be split, commit
   with `DXX_ALLOW_LARGE_COMMIT=<reason>` and give the reason in a `Large-commit: <reason>`
   trailer. The pre-commit hook and `check.sh`'s `commit_sizes` step enforce this;
-  `tools/dev/commit-size.sh`'s header says what they count and let through.
+  an amend counts as the whole commit and a binary file as 100 lines; `tools/dev/commit-size.sh`'s
+  header says what else they count and let through.
 - Docs change in the same series as the code they describe.
-- Commits are signed by the time they land (an implementer's are signed at merge,
-  `issue-tracker.md`); push only signed commits.
+- Commits are signed. The one exception: implementer agents commit unsigned and the orchestrator
+  signs at merge (`issue-tracker.md`). Push only signed commits.
 - Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.
   `check.sh --fast` fails on a fork hash in `docs/`, `CLAUDE.md` or `GLOSSARY.md`; upstream
   hashes are fine.

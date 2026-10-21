@@ -1,6 +1,13 @@
 ## Conventions
 
 Read `docs/agents/conventions.md` before writing or reviewing C++, SConstruct, tests or commit messages.
+Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-for-new-code.md`).
+
+## Windowless
+
+Run every built binary, probe or test program through `tools/dev/run.sh` or
+`tools/dev/no-window.sh`, with `ASAN_OPTIONS=abort_on_error=0`: nothing may open a window, take
+focus or leave a crash report. Never delete files in `~/Library/Logs/DiagnosticReports`.
 
 ## Dev workflow
 
