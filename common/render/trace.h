@@ -16,6 +16,18 @@
  *   record: u8 kind, u32 payload length, payload
  * A record's payload length must match what its kind holds exactly.  A
  * trace ends at the end of a record; a partial record is malformed.
+ * Payloads by kind (enums as u8, booleans as u8 0 or 1):
+ *   1 clear: u8 flags, bit 0 colour, bit 1 depth
+ *   2 present: empty
+ *   3 texture: u32 slot, u8 has image; with one: u32 width, u32 height,
+ *     format, filter, anisotropic, has_transparency, width*height*4 bytes
+ *   4 draw: topology, u32 slot, blend, depth, cull, f32 alpha_ref, wrap,
+ *     f32 line_width, i32 x, i32 y, u32 width, u32 height; u8 projection
+ *     (0 perspective: f64 fovy, aspect, z_near, z_far, f32 stereo_dx;
+ *     1 ortho: f64 left, right, bottom, top, z_near, z_far); u8 modelview
+ *     (0 identity; 1 translate_scale: f32 translate[3], scale[3]); u32
+ *     count, then count vertices of f32 pos[3], rgba[4], uv[2]
+ * A new kind or field is a new version.
  */
 
 #pragma once
