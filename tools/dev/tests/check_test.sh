@@ -4,6 +4,9 @@
 # Single quotes hold scripts expanded by the shells they are written for.
 # shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
+# check.sh's doctor step reads free disk in Docker's VM from a running
+# daemon; these tests leave the real one alone.
+export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
 
 # Make a throwaway repo with tools/dev copied in (no tests, so check.sh
 # does not recurse into this file) and the fork's hooks installed.

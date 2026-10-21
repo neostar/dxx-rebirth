@@ -21,7 +21,18 @@ fake_tool()
 run_doctor()
 {
 	local fakes=$1 platform=$2; shift 2
-	PATH="$fakes:$PATH" DXX_VENV="$fakes/no-venv" DXX_DEPS_PREFIX="$fakes/no-prefix" DOCTOR_PLATFORM=$platform "$DOCTOR" "$@" 2>&1
+	[[ -e $fakes/df ]] || fake_df "$fakes"
+	PATH="$fakes:$PATH" DXX_VENV="$fakes/no-venv" DXX_DEPS_PREFIX="$fakes/no-prefix" \
+		DOCKER_HOST=${DOCKER_HOST:-unix://$fakes/no-docker.sock} \
+		DOCTOR_PLATFORM=$platform "$DOCTOR" "$@" 2>&1
+}
+
+# Write a fake df into directory $1 reporting $DF_FREE_KB (default 100 GiB)
+# free, so that no test depends on this machine's disk.
+fake_df()
+{
+	printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/fake 999999999 1 ${DF_FREE_KB:-104857600} 1%% /"\n' > "$1/df"
+	chmod +x "$1/df"
 }
 
 # Test that a manifest whose tools all match passes.
@@ -323,7 +334,9 @@ test_missing_venv_skips()
 
 # Write fakes into directory $1 for the machine probes: sysctl answering
 # "name=value" pairs given as the remaining arguments (any other name
-# fails), df reporting $DF_FREE_KB free, docker listing $DOCKER_IMAGES.
+# fails), df reporting $DF_FREE_KB free, docker listing $DOCKER_IMAGES,
+# logging its calls to $1/docker.log and running df with $DOCKER_FREE_KB
+# free, and a socket $1/docker.sock for DOCKER_HOST to name.
 fake_machine()
 {
 	local d=$1 kv; shift
@@ -334,9 +347,18 @@ fake_machine()
 		echo '*) exit 1 ;;'
 		echo 'esac'
 	} > "$d/sysctl"
-	printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/fake 999999999 1 ${DF_FREE_KB:-104857600} 1%% /"\n' > "$d/df"
-	printf '#!/bin/sh\ncase $1 in info) exit 0 ;; image) printf "%%s\\n" ${DOCKER_IMAGES-} ;; esac\n' > "$d/docker"
-	chmod +x "$d/sysctl" "$d/df" "$d/docker"
+	fake_df "$d"
+	cat > "$d/docker" <<DOCKER
+#!/bin/sh
+echo "\$*" >> "$d/docker.log"
+case \$1 in
+image) printf '%s\n' \${DOCKER_IMAGES-} ;;
+run) echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+	echo "overlay 999999999 1 \${DOCKER_FREE_KB:-104857600} 1% /" ;;
+esac
+DOCKER
+	chmod +x "$d/sysctl" "$d/docker"
+	python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$d/docker.sock"
 }
 
 # Test that doctor reports the machine: jobs from the performance cores,
@@ -350,7 +372,8 @@ test_reports_cores_ram_and_disk()
 	: > "$d/manifest"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest")
 	assert_contains "$out" "info machine: 6 jobs (DXX_JOBS), 32 GiB RAM"
-	assert_contains "$out" "ok   disk 100 GiB free"
+	assert_contains "$out" "ok   disk host 100 GiB free"
+	assert_contains "$out" "SKIP disk docker: daemon not running"
 }
 
 # Test that without performance levels the jobs are all the CPUs.
@@ -374,10 +397,34 @@ test_low_disk_warns_then_fails()
 	: > "$d/manifest"
 	out=$(DF_FREE_KB=$((30 * 1048576)) run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
-	assert_contains "$out" "WARN disk: 30 GiB free"
+	assert_contains "$out" "WARN disk host: 30 GiB free"
 	out=$(DF_FREE_KB=$((10 * 1048576)) run_doctor "$d" darwin --manifest "$d/manifest") && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "FAIL disk: 10 GiB free"
+	assert_contains "$out" "FAIL disk host: 10 GiB free"
+}
+
+# Test that free disk in Docker's VM is read, by df in a reference image,
+# only from a daemon that is already running: without its socket docker
+# is never called.
+test_docker_disk_only_from_running_daemon()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
+	: > "$d/manifest"
+	out=$(DOCKER_IMAGES=dxx-rebirth-ref:a DOCKER_FREE_KB=$((10 * 1048576)) \
+		DOCKER_HOST="unix://$d/docker.sock" run_doctor "$d" darwin --manifest "$d/manifest") &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ok   disk host 100 GiB free"
+	assert_contains "$out" "FAIL disk docker: 10 GiB free"
+	assert_contains "$(cat "$d/docker.log")" "--pull never --network none"
+	out=$(DOCKER_HOST="unix://$d/docker.sock" run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "SKIP disk docker: no dxx-rebirth-ref image"
+	rm "$d/docker.log"
+	out=$(DOCKER_IMAGES=dxx-rebirth-ref:a run_doctor "$d" darwin --manifest "$d/manifest")
+	assert_contains "$out" "SKIP disk docker: daemon not running"
+	[[ ! -e $d/docker.log ]] || fail "docker called without a running daemon: $(cat "$d/docker.log")"
 }
 
 # Test that more than one reference image warns.
@@ -387,6 +434,7 @@ test_counts_reference_images()
 	d=$(make_scratch) || die "make_scratch failed"
 	fake_machine "$d" hw.ncpu=10 hw.memsize=34359738368
 	: > "$d/manifest"
+	export DOCKER_HOST="unix://$d/docker.sock"
 	out=$(DOCKER_IMAGES='dxx-rebirth-ref:a dxx-rebirth-ref:b' run_doctor "$d" darwin --manifest "$d/manifest")
 	assert_contains "$out" "WARN images: 2 dxx-rebirth-ref images"
 	out=$(DOCKER_IMAGES='dxx-rebirth-ref:a' run_doctor "$d" darwin --manifest "$d/manifest")

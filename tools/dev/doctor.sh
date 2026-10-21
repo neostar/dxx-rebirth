@@ -197,30 +197,56 @@ if [[ -n $want_python ]]; then
 	fi
 fi
 
-# The machine: jobs, RAM and free disk on the volumes holding the repository
-# and Docker's data (DXX_DOCKER_DATA; OrbStack's or Docker Desktop's on the
-# Mac, /var/lib/docker on Linux), the lower of the two.
+# The machine: jobs, RAM, and free disk on the host volume holding the
+# repository and, if the Docker daemon is already running, inside its VM
+# (where images and build caches live; on Linux the same host disk).
 ram=$(sysctl -n hw.memsize 2>/dev/null ||
 	awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo 2>/dev/null)
 echo "info machine: $dev_jobs jobs (DXX_JOBS), $((${ram:-0} / 1073741824)) GiB RAM"
-disk_paths=("$dev_dir")
-for d in "${DXX_DOCKER_DATA-}" "$HOME/.orbstack" "$HOME/Library/Containers/com.docker.docker" \
-	/var/lib/docker; do
-	[[ -n $d && -d $d ]] && { disk_paths+=("$d"); break; }
-done
-free_gib=$(df -Pk "${disk_paths[@]}" 2>/dev/null | awk 'NR > 1 && (min == "" || $4 < min) {min = $4}
-	END {print int(min / 1048576)}')
-if [[ $free_gib -lt 15 ]]; then
-	echo "FAIL disk: $free_gib GiB free, below 15 GiB; run tools/dev/container.sh prune"
-	rc=1
-elif [[ $free_gib -lt 40 ]]; then
-	echo "WARN disk: $free_gib GiB free, below 40 GiB; run tools/dev/container.sh prune"
+
+# Report free space $2 (KiB) of place $1 against the limits.
+check_disk()
+{
+	local free_gib=$(($2 / 1048576))
+	if [[ $free_gib -lt 15 ]]; then
+		echo "FAIL disk $1: $free_gib GiB free, below 15 GiB; run tools/dev/container.sh prune"
+		rc=1
+	elif [[ $free_gib -lt 40 ]]; then
+		echo "WARN disk $1: $free_gib GiB free, below 40 GiB; run tools/dev/container.sh prune"
+	else
+		echo "ok   disk $1 $free_gib GiB free"
+	fi
+}
+
+# Succeed if the Docker daemon is up, without starting it: its unix socket
+# (DOCKER_HOST, else the current context's) exists, and OrbStack, which
+# starts its VM on a connection, reports itself running.
+docker_running()
+{
+	local host=${DOCKER_HOST-}
+	command -v docker >/dev/null || return 1
+	[[ -n $host ]] || host=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)
+	if [[ $host == *.orbstack* ]] && command -v orbctl >/dev/null; then
+		[[ $(orbctl status 2>/dev/null) == Running ]] || return 1
+	fi
+	[[ $host == unix://* && -S ${host#unix://} ]]
+}
+
+check_disk host "$(df -Pk "$dev_dir" 2>/dev/null | awk 'NR == 2 {print $4}')"
+if ! docker_running; then
+	echo "SKIP disk docker: daemon not running"
+elif ! ref=$(docker image ls --format '{{.Repository}}:{{.Tag}}' dxx-rebirth-ref | head -n 1) ||
+	[[ -z $ref ]]; then
+	echo "SKIP disk docker: no dxx-rebirth-ref image to run df in"
+elif free_kb=$(docker run --rm --pull never --network none --platform linux/amd64 \
+	--entrypoint df "$ref" -Pk / 2>/dev/null | awk 'NR == 2 {print $4}') && [[ -n $free_kb ]]; then
+	check_disk docker "$free_kb"
 else
-	echo "ok   disk $free_gib GiB free"
+	echo "SKIP disk docker: df in $ref failed"
 fi
 
 # Reference images: container.sh build keeps one.
-if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+if docker_running; then
 	images=$(docker image ls --format '{{.Repository}}:{{.Tag}}' dxx-rebirth-ref | grep -c .)
 	if [[ $images -gt 1 ]]; then
 		echo "WARN images: $images dxx-rebirth-ref images; remove the old ones (docker rmi)"
