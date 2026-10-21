@@ -559,7 +559,7 @@ test_gitleaks_allow_needs_a_listed_reason()
 	printf 'x = 1 # %s\n' "$marker" > "$r/a.txt"
 	printf 'abc:rule:1\n' > "$r/.gitleaksignore"
 	tgit -C "$r" add a.txt .gitleaksignore
-	out=$(DXX_REFERENCE_IMAGE= "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
+	out=$(DXX_REFERENCE_IMAGE="" "$r/tools/dev/check.sh" --pre-commit 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "a.txt: a .gitleaksignore or $marker comment"
 	assert_contains "$out" ".gitleaksignore: a .gitleaksignore"

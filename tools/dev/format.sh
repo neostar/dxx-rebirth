@@ -93,15 +93,16 @@ rel()
 # Fail on each NOLINT in files "$@" that lacks a check list and a reason.
 check_nolint()
 {
-	local f n line rc=0
+	local f n line name rc=0
 	for f in "$@"; do
 		n=0
+		name=$(rel "$f")
 		while IFS= read -r line; do
 			n=$((n + 1))
 			[[ $line == *NOLINT* ]] || continue
 			[[ $line =~ NOLINT(NEXTLINE|BEGIN)?\([^\)]+\):\ *[^\ ] ||
 				$line =~ NOLINTEND\([^\)]+\) ]] && continue
-			echo "$(rel "$f"):$n: NOLINT without a check and a reason;" \
+			echo "$name:$n: NOLINT without a check and a reason;" \
 				"write NOLINT(check): reason"
 			rc=1
 		done < "$f"
@@ -207,9 +208,9 @@ tidy|staged)
 		staged=("${files[@]#"$root"/}")
 		git -C "$root" checkout-index --prefix="$tree/" -- "${staged[@]}" || exit 1
 		files=("${staged[@]/#/$tree/}")
-		for f in "${files[@]}"; do
-			"$clang_format" "$style" --assume-filename="$(rel "$f")" --dry-run --Werror < "$f" ||
-				{ echo "$(rel "$f"): not formatted; run tools/dev/format.sh"; rc=1; }
+		for f in "${staged[@]}"; do
+			"$clang_format" "$style" --assume-filename="$f" --dry-run --Werror < "$tree/$f" ||
+				{ echo "$f: not formatted; run tools/dev/format.sh"; rc=1; }
 		done
 	fi
 	check_nolint "${files[@]}" || rc=1
