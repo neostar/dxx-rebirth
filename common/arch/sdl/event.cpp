@@ -27,6 +27,11 @@
 #include "joy.h"
 #include "args.h"
 #include "partial_range.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/input_script_harness.h"
+#include "console.h"
+#include "dxxerror.h"
+#endif
 
 namespace dcx {
 
@@ -74,6 +79,42 @@ static void event_notify_end_loop()
 
 }
 
+#if DXX_USE_DBG_HARNESS
+namespace {
+
+/* Push the events of the input script DXX_DBG_INPUT_SCRIPT names
+ * (input_script_harness.h) due at this harness tick.
+ */
+void harness_push_input()
+{
+	static const char *const path{read_harness_input_script_path()};
+	if (!path)
+		return;
+	static auto script{load_input_script(path, read_harness_clock_step(), [](const std::string_view name) { return input_key_named(key_properties, name); })};
+	if (!script)
+		UserError("DXX_DBG_INPUT_SCRIPT=\"%s\": %s", path, script.error().c_str());
+	for (const auto &e : script->player.next_tick())
+	{
+		if (e.action == input_action::end)
+		{
+			/* Every frame hash line is already flushed; whatever screen is up, the run ends. */
+			con_printf(CON_NORMAL, "DXX_DBG_INPUT_SCRIPT: the script ends the run at tick %u", std::to_underlying(e.tick));
+			fflush(nullptr);
+			_Exit(0);
+		}
+		SDL_Event event{};
+		const bool down{e.action == input_action::key_down};
+		event.key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+		event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+		event.key.keysym.sym = input_key_entry(key_properties, e.key).sym;
+		if (SDL_PushEvent(&event) < 0)
+			UserError("DXX_DBG_INPUT_SCRIPT: pushing an event failed: %s", SDL_GetError());
+	}
+}
+
+}
+
+#endif
 window_event_result event_poll()
 {
 	event_poll_state state;
@@ -259,6 +300,9 @@ window_event_result event_process(void)
 	window_event_result highest_result;
 
 	timer_update();
+#if DXX_USE_DBG_HARNESS
+	harness_push_input();
+#endif
 
 	highest_result = event_poll();	// send input events first
 

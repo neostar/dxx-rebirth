@@ -18,6 +18,9 @@
 #include "config.h"
 #include "game.h"
 #include "multi.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/input_script_harness.h"
+#endif
 
 namespace dcx {
 
@@ -25,6 +28,14 @@ static fix64 F64_RunTime = 0;
 
 fix64 timer_update()
 {
+#if DXX_USE_DBG_HARNESS
+	/* While an input script plays, the clock advances a fixed step per
+	 * call instead of with the wall clock (input_script_harness.h).
+	 */
+	static const fix harness_clock_step{read_harness_clock_step()};
+	if (harness_clock_step)
+		return F64_RunTime += harness_clock_step;
+#endif
 	static bool already_initialized;
 	static fix64 last_tv;
 	const fix64 cur_tv = static_cast<fix64>(SDL_GetTicks()) * F1_0 / 1000;

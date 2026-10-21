@@ -74,6 +74,7 @@
 #include <vector>
 #include "common/debug/frame_hash_harness.h"
 #include "common/debug/frame_hash_log.h"
+#include "common/debug/input_script_harness.h"
 #include "newdemo.h"
 #endif
 using std::max;
@@ -1490,7 +1491,8 @@ void harness_log_frame_hash()
 	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
 	if (error != GL_NO_ERROR)
 		UserError("DXX_DBG_FRAMEHASH: reading back the frame failed: GL error 0x%x", error);
-	const auto section{Newdemo_state == ND_STATE_PLAYBACK ? frame_hash_section::demo_playback(newdemo_harness_playback_file()) : frame_hash_section::no_demo()};
+	const auto scene{harness_scene_name()};
+	const auto section{Newdemo_state == ND_STATE_PLAYBACK ? frame_hash_section::demo_playback(newdemo_harness_playback_file()) : scene ? frame_hash_section::scene(scene) : frame_hash_section::no_demo()};
 	if (!log.log_frame(section, size, pixels))
 		UserError("DXX_DBG_FRAMEHASH=\"%s\": write failed: %s", path, strerror(errno));
 }
