@@ -1,0 +1,46 @@
+// The headless SDL_GPU probe the gate gpu plants share (no window): clear a
+// 16x16 texture in one render pass.  A plant defines plant_usage, the
+// texture's usage, and plant_in_pass, what it does inside the pass, then
+// includes this file, which defines main.  The device is made with
+// debug_mode true: SDL's GPU debug checks, and the Vulkan layer.
+#include <cstdio>
+
+int main()
+{
+	SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+	if (!SDL_Init(SDL_INIT_VIDEO))
+	{
+		std::fprintf(stderr, "probe: SDL_Init: %s\n", SDL_GetError());
+		return 1;
+	}
+	SDL_GPUDevice *const dev{SDL_CreateGPUDevice(
+		SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr)};
+	if (!dev)
+	{
+		std::fprintf(stderr, "probe: SDL_CreateGPUDevice: %s\n", SDL_GetError());
+		return 1;
+	}
+	SDL_GPUTextureCreateInfo info{};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+	info.usage = plant_usage;
+	info.width = 16;
+	info.height = 16;
+	info.layer_count_or_depth = 1;
+	info.num_levels = 1;
+	SDL_GPUTexture *const target_texture{SDL_CreateGPUTexture(dev, &info)};
+	SDL_GPUCommandBuffer *const cmd{SDL_AcquireGPUCommandBuffer(dev)};
+	SDL_GPUColorTargetInfo target{};
+	target.texture = target_texture;
+	target.load_op = SDL_GPU_LOADOP_CLEAR;
+	target.store_op = SDL_GPU_STOREOP_STORE;
+	SDL_GPURenderPass *const pass{SDL_BeginGPURenderPass(cmd, &target, 1, nullptr)};
+	plant_in_pass(pass);
+	SDL_EndGPURenderPass(pass);
+	SDL_SubmitGPUCommandBuffer(cmd);
+	SDL_WaitForGPUIdle(dev);
+	SDL_ReleaseGPUTexture(dev, target_texture);
+	SDL_DestroyGPUDevice(dev);
+	SDL_Quit();
+	return 0;
+}

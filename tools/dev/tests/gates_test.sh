@@ -25,9 +25,13 @@ need()
 	command -v "$1" >/dev/null || skip "$1 not found; $hint"
 }
 
+# The compiler build.sh's builds use: SCons' default CXX, g++, which no
+# site file overrides (Apple clang on the Mac, GCC 14 in the container).
+cxx=g++
+
 # The tool each gate runs, which a test needs before running the gate.
-declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=c++ [hardening]=c++
-	[asan]=c++ [lsan]=c++ [ubsan]=c++ [leaks]=c++ [gpu]=c++)
+declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
+	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [leaks]=$cxx [gpu]=$cxx)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp in a fork repository
 # and run format.sh --staged.
@@ -66,7 +70,7 @@ build_plant()
 	cp "$1" "$d/plant.cpp"
 	# shellcheck disable=SC2046  # the flags are words
 	# The flags follow the sources, so that GNU ld sees libraries last.
-	c++ -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") \
+	"$cxx" -std=c++23 -g $(python3 "$DEV_DIR/hardening.py") \
 		"$d/plant.cpp" "${@:2}" -o "$d/plant" >&2 || return
 	printf '%s\n' "$d/plant"
 }
@@ -95,8 +99,8 @@ gate_hardening()
 gate_sanitizers()
 {
 	local p flags
-	flags=$(python3 -I -c 'import sys; exec(open(sys.argv[1]).read()); print(CXXFLAGS, LINKFLAGS)' \
-		"$DEV_DIR/site-asan.py") || return
+	flags=$(python3 -I -c 'import sys; exec(open(sys.argv[1]).read())
+print(CXXFLAGS, LINKFLAGS)' "$DEV_DIR/site-asan.py") || return
 	# shellcheck disable=SC2086  # the flags are words
 	p=$(build_plant "$1" $flags) || return
 	"$p" 2>&1
@@ -120,8 +124,9 @@ gate_leaks()
 gate_gpu()
 {
 	local p video=()
-	p=$(build_plant "$1" -isystem "$dev_deps_prefix/include" -L"$dev_deps_prefix/lib" \
-		-Wl,-rpath,"$dev_deps_prefix/lib" -lSDL3) || return
+	# -I: the plants include their shared probe, gates/gpu_probe.h.in.
+	p=$(build_plant "$1" -I"$GATES" -isystem "$dev_deps_prefix/include" \
+		-L"$dev_deps_prefix/lib" -Wl,-rpath,"$dev_deps_prefix/lib" -lSDL3) || return
 	[[ $dev_os == darwin ]] || video=(SDL_VIDEO_DRIVER=offscreen)
 	env "${video[@]}" "$DEV_DIR/gpu-validate.sh" "$p" 2>&1
 }
