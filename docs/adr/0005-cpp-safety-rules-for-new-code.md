@@ -38,6 +38,10 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 | check | 10 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: unit tests (hardened), `leaks.sh` on them (Mac), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both once #19 adds `tools/dev/rtrace-tests.sh` | `check.sh`, timing its own full run |
 | nightly | none | #59 | #59 |
 
+The editor and pre-commit budgets are the Mac's, where the owner edits and commits: their tests
+pass on the best of three runs on macOS, and on Linux (the container, under amd64 emulation) print
+the three times without failing.
+
 clangd skips `clang-analyzer-*`, `bugprone-use-after-move` and slow checks by design, so the
 editor tier shows the fast checks and the pre-commit tier is the first to run them all.
 

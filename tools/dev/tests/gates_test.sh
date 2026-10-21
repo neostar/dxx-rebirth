@@ -271,6 +271,8 @@ test_every_enabled_check_is_planted()
 # Run "$@" up to three times, printing each run's wall clock as $2, until
 # one takes under $1 s; fail if none does.  The shell tests run in
 # parallel, so one slow run can be the load of the others; three are not.
+# The budgets are the Mac's (ADR 5): elsewhere, in the container under
+# amd64 emulation among them, all three runs are timed and printed only.
 within_budget()
 {
 	local budget=$1 label=$2 start secs i
@@ -280,8 +282,13 @@ within_budget()
 		"$@" || { fail "$label: $* failed"; return; }
 		secs=$(awk -v a="$start" -v b="$EPOCHREALTIME" 'BEGIN {printf "%.2f", b - a}')
 		echo "    $label, run $i: $secs s"
+		[[ $dev_os == darwin ]] || continue
 		awk -v s="$secs" -v b="$budget" 'BEGIN {exit !(s < b)}' && return 0
 	done
+	if [[ $dev_os != darwin ]]; then
+		echo "    $label: $budget s budget enforced on macOS only"
+		return 0
+	fi
 	fail "$label took over its $budget s budget in three runs"
 }
 
