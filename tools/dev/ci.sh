@@ -60,6 +60,12 @@ owned='' takeover='' logs=
 trap '[[ -z $takeover ]] || rmdir "$lock.takeover"
 [[ -z $owned || $(cat "$lock/pid" 2>/dev/null) != "$$" ]] || rm -rf "$lock"
 rm -rf ${logs:+"$logs"}' EXIT
+# Without an INT trap, bash ignores an INT that reaches it alone (kill, not
+# Ctrl-C) while it waits for a command, and carries on once the command
+# ends.  The trap exits then, through the EXIT trap, and dies of INT, so a
+# calling shell stops too.  An INT ignored at entry (a background command)
+# stays ignored.
+trap 'trap - INT; kill -INT $$' INT
 # Print the pid in the lock's pid file, waiting up to 3 s for one to appear.
 lock_owner()
 {

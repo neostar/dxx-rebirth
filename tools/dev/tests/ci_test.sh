@@ -195,6 +195,39 @@ test_int_removes_the_lock()
 	signal_removes_the_lock INT
 }
 
+# Test that INT stops ci.sh, removing the lock, also while ci.sh waits for
+# a command (here the tee of its first log line, held until released):
+# without a trap, bash defers an INT sent to it alone until the command
+# ends and then, the command not having died of it, carries on.
+test_int_while_running_a_command_removes_the_lock()
+{
+	[[ $(trap -p INT) != "trap -- '' SIGINT" ]] || skip 'INT is ignored here (background command)'
+	local bin r ci job
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	cat > "$bin/tee" <<FAKE
+#!/bin/sh
+touch "$bin/tee-started"
+for _ in \$(seq 1200); do [ -e "$bin/release" ] && break; sleep 0.1; done
+exec /usr/bin/tee "\$@"
+FAKE
+	chmod +x "$bin/tee"
+	set -m
+	run_ci "$r" "$bin" --fast > "$bin/ci.out" 2>&1 &
+	job=$!
+	set +m
+	for _ in $(seq 1200); do [[ -e $bin/tee-started ]] && break; sleep 0.1; done
+	ci=$(cat "$r/build/ci/lock/pid" 2>/dev/null)
+	[[ -n $ci ]] || { fail "ci.sh never took the lock"; return; }
+	kill -INT "$ci"
+	touch "$bin/release"
+	for _ in $(seq 600); do kill -0 "$ci" 2>/dev/null || break; sleep 0.1; done
+	kill -0 "$ci" 2>/dev/null && fail "ci.sh still runs after INT"
+	wait "$job" 2>/dev/null
+	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived ci.sh after INT"
+	assert_not_contains "$(cat "$bin/ci.out")" "native check"
+}
+
 # Test that ci.sh leaves a lock it no longer owns: one taken over while it
 # ran (here its pid file names another process) is not removed at its exit.
 test_exit_leaves_a_lock_it_no_longer_owns()
