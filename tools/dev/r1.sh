@@ -2,10 +2,14 @@
 # R1, the GL picture stays bit-identical: play scenes S1-S4 with no window
 # and compare every frame's hash with a baseline (framehash_diff.py).
 #
-#   r1.sh capture [--base REV]   build REV (default sdl-gpu-port), play the
-#                                scenes, keep their logs as the baseline
-#   r1.sh check                  build the working tree, play the scenes,
-#                                compare them with the baseline
+#   r1.sh capture [--base REV]   build REV, play the scenes, keep their
+#                                logs as the baseline
+#   r1.sh check [--base REV]     build the working tree, play the scenes,
+#                                compare them with REV's baseline
+#
+# REV defaults to the branch point, the merge-base of HEAD and
+# sdl-gpu-port.  check fails, before it builds, on a baseline of another
+# commit.
 #
 # Prints one "NAME: N/N frames identical" line per scene and fps, or the
 # first differing frame (section, frame index); exit 0 only when every
@@ -37,13 +41,12 @@ source "$dev_dir/env.sh"
 # (CLAUDE.md): an abort leaves a crash report.
 export ASAN_OPTIONS=$ASAN_OPTIONS:abort_on_error=0 UBSAN_OPTIONS=$UBSAN_OPTIONS:abort_on_error=0
 
-usage() { echo "usage: $0 capture [--base REV] | check" >&2; exit 2; }
+usage() { echo "usage: $0 capture|check [--base REV]" >&2; exit 2; }
 mode=${1-}
 shift || true
-base=sdl-gpu-port
+base=
 case $mode in
-capture) [[ $# -eq 0 ]] || { [[ $# -eq 2 && $1 == --base ]] && base=$2; } || usage ;;
-check) [[ $# -eq 0 ]] || usage ;;
+capture|check) [[ $# -eq 0 ]] || { [[ $# -eq 2 && $1 == --base ]] && base=$2; } || usage ;;
 *) usage ;;
 esac
 data=${DXX_D2_DATA-}
@@ -155,8 +158,19 @@ compare_fps()
 	return $rc
 }
 
-if [[ $mode == capture ]]; then
+if [[ $mode == check && ! -f $r1/baseline/commit ]]; then
+	echo "r1.sh: no baseline in $r1; run r1.sh capture" >&2
+	exit 2
+fi
+if [[ -n $base ]]; then
 	rev=$(git -C "$root" rev-parse --verify "$base^{commit}") || exit 2
+	again=" --base $base"
+else
+	rev=$(git -C "$root" merge-base HEAD sdl-gpu-port) ||
+		{ echo "r1.sh: no merge-base of HEAD and sdl-gpu-port; pass --base" >&2; exit 2; }
+	base='the branch point' again=
+fi
+if [[ $mode == capture ]]; then
 	rm -rf "$r1/src" "$r1/baseline.new" && mkdir -p "$r1/src" || exit 1
 	git -C "$root" archive "$rev" | tar -x -C "$r1/src" || exit 1
 	# The archive's SConstruct has its $Format$ (export-subst) filled in,
@@ -170,7 +184,11 @@ if [[ $mode == capture ]]; then
 	rm -rf "$r1/baseline" && mv "$r1/baseline.new" "$r1/baseline" || exit 1
 	echo "r1.sh: baseline of $(cut -c1-12 "$r1/baseline/commit") in $r1/baseline"
 else
-	[[ -f $r1/baseline/commit ]] || { echo "r1.sh: no baseline in $r1; run r1.sh capture" >&2; exit 2; }
+	read -r have _ < "$r1/baseline/commit"
+	if [[ $have != "$rev" ]]; then
+		echo "r1.sh: the baseline is of ${have:0:12}, not of $base (${rev:0:12}); run r1.sh capture$again" >&2
+		exit 2
+	fi
 	build "$root"
 	play_all "$root/build/r1/d2x-rebirth/d2x-rebirth" "$r1/run"
 	echo "r1.sh: baseline of $(cut -c1-12 "$r1/baseline/commit")"

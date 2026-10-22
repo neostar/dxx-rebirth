@@ -101,10 +101,13 @@ from in its `commit` file, with the hardened dev profile:
 
 ```sh
 export DXX_D2_DATA=~/Developer/descent-installer/data/common/D2
-tools/dev/r1.sh capture --base sdl-gpu-port   # once per branch point
-tools/dev/r1.sh check                         # after each change
+tools/dev/r1.sh capture   # once per branch point
+tools/dev/r1.sh check     # after each change
 ```
 
+- The baseline is the branch point's, the merge-base of `HEAD` and `sdl-gpu-port`; `--base REV`
+  names another commit, in both modes. `check` fails before it builds on a baseline of another
+  commit.
 - It prints `<scene> at <fps> fps: N/N frames identical` per scene and fps, or the first frame
   that differs (its section and index), and exits 0 only when every frame matches. A log with
   no frames, or with a line the harness does not write, fails too.

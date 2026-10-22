@@ -13,7 +13,7 @@ R1="$DEV_DIR/r1.sh"
 test_bad_arguments_exit_2()
 {
 	local out rc a
-	for a in '' 'frob' 'check --base x' 'capture --base' 'capture x y'; do
+	for a in '' 'frob' 'check --frob x' 'check x' 'capture --base' 'capture x y'; do
 		# shellcheck disable=SC2086  # split the arguments on purpose
 		out=$("$R1" $a 2>&1) && rc=0 || rc=$?
 		assert_eq "$rc" 2 "$a: $out"
@@ -242,6 +242,30 @@ test_capture_fails_on_demo_fps_mismatch()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "S2 at 200 fps against 60 fps: 0/5 frames identical"
 	[[ ! -e $d/r1/baseline ]] || fail "capture kept a baseline"
+}
+
+# Test that check fails with status 2, before it builds, on a baseline of
+# another commit than the branch point (the merge-base of HEAD and
+# sdl-gpu-port) or the --base given, and passes with that commit's.
+test_check_needs_baseline_of_base()
+{
+	local d out rc first
+	r1_mac_only
+	d=$(r1_setup)
+	first=$(tgit -C "$d/repo" rev-parse HEAD)
+	r1_run "$d" capture >/dev/null 2>&1 || fail "capture failed"
+	{ tgit -C "$d/repo" commit -q --allow-empty -m next &&
+		tgit -C "$d/repo" branch -f sdl-gpu-port HEAD; } || die "moving sdl-gpu-port failed"
+	out=$(r1_run "$d" check 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "the baseline is of ${first:0:12}, not of the branch point"
+	assert_contains "$out" "run r1.sh capture"
+	assert_eq "$(grep -c . "$d/bin/scons.args")" 1 "check built"
+	out=$(r1_run "$d" check --base HEAD 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "run r1.sh capture --base HEAD"
+	out=$(r1_run "$d" check --base "$first" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
 }
 
 # Test that the runs get env.sh's sanitizer settings, or the caller's,
