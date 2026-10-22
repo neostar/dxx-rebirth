@@ -601,6 +601,52 @@ test_hardened_demo_fails_without_a_demo()
 	assert_contains "$out" "no complete demo playback in 3 s"
 }
 
+# Write into fork repository $1 a run.sh that starts the game 5 s late (a
+# loaded machine) and drops the first $2 TERMs, as run.sh does with one
+# that lands in the child it is starting (before its exec the child runs
+# run.sh's trap, keeping the signal); the TERM after them ends the game
+# and run.sh.
+dropping_run_sh()
+{
+	cat > "$1/tools/dev/run.sh" <<RUN
+#!/usr/bin/env bash
+n=0 game=''
+trap 'n=\$((n + 1)); [[ \$n -le $2 ]] || { [[ -z \$game ]] || kill -TERM "\$game"; exit 143; }' TERM
+sleep 5 & wait \$!
+"\$@" &
+game=\$!
+while kill -0 "\$game" 2>/dev/null; do wait "\$game"; done
+RUN
+}
+
+# Test that the demo steps send TERM to run.sh again until it ends, so a
+# dropped TERM neither leaves the late game running nor hangs the step;
+# and that a run.sh still running once its teardown could be over is
+# killed with the game, the step failing in time either way.
+test_demo_steps_repeat_term_to_run_sh()
+{
+	local r d out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	d=$(make_scratch) || die "make_scratch failed"
+	dropping_run_sh "$r" 1
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev FAKE_GAME=idle DEMO_TIMEOUT=3 game_step "$d" hardened_demo) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: no process of $d/fake-game found under run.sh"
+	assert_contains "$out" "no complete demo playback in 3 s"
+	assert_not_contains "$out" "killing the run"
+	pgrep -f "$d/fake-game" >/dev/null && fail "the fake game still runs"
+	d=$(make_scratch) || die "make_scratch failed"
+	dropping_run_sh "$r" 1000
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev FAKE_GAME=idle DEMO_TIMEOUT=3 game_step "$d" hardened_demo) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: run.sh still runs after TERM; killing the run"
+	assert_contains "$out" "no complete demo playback in 3 s"
+	pgrep -f "$d/fake-game" >/dev/null && fail "the fake game still runs"
+	return 0
+}
+
 # Test that the demo steps fail, naming DXX_D2_DATA, without the data: a
 # scheduled run must not stay green on them.
 test_demo_steps_fail_without_data()

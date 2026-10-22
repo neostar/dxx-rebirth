@@ -399,7 +399,7 @@ demo_finish()
 		pid=$(game_pid "$run_pid" "$game")
 		if [[ -z $pid ]]; then
 			echo "$1: no process of $game found under run.sh; ending the run through run.sh"
-			kill -TERM "$run_pid" 2>/dev/null
+			end_run_sh "$1"
 			rc=1
 		else
 			for ((i = 0; i < grace * 10; i++)); do
@@ -409,7 +409,7 @@ demo_finish()
 			done
 			if alive "$pid"; then
 				echo "$1: the game still runs $grace s after TERM; ending it through run.sh"
-				kill -TERM "$run_pid" 2>/dev/null
+				end_run_sh "$1"
 				rc=1
 			fi
 		fi
@@ -422,6 +422,26 @@ demo_finish()
 	[[ -z $hits ]] || { printf '%s\n' "$hits"; rc=1; }
 	[[ $rc -eq 0 ]] || echo "$1: output in $out"
 	return "$rc"
+}
+
+# End demo run $1's run.sh: TERM to it every second until it ends, and
+# what of the run still runs once its teardown could be over (run.sh's
+# grace and 15 s) killed, saying so.  A TERM can be dropped: one that lands
+# in the child run.sh is starting, before its exec, runs run.sh's trap in
+# that child, so the run would go on.
+end_run_sh()
+{
+	local i pids
+	pids=$(tree_pids "$run_pid")
+	for ((i = 0; i < (${RUN_KILL_AFTER:-10} + 15) * 10; i++)); do
+		kill -0 "$run_pid" 2>/dev/null || return 0
+		[[ $((i % 10)) -ne 0 ]] || kill -TERM "$run_pid" 2>/dev/null
+		sleep 0.1
+	done
+	echo "$1: run.sh still runs after TERM; killing the run"
+	# shellcheck disable=SC2046,SC2086  # one pid per word
+	kill -KILL $(tree_pids "$run_pid") $pids 2>/dev/null
+	return 0
 }
 
 # D2 demo playback in the hardened build: at least one whole demo within
