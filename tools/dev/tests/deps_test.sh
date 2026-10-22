@@ -380,6 +380,35 @@ test_prefix_loads_after_it_moves()
 	[[ ${#bad[@]} -eq 0 ]] || fail "not loadable from the moved prefix: ${bad[*]}"
 }
 
+# Test that on the Mac an otool or file that fails fails the build, naming
+# the file it could not read: the build must not pass with no install name
+# renamed.
+test_failing_otool_or_file_fails_the_build()
+{
+	local d t out rc
+	[[ $(uname -s) == Darwin ]] || skip "install names are Mach-O only"
+	command -v cc >/dev/null || skip "no C compiler"
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$d/src/otdemo-1.0" "$d/bin"
+	printf '%s\n' 'int ot(void) { return 0; }' > "$d/src/otdemo-1.0/ot.c"
+	printf '%s\n' \
+		'cmake_minimum_required(VERSION 3.20)' \
+		'project(otdemo C)' \
+		'add_library(ot SHARED ot.c)' \
+		'install(TARGETS ot)' > "$d/src/otdemo-1.0/CMakeLists.txt"
+	tar -czf "$d/otdemo-1.0.tar.gz" -C "$d/src" otdemo-1.0
+	echo "source otdemo 1.0 file://$d/otdemo-1.0.tar.gz $(dev_sha256 "$d/otdemo-1.0.tar.gz")" \
+		> "$d/manifest"
+	for t in otool file; do
+		rm -f "$d/bin/"*
+		printf '#!/bin/sh\necho "%s: cannot open" >&2\nexit 1\n' "$t" > "$d/bin/$t"
+		chmod +x "$d/bin/$t"
+		out=$(PATH="$d/bin:$PATH" run_deps "$d") && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$t: $out"
+		assert_contains "$out" "$t cannot read $d/prefix/lib/libot.dylib"
+	done
+}
+
 # Test that a build records no build time: CMake's TIMESTAMP, as
 # SPIRV-Cross's version header uses it, gives the same value every build.
 test_build_records_no_build_time()

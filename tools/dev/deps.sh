@@ -364,12 +364,17 @@ reproducible_options()
 # file's signature no longer matches and arm64 refuses to load it.
 relocatable_install_names()
 {
-	local f ref p changes logical physical
+	local f kind ref p loads id changes logical physical
 	[[ $platform == darwin-* ]] || return 0
 	logical=$(cd "$prefix" && pwd) physical=$(cd "$prefix" && pwd -P)
 	while IFS= read -r -d '' f; do
+		kind=$(file -b "$f") || { echo "file cannot read $f"; return 1; }
 		# Not an archive (.a): otool reads one, install_name_tool does not.
-		[[ $(file -b "$f") == Mach-O* ]] || continue
+		[[ $kind == Mach-O* ]] || continue
+		if ! loads=$(otool -l "$f") || ! id=$(otool -D "$f"); then
+			echo "otool cannot read $f"
+			return 1
+		fi
 		changes=()
 		while read -r ref; do
 			for p in "$prefix" "$logical" "$physical"; do
@@ -377,9 +382,10 @@ relocatable_install_names()
 				changes+=(-change "$ref" "@rpath/${ref#"$p"/lib/}")
 				break
 			done
-		done < <(otool -l "$f" | awk '$1 == "cmd" &&
-			$2 ~ /^LC_(LOAD|LOAD_WEAK|REEXPORT|LAZY_LOAD|LOAD_UPWARD)_DYLIB$/ { getline; getline; print $2 }')
-		ref=$(otool -D "$f" | sed -n 2p)
+		done < <(awk '$1 == "cmd" &&
+			$2 ~ /^LC_(LOAD|LOAD_WEAK|REEXPORT|LAZY_LOAD|LOAD_UPWARD)_DYLIB$/ { getline; getline; print $2 }' \
+			<<< "$loads")
+		ref=$(sed -n 2p <<< "$id")
 		for p in "$prefix" "$logical" "$physical"; do
 			[[ -n $ref && $ref == "$p"/lib/* ]] || continue
 			changes+=(-id "@rpath/${ref#"$p"/lib/}")
