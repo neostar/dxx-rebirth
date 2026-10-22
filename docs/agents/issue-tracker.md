@@ -54,15 +54,18 @@ A prompt that says "follow Working a ticket" adds only the ticket number and the
    (`git merge-base --is-ancestor sdl-gpu-port HEAD`) before the first edit.
 3. **Commits**: in the Commits format of `conventions.md`, ending with your model's
    `Co-Authored-By: ... <noreply@anthropic.com>` trailer. The orchestrator signs them at merge.
-4. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
+4. **Tests**: write them with the `mattpocock-skills:tdd` skill, each behaviour red first. Test
+   outcomes (frames, values, files), not call sequences (`testing-games.md`). Choose the test
+   seams yourself and name each with its reason in the report; the reviewer checks them.
+5. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
    pass everything) and run its test: the test must go red. Restore it before committing.
-5. **Time box**: at the box, commit what is green and go to the report.
-6. **Report**, once the merge gate, `tools/dev/ci.sh --gate` (ADR 6), passes on your branch merged
+6. **Time box**: at the box, commit what is green and go to the report.
+7. **Report**, once the merge gate, `tools/dev/ci.sh --gate` (ADR 6), passes on your branch merged
    with the current `sdl-gpu-port` tip; it adds the container leg or the full run when the
    changed paths need them. Start `ci.sh` and other long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
-   fakes), or open, with why; the plants, each with the test that went red; anything surprising.
+   fakes), or open, with why; the test seams; the plants, each with the test that went red; anything surprising.
 
 **Reviewer**
 
