@@ -601,6 +601,33 @@ test_hardened_demo_fails_without_a_demo()
 	assert_contains "$out" "no complete demo playback in 3 s"
 }
 
+# Test that the demo steps look again when ps fails: under Rosetta in the
+# container ps has aborted ("assertion failed [...]: Could not readlinkat
+# /proc/N/exe"), and the step then found no game while it played.  Here
+# every other ps listing of commands fails so, the first among them.
+test_demo_steps_survive_a_failing_ps()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir "$d/bin"
+	cat > "$d/bin/ps" <<PS
+#!/usr/bin/env bash
+if [[ "\$*" == *args=* ]]; then
+	n=\$(( \$(cat "$d/ps.calls" 2>/dev/null || echo 0) + 1 ))
+	echo "\$n" > "$d/ps.calls"
+	if (( n % 2 )); then
+		echo 'assertion failed [!readlink_result_self.is_error]: Could not readlinkat /proc/1/exe' >&2
+		exit 133
+	fi
+fi
+exec "$(command -v ps)" "\$@"
+PS
+	chmod +x "$d/bin/ps"
+	out=$(PATH=$d/bin:$PATH game_step "$d" hardened_demo)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "complete demo playback"
+}
+
 # Write into fork repository $1 a run.sh that starts the game 5 s late (a
 # loaded machine) and drops the first $2 TERMs, as run.sh does with one
 # that lands in the child it is starting (before its exec the child runs

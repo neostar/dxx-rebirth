@@ -466,21 +466,42 @@ step_hardened_demo()
 	return "$rc"
 }
 
-# Succeed if process $1 runs: it exists and is not a zombie, which still
-# answers kill -0 until its parent reaps it.
-alive()
+# Run ps with the arguments, passing on its output and status; a ps that
+# fails other than by finding no process (status 1) is run again, up to 5
+# times: under Rosetta in the container ps has aborted ("assertion failed
+# [...]: Could not readlinkat /proc/N/exe").
+ps_retry()
 {
-	local stat
-	stat=$(ps -o stat= -p "$1" 2>/dev/null) || return 1
-	[[ -n $stat && $stat != Z* ]]
+	local i rc out
+	for ((i = 0; i < 5; i++)); do
+		out=$(ps "$@" 2>/dev/null) && rc=0 || rc=$?
+		[[ $rc -gt 1 ]] || break
+		sleep 0.2
+	done
+	[[ -z $out ]] || printf '%s\n' "$out"
+	return "$rc"
 }
 
-# Print the pids of process $1 and its descendants.
+# Succeed if process $1 runs: it exists and is not a zombie, which still
+# answers kill -0 until its parent reaps it.  A ps that keeps failing
+# counts as running: the callers then end the run through run.sh.
+alive()
+{
+	local stat rc
+	stat=$(ps_retry -o stat= -p "$1") && rc=0 || rc=$?
+	[[ $rc -le 1 ]] || return 0
+	[[ $rc -eq 0 && -n $stat && $stat != Z* ]]
+}
+
+# Print the pids of process $1 and its descendants; fail if ps does.
 tree_pids()
 {
-	ps -A -o pid=,ppid= | awk -v top="$1" '
+	local list
+	list=$(ps_retry -A -o pid=,ppid=) || return
+	awk -v top="$1" '
 		{ parent[$1] = $2 }
-		END { for (p in parent) for (q = p; q > 1; q = parent[q]) if (q == top) { print p; break } }'
+		END { for (p in parent) for (q = p; q > 1; q = parent[q]) if (q == top) { print p; break } }' \
+		<<<"$list"
 }
 
 # On signal $1 (exit status $2), end the demo run, if one runs, through
@@ -515,7 +536,9 @@ end_demo_run()
 # it execs (slow under emulation), and ps may list it first: pids wrap.
 game_pid()
 {
-	ps -A -o pid=,ppid=,args= | awk -v top="$1" -v bin="$2" '
+	local list
+	list=$(ps_retry -A -o pid=,ppid=,args=) || { echo "nightly.sh: ps failed" >&2; return 1; }
+	awk -v top="$1" -v bin="$2" '
 		{ pid[NR] = $1; ppid[NR] = $2; a1[NR] = $3; a2[NR] = $4 }
 		END {
 			tree[top] = 1
@@ -528,7 +551,7 @@ game_pid()
 				if ((pid[i] in tree) && (a1[i] == bin || a2[i] == bin)) game[pid[i]] = 1
 			for (i = 1; i <= NR; i++)
 				if ((pid[i] in game) && !(ppid[i] in game)) { print pid[i]; exit }
-		}'
+		}' <<<"$list"
 }
 
 # Endurance: demo playback for --endurance seconds (default 3600), sampling
