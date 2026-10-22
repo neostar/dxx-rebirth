@@ -307,7 +307,7 @@ build_options_hash()
 {
 	local f
 	{
-		declare -f build_one reproducible_options extract_prebuilt
+		declare -f build_one reproducible_options relocatable_install_names extract_prebuilt
 		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members|prebuilt_programs)_/ {print $3}'); do
 			echo "$f: $("$f")"
 		done
@@ -355,6 +355,43 @@ reproducible_options()
 	fi
 }
 
+# macOS: a project that sets its own install name directory, as
+# FluidSynth's CMake does, installs libraries named by their absolute path
+# in the prefix, and so does everything linked against them (SDL3_mixer),
+# which then loads only while the prefix stays where it was built.  Rename
+# each Mach-O file's install name and references under $prefix/lib to
+# @rpath, which the build's rpath resolves, and sign it again: a renamed
+# file's signature no longer matches and arm64 refuses to load it.
+relocatable_install_names()
+{
+	local f ref p changes logical physical
+	[[ $platform == darwin-* ]] || return 0
+	logical=$(cd "$prefix" && pwd) physical=$(cd "$prefix" && pwd -P)
+	while IFS= read -r -d '' f; do
+		# Not an archive (.a): otool reads one, install_name_tool does not.
+		[[ $(file -b "$f") == Mach-O* ]] || continue
+		changes=()
+		while read -r ref; do
+			for p in "$prefix" "$logical" "$physical"; do
+				[[ $ref == "$p"/lib/* ]] || continue
+				changes+=(-change "$ref" "@rpath/${ref#"$p"/lib/}")
+				break
+			done
+		done < <(otool -l "$f" | awk '$1 == "cmd" &&
+			$2 ~ /^LC_(LOAD|LOAD_WEAK|REEXPORT|LAZY_LOAD|LOAD_UPWARD)_DYLIB$/ { getline; getline; print $2 }')
+		ref=$(otool -D "$f" | sed -n 2p)
+		for p in "$prefix" "$logical" "$physical"; do
+			[[ -n $ref && $ref == "$p"/lib/* ]] || continue
+			changes+=(-id "@rpath/${ref#"$p"/lib/}")
+			break
+		done
+		[[ ${#changes[@]} -eq 0 ]] && continue
+		install_name_tool "${changes[@]}" "$f" &&
+			codesign --force --sign - "$f" ||
+			{ echo "cannot rename the install names of $f"; return 1; }
+	done < <(find "$prefix/bin" "$prefix/lib" -type f -print0 2>/dev/null)
+}
+
 build_one()
 {
 	local kind=$1 name=$2 src=$work/src/$2 opts=()
@@ -382,7 +419,8 @@ build_one()
 		-DFETCHCONTENT_FULLY_DISCONNECTED=ON "${fetchcontent[@]+"${fetchcontent[@]}"}" \
 		"${opts[@]+"${opts[@]}"}" > "$work/$name.log" 2>&1 &&
 		cmake --build "$work/build/$name" --parallel "$jobs" >> "$work/$name.log" 2>&1 &&
-		cmake --install "$work/build/$name" >> "$work/$name.log" 2>&1; }; then
+		cmake --install "$work/build/$name" >> "$work/$name.log" 2>&1 &&
+		relocatable_install_names >> "$work/$name.log" 2>&1; }; then
 		tail -n 30 "$work/$name.log" >&2
 		refuse "$name: build failed; log in $work/$name.log"
 	fi

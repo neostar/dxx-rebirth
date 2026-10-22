@@ -298,6 +298,88 @@ test_build_does_not_depend_on_its_path()
 	"$d/b/prefix-b/bin/cdemo_main" || fail "the program does not run from its prefix"
 }
 
+# Print each install name (LC_ID_DYLIB) and loaded library (LC_LOAD_DYLIB
+# and kin) of Mach-O file $1 that would not load once its prefix moved: an
+# absolute path outside /usr/lib and /System, or an @rpath name found in
+# none of its LC_RPATH directories (@loader_path is its own directory).
+unmovable_refs()
+{
+	local f=$1 dir rp lib found rpaths=()
+	dir=$(dirname "$f")
+	while read -r rp; do
+		rpaths+=("${rp/@loader_path/$dir}")
+	done < <(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2 }')
+	while read -r lib; do
+		case $lib in
+		/usr/lib/*|/System/*) ;;
+		@rpath/*)
+			found=
+			for rp in "${rpaths[@]+"${rpaths[@]}"}"; do
+				[[ -e $rp/${lib#@rpath/} ]] && found=1
+			done
+			[[ -n $found ]] || echo "$f: $lib does not resolve" ;;
+		*) echo "$f: $lib" ;;
+		esac
+	done < <(otool -l "$f" | awk '$1 == "cmd" &&
+		$2 ~ /^LC_(ID_DYLIB|LOAD_DYLIB|LOAD_WEAK_DYLIB|REEXPORT_DYLIB|LAZY_LOAD_DYLIB|LOAD_UPWARD_DYLIB)$/ {
+		getline; getline; print $2 }')
+}
+
+# Test that on the Mac a library whose CMake sets an absolute install name,
+# as FluidSynth's does, and what links it, in its own project and in a
+# later dependency (as SDL3_mixer does), name only @rpath and system
+# libraries, so they still load once the prefix moves.  Read with otool,
+# never run: a library that does not load would crash in dyld.
+test_prefix_loads_after_it_moves()
+{
+	local d n f out bad=()
+	[[ $(uname -s) == Darwin ]] || skip "install names are Mach-O only"
+	command -v cc >/dev/null || skip "no C compiler"
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$d/src/fsdemo-1.0" "$d/src/mixdemo-1.0"
+	printf '%s\n' 'int fs(void) { return 0; }' > "$d/src/fsdemo-1.0/fs.c"
+	printf '%s\n' 'int fs(void);' 'int main(void) { return fs(); }' \
+		> "$d/src/fsdemo-1.0/main.c"
+	printf '%s\n' \
+		'cmake_minimum_required(VERSION 3.20)' \
+		'project(fsdemo C)' \
+		'include(GNUInstallDirs)' \
+		'set(CMAKE_INSTALL_NAME_DIR ${CMAKE_INSTALL_FULL_LIBDIR})' \
+		'add_library(fs SHARED fs.c)' \
+		'set_target_properties(fs PROPERTIES VERSION 3.6.1 SOVERSION 3)' \
+		'add_executable(fsdemo main.c)' \
+		'target_link_libraries(fsdemo fs)' \
+		'install(TARGETS fs fsdemo)' > "$d/src/fsdemo-1.0/CMakeLists.txt"
+	printf '%s\n' 'int fs(void);' 'int mix(void) { return fs(); }' \
+		> "$d/src/mixdemo-1.0/mix.c"
+	printf '%s\n' 'int mix(void);' 'int main(void) { return mix(); }' \
+		> "$d/src/mixdemo-1.0/main.c"
+	printf '%s\n' \
+		'cmake_minimum_required(VERSION 3.20)' \
+		'project(mixdemo C)' \
+		'find_library(FS fs REQUIRED)' \
+		'add_library(mix SHARED mix.c)' \
+		'target_link_libraries(mix ${FS})' \
+		'add_executable(mixdemo main.c)' \
+		'target_link_libraries(mixdemo mix)' \
+		'install(TARGETS mix mixdemo)' > "$d/src/mixdemo-1.0/CMakeLists.txt"
+	: > "$d/manifest"
+	for n in fsdemo mixdemo; do
+		tar -czf "$d/$n-1.0.tar.gz" -C "$d/src" "$n-1.0"
+		echo "source $n 1.0 file://$d/$n-1.0.tar.gz $(dev_sha256 "$d/$n-1.0.tar.gz")" \
+			>> "$d/manifest"
+	done
+	out=$(run_deps "$d") || { fail "build failed: $out"; return; }
+	mv "$d/prefix" "$d/moved"
+	for f in "$d/moved/bin/fsdemo" "$d/moved/bin/mixdemo" "$d/moved/lib/libfs.3.6.1.dylib" \
+		"$d/moved/lib/libmix.dylib"; do
+		[[ -f $f ]] || { fail "$f not installed"; continue; }
+		out=$(unmovable_refs "$f") || fail "otool failed on $f"
+		[[ -z $out ]] || bad+=("$out")
+	done
+	[[ ${#bad[@]} -eq 0 ]] || fail "not loadable from the moved prefix: ${bad[*]}"
+}
+
 # Test that a build records no build time: CMake's TIMESTAMP, as
 # SPIRV-Cross's version header uses it, gives the same value every build.
 test_build_records_no_build_time()
