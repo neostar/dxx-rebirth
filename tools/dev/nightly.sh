@@ -23,6 +23,8 @@
 #   hardened_demo   D2 demo playback in the hardened debug-harness build,
 #                   windowless through run.sh; a hardening trap, a
 #                   sanitizer report or a crash report fails it
+#   endurance       demo playback for an hour (--endurance), sampling the
+#                   game's memory: it must stay flat (rss_trend.py)
 #   cppcheck,       SKIPs until toolchain.pins pins them (the owner's
 #   codeql          decision)
 #   container leg:
@@ -43,7 +45,7 @@ usage()
 	exit 2
 }
 
-native_steps=(analyzer thread_safety tsan hardened_demo cppcheck codeql)
+native_steps=(analyzer thread_safety tsan hardened_demo endurance cppcheck codeql)
 container_steps=(glibcxx_debug)
 
 harness_dir=build/nightly/harness
@@ -293,6 +295,66 @@ step_hardened_demo()
 	played=$(demos_played)
 	echo "hardened_demo: $played complete demo playbacks"
 	[[ $played -ge 1 ]] || { echo "hardened_demo: no complete demo playback in $timeout s"; rc=1; }
+	return "$rc"
+}
+
+# Print the pid of game $2 among the descendants of process $1: the one
+# whose command is the game, or a script interpreter running it.
+game_pid()
+{
+	ps -A -o pid=,ppid=,args= | awk -v top="$1" -v bin="$2" '
+		{ pid[NR] = $1; ppid[NR] = $2; a1[NR] = $3; a2[NR] = $4 }
+		END {
+			tree[top] = 1
+			for (more = 1; more; ) {
+				more = 0
+				for (i = 1; i <= NR; i++)
+					if (!(pid[i] in tree) && (ppid[i] in tree)) { tree[pid[i]] = 1; more = 1 }
+			}
+			for (i = 1; i <= NR; i++)
+				if ((pid[i] in tree) && (a1[i] == bin || a2[i] == bin)) { print pid[i]; exit }
+		}'
+}
+
+# Endurance: demo playback for DXX_NIGHTLY_ENDURANCE seconds (--endurance,
+# default 3600), sampling the game's RSS every DXX_NIGHTLY_SAMPLE_INTERVAL
+# seconds (default 10) into endurance.rss; rss_trend.py then fails growth
+# over DXX_NIGHTLY_MAX_SLOPE MiB/h (default 8) after DXX_NIGHTLY_WARMUP
+# seconds (default 120), fitted to the minima of DXX_NIGHTLY_WINDOW-second
+# windows (default 60).
+step_endurance()
+{
+	local bin early='' rc=0 start now el pid rss samples=$work/endurance.rss
+	local interval=${DXX_NIGHTLY_SAMPLE_INTERVAL:-10}
+	need_data endurance || return 0
+	bin=$(game_binary) || { echo "endurance: building the harness failed"; return 1; }
+	demo_start endurance "$bin" || return 1
+	: > "$samples"
+	echo "endurance: $DXX_NIGHTLY_ENDURANCE s, RSS every $interval s into $samples"
+	# The clock starts with the game, which run.sh starts after its checks.
+	for ((el = 0; el < ${DXX_NIGHTLY_DEMO_TIMEOUT:-600} * 10; el++)); do
+		pid=$(game_pid "$run_pid" "$bin")
+		if [[ -n $pid ]] || ! kill -0 "$run_pid" 2>/dev/null; then
+			break
+		fi
+		sleep 0.1
+	done
+	start=${EPOCHREALTIME/[.,]/}
+	while :; do
+		now=${EPOCHREALTIME/[.,]/}
+		el=$(( now - start ))
+		kill -0 "$run_pid" 2>/dev/null || { early=1; break; }
+		[[ -n $pid ]] && kill -0 "$pid" 2>/dev/null || pid=$(game_pid "$run_pid" "$bin")
+		rss=${pid:+$(ps -o rss= -p "$pid" | tr -d ' ')}
+		[[ -z $rss ]] || printf '%d.%06d %s\n' $((el / 1000000)) $((el % 1000000)) "$rss" >> "$samples"
+		[[ $el -ge $((DXX_NIGHTLY_ENDURANCE * 1000000)) ]] && break
+		sleep "$interval"
+	done
+	demo_finish endurance "$early" || rc=1
+	echo "endurance: $(demos_played) complete demo playbacks"
+	[[ $(demos_played) -ge 1 ]] || { echo "endurance: no complete demo playback"; rc=1; }
+	python3 "$dev_dir/rss_trend.py" --warmup "${DXX_NIGHTLY_WARMUP:-120}" \
+		--window "${DXX_NIGHTLY_WINDOW:-60}" --max-slope "${DXX_NIGHTLY_MAX_SLOPE:-8}" "$samples" || rc=1
 	return "$rc"
 }
 

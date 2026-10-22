@@ -179,7 +179,7 @@ test_glibcxx_debug_known_failures()
 # variables in $1/game.args, then every 0.1 s writes a demo section to the
 # frame hash log until TERM ends it, and per FAKE_GAME: `trap` prints a
 # libc++ hardening message and exits 1 after one section, `report` writes
-# a crash report of itself, `idle` writes no section, `grow` takes 2 MB
+# a crash report of itself, `idle` writes no section, `grow` takes 0.5 MB
 # more memory each time.  The growth limit is 1000 MiB/h: bash's own
 # memory moves by kilobytes, which over 3 s extrapolate to megabytes an
 # hour.
@@ -204,7 +204,7 @@ while :; do
 	trap) echo 'x.h:1: libc++ Hardening assertion n < size() failed: out of range' >&2
 		exit 1 ;;
 	report) printf '{"pid" : %d, "procName" : "fake-game"}\n' \$\$ > "$d/reports/fake.ips" ;;
-	grow) s+=\$(head -c 2000000 /dev/zero | tr '\\0' x) ;;
+	grow) s+=\$(head -c 500000 /dev/zero | tr '\\0' x) ;;
 	esac
 	sleep 0.1
 done
@@ -214,7 +214,7 @@ GAME
 		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
 		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
 		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 DXX_NIGHTLY_WARMUP=0 \
-		DXX_NIGHTLY_MAX_SLOPE=1000 RUN_KILL_AFTER=2
+		DXX_NIGHTLY_MAX_SLOPE=1000 DXX_NIGHTLY_WINDOW=0.5 RUN_KILL_AFTER=2
 }
 
 # Run the native leg's step $2 with the fake game in directory $1, with
@@ -282,9 +282,35 @@ test_demo_steps_skip_without_data()
 	local d out
 	d=$(make_scratch) || die "make_scratch failed"
 	out=$(env DXX_D2_DATA="$d/none" "$DEV_DIR/nightly.sh" --leg native \
-		--steps hardened_demo 2>&1)
+		--steps hardened_demo,endurance 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP hardened_demo: DXX_D2_DATA"
+	assert_contains "$out" "SKIP endurance: DXX_D2_DATA"
+}
+
+# Test that the endurance run passes a game whose memory stays flat,
+# naming the sampled slope.
+test_endurance_passes_flat_memory()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	# 10 s: under emulation (the container leg) a sample takes about 0.5 s.
+	out=$(game_step "$d" endurance --endurance 10)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "MiB/h"
+	assert_contains "$out" ": flat"
+}
+
+# Test that the endurance run fails a game whose memory grows.
+test_endurance_fails_growing_memory()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	# 10 s: the fake grows slowly under emulation (the container leg).
+	out=$(FAKE_GAME=grow game_step "$d" endurance --endurance 10) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" ": growing"
+	assert_contains "$out" "nightly.sh: failed: endurance"
 }
 
 # Test that the steps without a runner yet are SKIPs naming why: TSan the
