@@ -32,3 +32,7 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
+
+## Platform research
+
+- Audio (sound effects, music, movie audio, silent runs; #45, #46, #47, #66): `docs/agents/sdl-audio.md`.
