@@ -27,11 +27,10 @@
 #                   (a non-zero status or a hang after TERM) fails it
 #   endurance       demo playback for an hour (--endurance), sampling the
 #                   game's memory: it must stay flat (rss_trend.py)
-#   cppcheck,       SKIPs until toolchain.pins pins them (the owner's
-#   codeql          decision)
 #   container leg:
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run
+#   fanalyzer       GCC's -fanalyzer on every fork C file
 # --steps runs only the steps named (of the leg's); --endurance sets the
 # endurance run's length.  A missing input (the pinned clang-tidy, the D2
 # data in DXX_D2_DATA, a build) fails its step: a scheduled run must not
@@ -57,8 +56,8 @@ usage()
 	exit 2
 }
 
-native_steps=(analyzer thread_safety tsan hardened_demo endurance cppcheck codeql)
-container_steps=(glibcxx_debug)
+native_steps=(analyzer thread_safety tsan hardened_demo endurance)
+container_steps=(glibcxx_debug fanalyzer)
 
 harness_dir=build/nightly/harness
 clang_tidy=$(dev_llvm_tool clang-tidy)
@@ -280,6 +279,28 @@ step_glibcxx_debug()
 	[[ ${#unexpected[@]} -eq 0 && ${#stale[@]} -eq 0 ]]
 }
 
+# GCC's -fanalyzer on every C file in the fork directories, with the
+# pinned SDL3 headers (GCC documents it as suitable for C only; the Clang
+# Static Analyzer covers the C++).  Without GCC (the Mac's gcc is clang)
+# the step fails: it belongs to the container leg.
+step_fanalyzer()
+{
+	local files=() f rc=0 dirs
+	if ! gcc --version 2>/dev/null | grep -q 'Free Software Foundation'; then
+		echo "fanalyzer: GCC not found (gcc is $(command -v gcc || echo missing)); it runs in the container leg"
+		return 1
+	fi
+	mapfile -t dirs < <(fork_dirs)
+	mapfile -t files < <(cd "$root" && find "${dirs[@]}" -name '*.c' -type f | sort)
+	echo "fanalyzer: ${#files[@]} fork C files"
+	[[ ${#files[@]} -gt 0 ]] || { echo "fanalyzer: no fork C file"; return 1; }
+	for f in "${files[@]}"; do
+		gcc -std=c11 -fanalyzer -Werror -c -o /dev/null -isystem "$dev_deps_prefix/include" \
+			"$root/$f" || rc=1
+	done
+	return "$rc"
+}
+
 # ThreadSanitizer on the audio-thread tests, on the Mac (TSan fails under
 # Rosetta in the container): none exists yet, so a SKIP naming #45, the
 # first fork code with an audio thread, which adds them and this step's
@@ -288,20 +309,6 @@ step_tsan()
 {
 	echo "SKIP tsan: no audio-thread tests yet; #45 (sound effects on SDL3_mixer) adds them"
 }
-
-# Analyzers the owner has not decided to install: a SKIP until
-# tools/dev/toolchain.pins pins them.  $1 names the step, $2 the tool.
-not_pinned()
-{
-	if ! grep -qE "^[a-z]+ $2 " "$dev_dir/toolchain.pins"; then
-		echo "SKIP $1: $2 is not pinned in tools/dev/toolchain.pins; installing it is the owner's decision (#59)"
-		return 0
-	fi
-	echo "$1: $2 is pinned but nightly.sh has no runner for it yet"
-	return 1
-}
-step_cppcheck() { not_pinned cppcheck cppcheck; }
-step_codeql() { not_pinned codeql codeql; }
 
 # The demo runs: the debug-harness game (DXX_NIGHTLY_GAME, else built),
 # the D2 data (DXX_D2_DATA), and a work directory for the frame hash logs,

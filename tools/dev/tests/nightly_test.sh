@@ -306,6 +306,28 @@ test_glibcxx_debug_counts_failed_targets()
 	assert_contains "$out" "2 failed targets counted and 1 in the failed node list"
 }
 
+# Test that the fanalyzer step runs GCC's -fanalyzer on the fork C files,
+# failing on a double free and passing a clean file (GCC only: the
+# container leg).
+test_fanalyzer_fails_on_double_free()
+{
+	gcc --version 2>/dev/null | grep -q 'Free Software Foundation' ||
+		skip "gcc is not GCC; -fanalyzer runs in the container leg"
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '#include <stdlib.h>\nint main(void)\n{\n\tchar *p = malloc(4);\n\tfree(p);\n\treturn 0;\n}\n' \
+		> "$r/src/clean.c"
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps fanalyzer 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "fanalyzer: 1 fork C files"
+	printf '#include <stdlib.h>\nint main(void)\n{\n\tchar *p = malloc(4);\n\tfree(p);\n\tfree(p);\n\treturn 0;\n}\n' \
+		> "$r/src/plant.c"
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps fanalyzer 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "double-free"
+	assert_contains "$out" "nightly.sh: failed: fanalyzer"
+}
+
 # Write into directory $1 (DEMO_TIMEOUT: the demo timeout, default 60 s)
 # a fake game for the demo steps, a fake D2 data
 # directory, an empty crash report directory and a fake frontmost-app
@@ -498,17 +520,14 @@ test_endurance_fails_growing_memory()
 	assert_contains "$out" "nightly.sh: failed: endurance"
 }
 
-# Test that the steps without a runner yet are SKIPs naming why: TSan the
-# ticket that adds audio-thread tests, cppcheck and CodeQL the owner's
-# install decision.
-test_unbuilt_steps_skip_visibly()
+# Test that the TSan step, which has no tests to run until #45, is a SKIP
+# naming that ticket.
+test_tsan_skips_visibly()
 {
 	local out
-	out=$("$DEV_DIR/nightly.sh" --leg native --steps tsan,cppcheck,codeql 2>&1)
+	out=$("$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "SKIP tsan: no audio-thread tests yet; #45"
-	assert_contains "$out" "SKIP cppcheck: cppcheck is not pinned"
-	assert_contains "$out" "SKIP codeql: codeql is not pinned"
 }
 
 # Test that without --leg both legs run, the container leg through
