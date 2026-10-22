@@ -86,18 +86,21 @@ database()
 	printf '%s\n' "$root/$harness_dir/compile_commands.json"
 }
 
-# Print the fork directories (tools/dev/fork-dirs), one per line.
+# Set the caller's array dirs to the fork directories, as the build's
+# strict warnings read tools/dev/fork-dirs (fork_warnings.py: one parser);
+# fail, saying why, when it lists none.
 fork_dirs()
 {
-	grep -v -e '^#' -e '^$' "$dev_dir/fork-dirs"
+	local out
+	out=$(python3 "$dev_dir/fork_warnings.py" --dirs) || return
+	mapfile -t dirs <<<"$out"
 }
 
 # Print, NUL-separated, every C++ source file of database $1 that lies in
-# a fork directory (fork_dirs), as an absolute path, each once.
+# a fork directory (the caller's dirs, from fork_dirs), as an absolute
+# path, each once.
 fork_sources()
 {
-	local dirs
-	mapfile -t dirs < <(fork_dirs)
 	python3 - "$1" "$root" "${dirs[@]}" <<'PY'
 import json, os, sys
 db, root, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
@@ -113,16 +116,18 @@ for e in json.load(open(db)):
 PY
 }
 
-# Set db to the compilation database and files to its fork C++ files, for
-# step $1; fail, saying why, without the pinned clang-tidy, the database
-# or a fork file in it.  A missing tool fails: a scheduled run must not
-# stay green on a step that checked nothing.
+# Set dirs to the fork directories, db to the compilation database and
+# files to its fork C++ files, for step $1; fail, saying why, without the
+# pinned clang-tidy, a fork directory, the database or a fork file in it.
+# A missing tool fails: a scheduled run must not stay green on a step that
+# checked nothing.
 fork_files()
 {
 	if [[ ! -x $clang_tidy ]]; then
 		echo "$1: $clang_tidy not found; run tools/dev/deps.sh build"
 		return 1
 	fi
+	fork_dirs || { echo "$1: no fork directory"; return 1; }
 	db=$(database) || { echo "$1: building the harness failed"; return 1; }
 	mapfile -d '' -t files < <(fork_sources "$db")
 	echo "$1: ${#files[@]} fork files in $db"
@@ -130,8 +135,8 @@ fork_files()
 }
 
 # Run the pinned clang-tidy with config $1 on files $3... of database $2,
-# reporting findings in fork files only.  Arguments after -- go to
-# clang-tidy.
+# reporting findings in fork files only (the caller's dirs, from
+# fork_dirs).  Arguments after -- go to clang-tidy.
 tidy()
 {
 	local config=$1 dbfile=$2 filter args=() srcs=()
@@ -139,7 +144,7 @@ tidy()
 	while [[ $# -gt 0 && $1 != -- ]]; do srcs+=("$1"); shift; done
 	[[ $# -gt 0 ]] && shift
 	args=("$@")
-	filter="^$root/($(fork_dirs | paste -sd '|' -))/"
+	filter="^$root/($(printf '%s\n' "${dirs[@]}" | paste -sd '|' -))/"
 	"$clang_tidy" -p "$(dirname "$dbfile")" --quiet --config="$config" \
 		--header-filter="$filter" "${args[@]+"${args[@]}"}" "${srcs[@]}" 2>&1 |
 		grep -v -e '^[0-9]* warnings\? generated\.$' -e '^Suppressed [0-9]* warnings'
@@ -151,7 +156,7 @@ tidy()
 # twice the loop unrolling.
 step_analyzer()
 {
-	local db files=()
+	local dirs db files=()
 	fork_files analyzer || return
 	tidy "{Checks: '-*,clang-analyzer-*', WarningsAsErrors: '*'}" "$db" "${files[@]}" -- \
 		--extra-arg=-Xclang --extra-arg=-analyzer-config \
@@ -170,7 +175,7 @@ thread_safety_args=(--allow-no-checks --extra-arg=-Wthread-safety
 	--extra-arg=-DSDL_THREAD_SAFETY_ANALYSIS)
 step_thread_safety()
 {
-	local db files=() kind pattern user probes rc=0 locks=()
+	local dirs db files=() kind pattern user probes rc=0 locks=()
 	fork_files thread_safety || return
 	tidy "$thread_safety_config" "$db" "${files[@]}" -- "${thread_safety_args[@]}" || rc=1
 	probes=$(mktemp -d "${TMPDIR:-/tmp}/thread_safety.XXXXXX") || return 1
@@ -290,7 +295,7 @@ step_fanalyzer()
 		echo "fanalyzer: GCC not found (gcc is $(command -v gcc || echo missing)); it runs in the container leg"
 		return 1
 	fi
-	mapfile -t dirs < <(fork_dirs)
+	fork_dirs || { echo "fanalyzer: no fork directory"; return 1; }
 	mapfile -t files < <(cd "$root" && find "${dirs[@]}" -name '*.c' -type f | sort)
 	echo "fanalyzer: ${#files[@]} fork C files"
 	[[ ${#files[@]} -gt 0 ]] || { echo "fanalyzer: no fork C file"; return 1; }

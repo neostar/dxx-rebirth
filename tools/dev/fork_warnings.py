@@ -3,11 +3,14 @@
 # in tools/dev/fork-dirs, with the third-party include directories made
 # system ones there; upstream files compile as before.  site-dev.py
 # calls install(), so the build.sh profiles get it and SConstruct stays
-# unchanged.  `python3 fork_warnings.py` prints the flags.  A profile adds
+# unchanged.  `python3 fork_warnings.py` prints the flags, `--dirs` the
+# fork directories, one per line, failing when fork-dirs lists none
+# (nightly.sh reads them so: one parser for the file).  A profile adds
 # its own fork-only flags to FORK_ONLY_FLAGS (site-asan.py: UBSan's
 # implicit-conversion, which upstream code trips).
 import os
 import subprocess
+import sys
 
 STRICT_FLAGS = ('-Wconversion', '-Wsign-conversion', '-Wshadow', '-Werror')
 FORK_ONLY_FLAGS = []
@@ -32,10 +35,16 @@ def gxx_accepts(flags):
 	return _gxx_accepts[key]
 
 
-def fork_dirs():
+def fork_dir_names():
+	"""The directories tools/dev/fork-dirs lists, relative to the root,
+	blank lines and comments dropped."""
 	with open(os.path.join(_dev_dir, 'fork-dirs')) as f:
 		lines = (line.strip() for line in f)
-		return tuple(os.path.join(_root, d) + os.sep for d in lines if d and not d.startswith('#'))
+		return tuple(d for d in lines if d and not d.startswith('#'))
+
+
+def fork_dirs():
+	return tuple(os.path.join(_root, d) + os.sep for d in fork_dir_names())
 
 
 def _path(node):
@@ -91,4 +100,13 @@ def install():
 
 
 if __name__ == '__main__':
-	print(' '.join(STRICT_FLAGS))
+	if sys.argv[1:] == ['--dirs']:
+		names = fork_dir_names()
+		if not names:
+			sys.exit(f'{sys.argv[0]}: {_dev_dir}/fork-dirs lists no directory')
+		print('\n'.join(names))
+	elif sys.argv[1:]:
+		print(f'usage: {sys.argv[0]} [--dirs]', file=sys.stderr)
+		sys.exit(2)
+	else:
+		print(' '.join(STRICT_FLAGS))

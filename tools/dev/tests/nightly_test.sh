@@ -86,6 +86,34 @@ test_analyzer_passes_clean_file()
 	assert_contains "$out" "analyzer: 2 fork files"
 }
 
+# Test that the analyzer step reads tools/dev/fork-dirs as the build's
+# strict warnings do (fork_warnings.py): an indented comment and a
+# directory followed by blanks.
+test_analyzer_reads_fork_dirs_as_the_build_does()
+{
+	need_native_tidy
+	local r out
+	r=$(plant_repo "$GATES/clean.cpp.in") || die "plant_repo failed"
+	printf '# fork directories\n  # indented comment\n\nsrc \t\n' > "$r/tools/dev/fork-dirs"
+	out=$(native_step "$r" analyzer)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "analyzer: 2 fork files"
+}
+
+# Test that the analyzer step fails, naming the file, when fork-dirs lists
+# no directory.
+test_analyzer_fails_without_fork_dirs()
+{
+	need_native_tidy
+	local r out rc
+	r=$(plant_repo "$GATES/clean.cpp.in") || die "plant_repo failed"
+	printf '# only a comment\n\n' > "$r/tools/dev/fork-dirs"
+	out=$(native_step "$r" analyzer) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "fork-dirs lists no directory"
+	assert_contains "$out" "nightly.sh: failed: analyzer"
+}
+
 # Test that the thread-safety step fails on a member written without its
 # mutex held.
 test_thread_safety_fails_on_unguarded_write()

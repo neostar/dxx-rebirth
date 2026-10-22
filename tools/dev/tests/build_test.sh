@@ -272,6 +272,29 @@ main:
 toolsx: "
 }
 
+# Test that `fork_warnings.py --dirs` prints the fork directories it gives
+# the strict warnings, one per line, comments and blanks dropped (nightly.sh
+# reads them so), fails when tools/dev/fork-dirs lists none, and that an
+# unknown argument is a usage error.
+test_fork_warnings_prints_fork_dirs()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$d/tools/dev"
+	cp "$DEV_DIR/fork_warnings.py" "$d/tools/dev/"
+	printf '# fork directories\n  # indented\n\nsrc \t\ncommon/x\n' > "$d/tools/dev/fork-dirs"
+	out=$(python3 -I "$d/tools/dev/fork_warnings.py" --dirs)
+	assert_eq "$?" 0 "$out"
+	assert_eq "$out" "src
+common/x"
+	printf '# only a comment\n' > "$d/tools/dev/fork-dirs"
+	out=$(python3 -I "$d/tools/dev/fork_warnings.py" --dirs 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "fork-dirs lists no directory"
+	out=$(python3 -I "$d/tools/dev/fork_warnings.py" --bogus 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+}
+
 # Test that a fork compile gets every include directory on CPPPATH outside
 # the repository (Homebrew's: Boost) again as -isystem, so the strict
 # warnings stay off third-party headers, and that an upstream compile gets
