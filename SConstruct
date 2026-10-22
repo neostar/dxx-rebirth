@@ -5161,6 +5161,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-ambient', (
 			'common/render/unittest/ambient.cpp',
 			)),
+		RuntimeTest('test-palette-expand', (
+			'common/render/unittest/palette_expand.cpp',
+			)),
 		RuntimeTest('test-gl-state', (
 			'common/render/unittest/gl_state.cpp',
 			)),
