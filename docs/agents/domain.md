@@ -14,6 +14,8 @@ Platform research, read before working in its area:
   `docs/agents/sdl-gpu-backends.md`.
 - SDL3 windows, displays, fullscreen, HiDPI, frame pacing, hidden test windows:
   `docs/agents/sdl-window.md`.
+- SDL3 audio: sound effects, music, movie audio, silent runs, per-platform backends:
+  `docs/agents/sdl-audio.md`.
 
 ## Before recommending a change to the plan
 
@@ -32,7 +34,3 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
-
-## Platform research
-
-- Audio (sound effects, music, movie audio, silent runs; #45, #46, #47, #66): `docs/agents/sdl-audio.md`.
