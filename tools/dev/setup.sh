@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup of a clone or worktree for fork development: writes the
 # key=value rules of tools/dev/repo-config (pre-commit and pre-push hooks,
-# rerere) into the clone's local config, which its worktrees share.
+# rerere off) into the clone's local config, which its worktrees share.
 # check.sh --fast checks them, and that the !section rules hold.  On macOS
 # it also downloads Xcode's Metal toolchain when xcrun cannot run the metal
 # compiler (Xcode ships without it): tools/shaders/check.sh compiles the

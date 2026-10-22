@@ -46,13 +46,15 @@ test_failing_exec_stops_with_error()
 	tgit -C "$r" rebase --abort
 }
 
-# Test that rerere is enabled for the rebase so resolutions are recorded.
-test_enables_rerere()
+# Test that the rebase leaves rerere as setup.sh set it (off): a recorded
+# resolution once replayed a bad one.
+test_leaves_rerere_off()
 {
 	local r
 	r=$(make_fork_repo) || die "make_fork_repo failed"
+	tgit -C "$r" config rerere.enabled false
 	(cd "$r" && "$REBASE" --upstream up --exec true >/dev/null 2>&1)
-	assert_eq "$(tgit -C "$r" config rerere.enabled)" "true"
+	assert_eq "$(tgit -C "$r" config rerere.enabled)" "false"
 }
 
 # Test that the default per-commit command builds and runs the fast checks

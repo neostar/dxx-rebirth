@@ -5,7 +5,8 @@
 #
 # REF defaults to upstream/master (fetch it first).  CMD runs after every
 # rebased commit (git rebase --exec) and defaults to a dev build plus the
-# fast checks; commits that predate tools/dev skip them with a message.  rerere is enabled so recorded conflict resolutions replay.
+# fast checks; commits that predate tools/dev skip them with a message.
+# rerere stays as setup.sh sets it: off.
 # On success the range-diff between the old and new series is printed;
 # on a conflict or a failing CMD the rebase stops for you to fix it.
 set -u
@@ -27,9 +28,6 @@ while [[ $# -gt 0 ]]; do
 		*) usage ;;
 	esac
 done
-
-git config rerere.enabled true
-git config rerere.autoupdate true
 
 old=$(git rev-parse HEAD)
 if ! git rebase --exec "$exec_cmd" "$upstream"; then

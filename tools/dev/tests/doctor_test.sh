@@ -304,6 +304,34 @@ test_prefix_libraries_reference_only_allowed_places()
 	assert_not_contains "$out" "ok   libs"
 }
 
+# Test that a stash entry fails once the clone has a second worktree,
+# saying why (one stash list for every worktree), and passes with one
+# worktree or an empty stash; outside a repository it is a visible SKIP.
+test_stash_with_several_worktrees_fails()
+{
+	local d r out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	r=$(make_repo) || die "make_repo failed"
+	printf 'tool cmake any 4.4.4\n' > "$d/manifest"
+	fake_tool "$d" cmake 'cmake version 4.4.4'
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --repo "$r") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ok   stash: empty"
+	echo x > "$r/f"
+	tgit -C "$r" add f || die "add failed"
+	tgit -C "$r" stash -q || die "stash failed"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --repo "$r") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	tgit -C "$r" worktree add -q "$r.wt" || die "worktree add failed"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --repo "$r.wt") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL stash: 1 entries and 2 worktrees: "
+	assert_contains "$out" " stash is one list for every worktree"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --repo "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP stash: $d is not in a "
+}
+
 # Test that a prefix not built yet is a visible SKIP, not a failure.
 test_unbuilt_prefix_skips()
 {

@@ -4,7 +4,7 @@
 #   !section    no key of this section (identity and signing stay global)
 core.bare=false
 core.hooksPath=tools/dev/hooks
-rerere.enabled=true
-rerere.autoupdate=true
+# rerere off: it once replayed a bad conflict resolution.
+rerere.enabled=false
 !user
 !commit

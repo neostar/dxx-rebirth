@@ -2,7 +2,7 @@
 # Check this machine's toolchain against tools/dev/toolchain.pins, so
 # two runs on two days use the same tools (ADR 1, ticket #57).
 #
-#   doctor.sh [--manifest FILE] [--prefix DIR] [--venv DIR]
+#   doctor.sh [--manifest FILE] [--prefix DIR] [--venv DIR] [--repo DIR]
 #
 # Each `tool <name> <platform> <version>` line whose platform is `any` or
 # this machine's (darwin, linux; DOCTOR_PLATFORM overrides uname) is probed
@@ -15,7 +15,8 @@
 # manifest, with exactly the locked packages installed.  Either not made
 # yet is a SKIP.  On macOS the libraries under their lib/ must load only
 # from themselves and the system (check_macho_refs).  Exit status 1 means
-# drift, 2 a usage error.
+# drift, 2 a usage error.  A stash entry fails while the clone holding
+# --repo (default: this one) has more than one worktree.
 # The probes are called by name, as probe_<name>.
 # shellcheck disable=SC2329
 set -u
@@ -24,18 +25,20 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--manifest FILE] [--prefix DIR] [--venv DIR]" >&2
+	echo "usage: $0 [--manifest FILE] [--prefix DIR] [--venv DIR] [--repo DIR]" >&2
 	exit 2
 }
 
 manifest=$dev_dir/toolchain.pins
 prefix=$dev_deps_prefix
 venv=$dev_venv
+repo=$dev_dir
 while [[ $# -gt 0 ]]; do
 	case $1 in
 	--manifest) [[ $# -ge 2 ]] || usage; manifest=$2; shift 2 ;;
 	--prefix) [[ $# -ge 2 ]] || usage; prefix=$2; shift 2 ;;
 	--venv) [[ $# -ge 2 ]] || usage; venv=$2; shift 2 ;;
+	--repo) [[ $# -ge 2 ]] || usage; repo=$2; shift 2 ;;
 	*) usage ;;
 	esac
 done
@@ -235,6 +238,28 @@ if [[ $platform == darwin ]]; then
 		else
 			echo "ok   libs: $libs_checked Mach-O libraries load from the prefix, the venv and the system"
 		fi
+	fi
+fi
+
+# git stash is one list for every worktree of a clone: with more than one
+# worktree, an entry stashed in one gets applied in another.
+if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+	echo "SKIP stash: $repo is not in a git repository"
+elif ! stashes=$(git -C "$repo" stash list) ||
+	! trees=$(git -C "$repo" worktree list --porcelain); then
+	echo "FAIL stash: git stash list or git worktree list failed in $repo"
+	rc=1
+else
+	stashes=$(grep -c . <<<"$stashes") trees=$(grep -c '^worktree ' <<<"$trees")
+	if [[ $stashes -gt 0 && $trees -gt 1 ]]; then
+		echo "FAIL stash: $stashes entries and $trees worktrees: git stash is one list for" \
+			"every worktree, so an entry stashed in one gets applied in another; turn each" \
+			"into a branch (git stash branch) or drop it"
+		rc=1
+	elif [[ $stashes -gt 0 ]]; then
+		echo "ok   stash: $stashes entries, one worktree"
+	else
+		echo "ok   stash: empty"
 	fi
 fi
 

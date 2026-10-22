@@ -21,7 +21,7 @@ change is written so upstream could accept it.
 ## Consequences
 
 - Upstream fixes arrive through rebases; each rebase is checked with `git range-diff` and a
-  per-commit build (`git rebase --exec`); `git rerere` replays known conflict resolutions.
+  per-commit build (`git rebase --exec`). `git rerere` is off: it replayed a bad resolution.
 - Designs that move or delete large amounts of upstream code are rejected in favour of designs that
   add beside it (ADR 3).
 - Deleting SDL1.2/SDL2 support stays out of scope; it would turn every rebase into conflicts.

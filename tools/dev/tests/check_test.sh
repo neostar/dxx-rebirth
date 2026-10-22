@@ -747,7 +747,8 @@ test_gitleaks_allow_needs_a_listed_reason()
 	assert_contains "$out" ".gitleaksignore: a .gitleaksignore"
 }
 
-# Test that setup.sh installs the hooks and enables rerere in a fresh clone.
+# Test that setup.sh installs the hooks and turns rerere off in a fresh
+# clone: it once replayed a bad resolution.
 test_setup_installs_hooks()
 {
 	local r
@@ -755,7 +756,7 @@ test_setup_installs_hooks()
 	tgit -C "$r" config --unset core.hooksPath
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	assert_eq "$(tgit -C "$r" config core.hooksPath)" "tools/dev/hooks"
-	assert_eq "$(tgit -C "$r" config rerere.enabled)" "true"
+	assert_eq "$(tgit -C "$r" config rerere.enabled)" "false"
 }
 
 # Write fakes of xcrun and xcodebuild into directory $1: `xcrun metal
