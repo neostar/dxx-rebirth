@@ -239,4 +239,182 @@ while :; do sleep 0.1; done" RUN_KILL_AFTER=1
 	assert_eq "$(cat "$d/rc")" 143
 }
 
+# Run a stand-in game that writes line $2 to stderr and exits 0, through
+# run.sh in directory $1, with environment $3... (DXX_DBG_HIDDEN=1 makes it
+# a hidden run).  run.sh's output goes to $1/out, its status to $1/rc.
+hidden_game_run()
+{
+	local d=$1 line=$2; shift 2
+	mkdir -p "$d/reports"
+	printf '%s\n' "$line" > "$d/line"
+	cat > "$d/game" <<EOF
+#!/bin/sh
+echo before
+cat "$d/line" >&2
+echo after >&2
+EOF
+	chmod +x "$d/game"
+	env -u DXX_DBG_HIDDEN -u NO_WINDOW_SOUND "$@" NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" '1 Finder')" \
+		NO_WINDOW_REPORTS_DIR="$d/reports" "$RUN" "$d/game" > "$d/out" 2>&1
+	echo "$?" > "$d/rc"
+}
+
+# Test that a hidden game run whose log names the dummy audio driver
+# passes, with the game's output passed on.
+test_hidden_run_on_the_dummy_driver_passes()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver dummy' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 0 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "before"
+	assert_contains "$(cat "$d/out")" "DXX_DBG_HIDDEN: audio driver dummy"
+	assert_contains "$(cat "$d/out")" "after"
+}
+
+# Test that a hidden game run whose log names another audio driver fails,
+# naming it: that run could play sound.
+test_hidden_run_on_another_driver_fails()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver coreaudio' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "run.sh: game: hidden run opened audio driver 'coreaudio', not dummy"
+}
+
+# Test that a hidden game run whose log names no driver once audio is
+# initialised fails.
+test_hidden_run_naming_no_driver_fails()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver ' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "run.sh: game: hidden run opened audio but names no driver"
+}
+
+# Test that a run with sound asked for (NO_WINDOW_SOUND=1), or one not
+# hidden, is not checked: another driver passes.
+test_unchecked_runs_pass_on_another_driver()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver coreaudio' DXX_DBG_HIDDEN=1 NO_WINDOW_SOUND=1
+	assert_eq "$(cat "$d/rc")" 0 "$(cat "$d/out")"
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver coreaudio'
+	assert_eq "$(cat "$d/rc")" 0 "$(cat "$d/out")"
+}
+
+# Test that a hidden run which never initialised audio, so names no
+# driver, passes: -nosound plays nothing.
+test_hidden_run_without_audio_passes()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'no audio here' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 0 "$(cat "$d/out")"
+}
+
+# Test that a line holding the report after other text, as after a partial
+# stderr write the game never ended, fails: only the exact dummy line
+# passes.
+test_report_after_other_text_fails()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'partialDXX_DBG_HIDDEN: audio driver coreaudio' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" \
+		"run.sh: game: hidden run's audio driver report is not alone on its line: 'partialDXX_DBG_HIDDEN: audio driver coreaudio'"
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'partialDXX_DBG_HIDDEN: audio driver dummy' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver dummy ' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+}
+
+# Test that a hidden run on another driver that then crashes still has its
+# crash report, written late, awaited and named.
+test_crash_report_of_a_hidden_run_on_another_driver_is_named()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	ips_lib "$d"
+	cat > "$d/crashy" <<EOF
+#!/bin/sh
+. "$d/ips.sh"
+echo 'DXX_DBG_HIDDEN: audio driver coreaudio' >&2
+nw=\$PPID
+(
+	while kill -0 "\$nw" 2>/dev/null; do sleep 0.1; done
+	sleep 1
+	ips crashy \$\$ "$d/reports/crashy-1.ips"
+) > /dev/null 2>&1 &
+kill -USR1 \$\$
+EOF
+	chmod +x "$d/crashy"
+	out=$(env -u NO_WINDOW_SOUND DXX_DBG_HIDDEN=1 NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" '1 Finder')" \
+		NO_WINDOW_REPORTS_DIR="$d/reports" "$RUN" "$d/crashy" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "run.sh: crashy: hidden run opened audio driver 'coreaudio', not dummy"
+	assert_contains "$out" "run.sh: crashy left a crash report: $d/reports/crashy-1.ips"
+}
+
+# Test that a hidden run whose stderr a process still holds 5 s after the
+# run ended fails: its copy would be incomplete.  The holder holds it until
+# the test kills it, as run.sh's 5 s run longer on a loaded machine; run.sh
+# must not wait for it.
+test_hidden_run_with_stderr_held_open_fails()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	cat > "$d/game" <<EOF
+#!/bin/sh
+echo 'DXX_DBG_HIDDEN: audio driver dummy' >&2
+sleep 120 > /dev/null &
+echo \$! > "$d/holder"
+EOF
+	chmod +x "$d/game"
+	out=$(env -u NO_WINDOW_SOUND DXX_DBG_HIDDEN=1 NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" '1 Finder')" \
+		NO_WINDOW_REPORTS_DIR="$d/reports" "$RUN" "$d/game" 2>&1) && rc=0 || rc=$?
+	kill "$(cat "$d/holder")" 2>/dev/null || fail "run.sh waited for the holder to end"
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "run.sh: game: stderr still open 5 s after the run; cannot check its audio driver"
+}
+
+# Run hidden_game_run's stand-in, with a dummy-driver line, in directory
+# $1, with a tee on PATH that runs shell code $2 instead of copying.
+hidden_run_with_tee()
+{
+	local d=$1
+	mkdir -p "$d/bin"
+	printf '#!/bin/sh\n%s\n' "$2" > "$d/bin/tee"
+	chmod +x "$d/bin/tee"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver dummy' DXX_DBG_HIDDEN=1 PATH="$d/bin:$PATH"
+}
+
+# Test that a hidden run fails when copying its stderr fails.
+test_hidden_run_whose_copy_fails_fails()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_run_with_tee "$d" 'cat > "$1"; exit 1'
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "run.sh: game: copying stderr failed"
+}
+
+# Test that a hidden run fails when its stderr copy cannot be read: here
+# the copy was never written.
+test_hidden_run_whose_copy_is_unreadable_fails()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_run_with_tee "$d" 'cat > /dev/null'
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "run.sh: game: cannot read its stderr copy"
+}
+
 run_tests

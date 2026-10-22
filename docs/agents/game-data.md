@@ -49,6 +49,14 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
 ```
 
 - A hidden run (`DXX_DBG_HIDDEN` set) reports an error on stderr and exits with status 1, no dialog.
+- A hidden run proves it is silent: each time it opens audio (`digi_init`, and the movie player's
+  own `SDL_OpenAudio` under `-nosdlmixer`) it writes `DXX_DBG_HIDDEN: audio driver <name>` to
+  stderr, the driver SDL opened, and on another driver than `dummy`, or none, ends at once with
+  status 1 and the reason on stderr, before it plays anything, unless `NO_WINDOW_SOUND=1`.
+  `run.sh` checks again after the run: it fails one whose stderr holds a line with that report
+  that is not exactly the `dummy` one. Not covered: a run of `no-window.sh` launched directly (no
+  after-the-fact check), a build without `dbg_harness=1` (no report, no stop), SDL 1.2 builds, and
+  a run that never opens audio (`-nosound`), which writes no line and passes.
 - `-nomovies`: Descent 2 plays its intro movie even with `-notitles`, for a wall-clock time.
 - `-pilot` loads an existing pilot as upstream does, whatever its name, and never overwrites it;
   a missing one it creates only with a name the new-pilot menu accepts (1 to 8 letters, digits,
