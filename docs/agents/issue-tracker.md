@@ -15,8 +15,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 ## Working a ticket
 
-The orchestrating session owns the ticket, the merge and every push; an implementer agent owns one
-branch. A prompt that says "follow Working a ticket" adds only the ticket number and the time box.
+A prompt that says "follow Working a ticket" adds only the ticket number and the time box.
 
 **Orchestrator**: follow `orchestrating.md`.
 
@@ -40,8 +39,9 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - Licensed data and everything derived from it (`game-data.md`) stay in your own scratch folder:
   never committed or quoted; report counts and pass/fail only. Leave other agents' scratch
   folders alone.
-- Owner's OK first: the `dxx-rebirth-ref*` Docker images and the reference image inputs (`env.sh`,
-  `deps.sh`, `tools/dev/container/Dockerfile`, `toolchain.pins`, `requirements.lock`).
+- Owner's: `CLAUDE.md`, the reference image and its inputs, and scope changes: report them as
+  open. The reference image is the `dxx-rebirth-ref*` Docker images; its inputs are `env.sh`,
+  `deps.sh`, `tools/dev/container/Dockerfile`, `toolchain.pins` and `requirements.lock`.
 - No environment dumps, no installs. On a denied permission, stop and report.
 - Merge gate: `tools/dev/ci.sh --gate` (ADR 6) decides a merge, run on committed work with
   `DXX_D2_DATA` set (it fails without the data); its R1 outputs are licensed-data derived
@@ -69,6 +69,16 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - Follow the hard rules above.
 - Check each implementer report for its plants, and each `tools/dev` script against the
   fail-closed checklist in `conventions.md`.
+
+**Researcher** (the output is a doc)
+
+- Load `mattpocock-skills:research` and `mattpocock-skills:writing-for-agents`.
+- Every claim rests on a source fetched during the run, quoted verbatim, with the date the source
+  states and the fetch date. Pin raw files in `tools/dev/reference-docs.txt`; put the sources in
+  a sibling `<doc>-sources.md`.
+- End the doc with how to extend it and the questions only a measurement answers.
+- Run `tools/dev/check.sh --fast` once, before your final commit: it runs the `tools/dev` shell
+  tests, heavy when several runs check at once.
 
 ## Pull requests as a triage surface
 
