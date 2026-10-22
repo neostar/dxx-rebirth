@@ -18,7 +18,7 @@ namespace render = dcx::render;
  */
 BOOST_AUTO_TEST_CASE(gl_caps_no_anisotropy_without_extension)
 {
-	BOOST_TEST(!render::gl_caps(0.0f).anisotropy);
+	BOOST_TEST(!render::gl_caps(0.0f).anisotropic);
 }
 
 /* Test that a limit of exactly 1, which filters as without anisotropy, has
@@ -26,12 +26,12 @@ BOOST_AUTO_TEST_CASE(gl_caps_no_anisotropy_without_extension)
  */
 BOOST_AUTO_TEST_CASE(gl_caps_no_anisotropy_at_limit_one)
 {
-	BOOST_TEST(!render::gl_caps(1.0f).anisotropy);
+	BOOST_TEST(!render::gl_caps(1.0f).anisotropic);
 }
 
 /* Test that a limit above 1 has anisotropy. */
 BOOST_AUTO_TEST_CASE(gl_caps_anisotropy_above_one)
 {
-	BOOST_TEST(render::gl_caps(1.5f).anisotropy);
-	BOOST_TEST(render::gl_caps(16.0f).anisotropy);
+	BOOST_TEST(render::gl_caps(1.5f).anisotropic);
+	BOOST_TEST(render::gl_caps(16.0f).anisotropic);
 }

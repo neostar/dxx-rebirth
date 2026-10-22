@@ -17,7 +17,7 @@ namespace dcx::render {
 struct caps
 {
 	/* Anisotropic texture filtering. */
-	bool anisotropy;
+	bool anisotropic;
 	constexpr bool operator==(const caps &) const = default;
 };
 
@@ -28,7 +28,7 @@ struct caps
 [[nodiscard]]
 constexpr caps gl_caps(const float max_anisotropy)
 {
-	return caps{.anisotropy = max_anisotropy > 1.0f};
+	return caps{.anisotropic = max_anisotropy > 1.0f};
 }
 
 }
