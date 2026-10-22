@@ -22,7 +22,8 @@
 #   tsan            ThreadSanitizer on the audio-thread tests (none yet)
 #   hardened_demo   D2 demo playback in the hardened debug-harness build,
 #                   windowless through run.sh; a hardening trap, a
-#                   sanitizer report or a crash report fails it
+#                   sanitizer report, a crash report or an unclean end
+#                   (a non-zero status or a hang after TERM) fails it
 #   endurance       demo playback for an hour (--endurance), sampling the
 #                   game's memory: it must stay flat (rss_trend.py)
 #   cppcheck,       SKIPs until toolchain.pins pins them (the owner's
@@ -234,9 +235,10 @@ game_binary()
 
 # Start demo run $1 of game $2 in the background, windowless as
 # docs/agents/game-data.md says, from a fresh home; set run_pid (run.sh's),
-# frames (the frame hash log) and out (its output).
+# game (the binary), frames (the frame hash log) and out (its output).
 demo_start()
 {
+	game=$2
 	local home=$work/$1-home
 	rm -rf "$home" && mkdir -p "$home" || return
 	frames=$work/$1.frames out=$work/$1.out
@@ -257,22 +259,41 @@ demos_played()
 	echo $(( ${n:-0} > 0 ? n - 1 : 0 ))
 }
 
-# End demo run $1 (TERM to run.sh, unless $2 says the game ended by
-# itself) and fail on what makes it red: the game ending by itself, a
-# crash report, focus taken, or a hardening, sanitizer or assertion
-# message in its output, which is printed whole in that case.
+# End demo run $1 and fail on what makes it red: the game ending by itself
+# ($2 set), a crash report, focus taken, a hardening, sanitizer or
+# assertion message in its output, or an unclean end.  The run ends by TERM
+# to the game itself, not to run.sh, so run.sh returns the game's own exit
+# status, which must be 0: a hidden harness run quits on TERM without
+# asking (the "Abort game?" box it would show is not on screen).  TERM is
+# sent again every second: the game drops a quit that arrives while a demo
+# loads (event_flush when the game window opens).  So a
+# crash at shutdown is a non-zero status and a game still running
+# RUN_KILL_AFTER seconds (run.sh's grace, default 10) later hangs; it then
+# gets TERM through run.sh, which kills it.  The output is named on failure.
 demo_finish()
 {
-	local rc=0 hits
+	local rc=0 status hits pid grace=${RUN_KILL_AFTER:-10} i
 	if [[ -n $2 ]]; then
 		wait "$run_pid"
 		echo "$1: the game ended by itself, status $?, before the run was over"
 		rc=1
 	else
-		kill -TERM "$run_pid" 2>/dev/null
+		pid=$(game_pid "$run_pid" "$game")
+		for ((i = 0; i < grace * 10; i++)); do
+			[[ -z $pid || $((i % 10)) -ne 0 ]] || kill -TERM "$pid" 2>/dev/null
+			kill -0 "$run_pid" 2>/dev/null || break
+			sleep 0.1
+		done
+		if kill -0 "$run_pid" 2>/dev/null; then
+			echo "$1: the game still runs $grace s after TERM; ending it through run.sh"
+			kill -TERM "$run_pid" 2>/dev/null
+			rc=1
+		fi
 		wait "$run_pid"
+		status=$?
+		[[ $status -eq 0 ]] || { echo "$1: the game ended with status $status after TERM, not 0"; rc=1; }
 	fi
-	hits=$(grep -E 'crash report|no-window\.sh:|Hardening assertion|_GLIBCXX|Assertion .* failed|runtime error:|Sanitizer' "$out")
+	hits=$(grep -E 'crash report|no-window\.sh:|still runs .*; killing it|Hardening assertion|_GLIBCXX|Assertion .* failed|runtime error:|Sanitizer' "$out")
 	[[ -z $hits ]] || { printf '%s\n' "$hits"; rc=1; }
 	[[ $rc -eq 0 ]] || echo "$1: output in $out"
 	return "$rc"

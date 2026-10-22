@@ -177,10 +177,12 @@ test_glibcxx_debug_known_failures()
 # sampler, and print the environment assignments that make nightly.sh use
 # them, one per line.  The game records its arguments and the harness
 # variables in $1/game.args, then every 0.1 s writes a demo section to the
-# frame hash log until TERM ends it, and per FAKE_GAME: `trap` prints a
-# libc++ hardening message and exits 1 after one section, `report` writes
-# a crash report of itself, `idle` writes no section, `grow` takes 0.5 MB
-# more memory each time.  The growth limit is 1000 MiB/h: bash's own
+# frame hash log until TERM ends it with status 0, and per FAKE_GAME: `trap`
+# prints a libc++ hardening message and exits 1 after one section, `report`
+# writes a crash report of itself, `idle` writes no section, `grow` takes
+# 0.5 MB more memory each time, `shutdown_crash` answers TERM with a heap
+# corruption message and status 134, `hang` ignores TERM, `drop_term`
+# ignores the first TERM (the game drops a quit while a demo loads).  The growth limit is 1000 MiB/h: bash's own
 # memory moves by kilobytes, which over seconds extrapolate to megabytes
 # an hour.  4 samples are enough: under amd64 emulation on a loaded
 # machine (the container leg) a sample has taken 1.4 s.
@@ -191,7 +193,12 @@ fake_game()
 	touch "$d/data/DESCENT2.HOG"
 	cat > "$d/fake-game" <<GAME
 #!/usr/bin/env bash
-trap 'exit 0' TERM
+case \${FAKE_GAME-} in
+shutdown_crash) trap 'echo "malloc: Heap corruption detected" >&2; exit 134' TERM ;;
+hang) trap '' TERM ;;
+drop_term) trap 'trap "exit 0" TERM' TERM ;;
+*) trap 'exit 0' TERM ;;
+esac
 echo "\$* hidden=\$DXX_DBG_HIDDEN frametime=\$DXX_DBG_FIXED_FRAMETIME home=\$D2X_REBIRTH_HOME" \
 	"asan=\$ASAN_OPTIONS ubsan=\$UBSAN_OPTIONS" > "$d/game.args"
 ls -A "\$D2X_REBIRTH_HOME" >> "$d/game.args"
@@ -266,6 +273,45 @@ test_hardened_demo_fails_on_crash_report()
 	out=$(FAKE_GAME=report game_step "$d" hardened_demo) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "crash report"
+}
+
+# Test that a crash at shutdown, after TERM, fails the run, naming the
+# status: the hardened demo and the endurance run share the ending.
+test_demo_steps_fail_on_crash_at_shutdown()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=shutdown_crash game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: the game ended with status 134 after TERM, not 0"
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=shutdown_crash game_step "$d" endurance --endurance 3) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "endurance: the game ended with status 134 after TERM, not 0"
+}
+
+# Test that a game still running after TERM (a hang, or a box nobody can
+# answer) fails the run and is ended.
+test_hardened_demo_fails_when_the_game_ignores_term()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=hang game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: the game still runs 2 s after TERM"
+	assert_contains "$out" "killing it"
+	pgrep -f "$d/fake-game" >/dev/null && fail "the fake game still runs"
+	return 0
+}
+
+# Test that TERM is sent again while the game runs: a game that drops the
+# first one still ends cleanly.
+test_hardened_demo_repeats_term()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=drop_term game_step "$d" hardened_demo)
+	assert_eq "$?" 0 "$out"
 }
 
 # Test that a run with no whole demo before the timeout fails.
