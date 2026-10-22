@@ -3,8 +3,9 @@
 Every source was fetched in the #78 run on 2026-10-22. "Pinned" means the raw file is in
 `tools/dev/reference-docs.txt` (block `# Testing research (#78)`) with its SHA-256, mirrored by
 `fetch-docs.sh` to `docs/reference/testing/`; quotes from pinned files are copied from the file.
-Quotes from HTML pages (unpinned) were extracted with a fetch tool asked for verbatim text; check
-them against the page before relying on a word.
+Quotes from HTML pages (unpinned) were extracted with a fetch tool asked for verbatim text. A
+reviewer re-fetched S6, S7, S12-S17 and S21 on 2026-10-22 and they matched, except a truncated
+S6 sentence, now quoted whole; S8, S24 and the Gaffer co-quotes were not re-checked.
 
 | Id | Source | Author | Stated date | Where |
 |---|---|---|---|---|
@@ -42,10 +43,10 @@ them against the page before relying on a word.
   previous versions of the emulator." "If a link is present in the cell, it means a difference
   was found compared to the previous Dolphin version. Clicking that link will show the difference
   frame by frame."
-- S2: "From a given image file, generate a hash of the pixel data of that image." (`hashlib.sha1`
-  of the RGB bytes); runner configs per backend: `Config-ogl`, `Config-sw`, `Config-vk`,
-  `Config-mtl`, `Config-mvk`, `Config-dx-nv`. "HACK: Currently D3D on Windows inserts a black
-  frame as the first frame of all recordings."
+- S2: `backend, system, driver = args.type.split("-", 2)` (`__main__.py:135`, results keyed by
+  backend, system and driver); "From a given image file, generate a hash of the pixel data of
+  that image." with `return hashlib.sha1(data).hexdigest()` (`:175`). "HACK: Currently D3D on
+  Windows inserts a black frame as the first frame of all recordings."
 - S3: "we require that a given driver's test farm produces a spurious failure no more than once a
   week. If every driver had CI and failed once a week, we would be seeing someone's code getting
   blocked on a spurious failure daily, which is an unacceptable cost to the project." "this
@@ -57,7 +58,8 @@ them against the page before relying on a word.
   redistribute at will".
 - S4: `devices = { llvmpipe = { checksum = "e695d7c6…" } }` per trace.
 - S5: "For comparing checksums use: … ./replayer.py compare trace -d test path/name_of_trace.trace 0".
-- S6: "By default, Low is used because there's some constant variability in every pixel's color."
+- S6: "By default, Low is used because there's some constant variability in every pixel's color
+  introduced by Temporal Anti-Aliasing."
   "Because we only bucket screenshots based on Platform_RHI_ShaderModel" (then "Add As
   Alternative"). "Should the latest screenshot not match it will cause a testing failure."
 - S7: Smoke: "Smoke tests are just considered a speed promise by the implementer." "All Smoke
@@ -80,7 +82,7 @@ them against the page before relying on a word.
   "There, tests must demonstrate stability for at least one week before being promoted." "Issues
   not caught by the BVS generally slip by due to a lack of test coverage rather than bad tests."
   "bugs discovered in automation get resolved eight times faster than the average bug."
-- S13: "His purpose was to play through each new game build and solve all puzzles", "it took him
+- S13 (the bot is guided by navigational and behavior markers): "His purpose was to play through each new game build and solve all puzzles", "it took him
   only 20 minutes to go through entire game", "While there will always be a place for standard
   human testers in games".
 - S14: "The game runs in a special mode when it makes a CRC from the whole map every tick." "We

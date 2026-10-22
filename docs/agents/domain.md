@@ -2,7 +2,7 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-- Testing a renderer and platform port: `docs/agents/testing-games.md`.
+- Choosing or reviewing a test for the renderer or platform port (what to add, what to skip): `docs/agents/testing-games.md`.
 
 ## Before exploring, read these
 

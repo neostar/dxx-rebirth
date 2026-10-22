@@ -2,7 +2,15 @@
 
 Research for #78, read 2026-10-22. It answers: which tests game and engine developers recommend
 for a port like ours, which they find wasteful, and how they build the useful ones, compared with
-our rubric (R1-R16 in the approved plan), ADRs 4-6, the unit tests and `tools/dev/`.
+our rubric (R1-R16 in the approved plan, outside the repo; `domain.md` points to it), ADRs 4-6,
+the unit tests and `tools/dev/`. The R-numbers used here: R1 every GL frame stays bit-identical to
+the base commit; R3 synthetic SDL_GPU frames match GL; R4 recorded scenes on SDL_GPU match GL
+(Metal bit-exact, Vulkan/D3D12 within FLIP bounds); R11 SDL_GPU frame time no worse than GL;
+R12 SDL3 input and audio behave as on SDL2.
+
+Coverage is partial: no id, Valve, EA SEED or Ubisoft source was reached, and none of the
+sources gives soak-test numbers. The retry list under "Unreachable in this run" in the sources
+doc is the follow-up.
 
 Every claim cites a source id like [S3]; the sources, their dates, verbatim quotes and how to
 extend this research are in `testing-games-sources.md`. Raw files are pinned in
@@ -15,8 +23,8 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 
 - Rendering regressions are caught by comparing **pixels of a replayed, fixed input** against a
   baseline of the **same backend on the same device**, not across backends, and not by checking
-  API calls. FifoCI (Dolphin) hashes every dumped frame per backend and compares it with the
-  previous emulator version [S1][S2]; Mesa stores one expected checksum per trace per device [S4];
+  API calls. FifoCI (Dolphin) hashes pixel data, with results keyed by backend/driver [S2], and
+  compares each version's frames with the previous emulator version [S1]; Mesa stores one expected checksum per trace per device [S4];
   Unreal buckets ground truth by `Platform_RHI_ShaderModel` [S6]; Bevy compares each OS with
   `main` on that OS [S9].
 - A cross-backend or cross-device difference is a **review item**, not an automatic failure:
@@ -30,11 +38,13 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 ## Per test type
 
 ### 1. Determinism and frame-hash regression (R1)
-- **Practice.** Exact hashes of pixel data, per backend, on fixed input [S1][S2][S4]. A fixed frame
+- **Practice.** Exact hashes of pixel data on fixed input, results keyed by backend/driver
+  [S2][S4], compared with the previous version [S1]. A fixed frame
   time makes a run reproducible: Bevy's CI config sets `fixed_frame_time` [S10]. Factorio hashes
   the whole game state every tick, so a replay finds "the first tick of desynchronization" [S14].
   Floating-point results match across machines only with "the same compiler, … the same
-  architecture" [S16] (2010, x87 era; the conclusion still holds: compare like with like).
+  architecture" [S16] (2010; our inference: its x87 versus SSE advice is dated, while the
+  conclusion, compare like with like, still holds).
 - **Ours: have.** `r1.sh` hashes every frame of S1-S4 against the base commit on the same machine
   and flags, with the harness clock and input scripts; per-platform baselines are #65. This
   matches FifoCI and Mesa.
@@ -45,7 +55,7 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 
 ### 2. Golden images and tolerances (R3, R4)
 - **Practice.** Unreal keeps a tolerance, "By default, Low is used because there's some constant
-  variability in every pixel's color", and adds "Add As Alternative" ground truths per platform
+  variability in every pixel's color introduced by Temporal Anti-Aliasing.", and adds "Add As Alternative" ground truths per platform
   [S6]. FifoCI and Mesa use exact hashes per device and no tolerance [S2][S4]. Bevy uploads
   screenshots and warns on any difference [S9].
 - **Ours: have, one gap.** R4 compares SDL_GPU with GL each run (Metal bit-exact, Vulkan/D3D12
@@ -75,9 +85,10 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 - **Practice.** None of the sources reached gives soak test numbers; Gauntlet runs multi-step and
   multi-process sessions [S8]. Flake control is the common thread [S3][S12].
 - **Ours: have** (nightly endurance, flat memory). **Gap:** a new nightly step that flakes holds
-  merges at once (ADR 6), as #70 did. **Recommendation:** a new nightly step runs report-only
-  for a week of nightlies before a red one holds merges (Riot's staging set [S12], Mesa's flake
-  budget [S3]). Affects #70, #77.
+  merges at once (ADR 6), as #70 did. **Recommendation** (inference from [S12][S3]): a new
+  nightly step runs report-only for a week of nightlies before a red one holds merges (Riot's
+  staging set, Mesa's flake budget). It needs an ADR 6 amendment, which now says "a red nightly
+  holds further merges". Affects #70, #77.
 
 ### 6. Performance budgets (R11)
 - **Practice.** Godot's benchmarks run "on a dedicated server every day" and record, per
@@ -101,8 +112,8 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
   test. Save games hold no SDL types, so they need no new test; R16's manual save/load covers them.
 
 ### 9. Unit tests and test-first in engine code (R7)
-- **Practice.** Godot recommends "writing new tests for already resolved issues" and testing
-  failure paths "without crashing the engine" [S11]. Factorio's tests give "more confidence for
+- **Practice.** For its GDScript test runner, Godot recommends "writing new tests for already
+  resolved issues"; for C++ tests, it checks failure paths "without crashing the engine" [S11]. Factorio's tests give "more confidence for
   refactorings", and the team commits to "writing tests for any new functionality" [S21] (2014).
   Rare's Sea of Thieves has "hundreds of thousands of automated tests" [S24].
 - **Ours: have** (25 unit test files, TDD skill, test and change together). Keep.
@@ -114,10 +125,11 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 ### 11. Fuzzing
 - **Practice.** libFuzzer suits "text or binary format parsers, compression, network", and a fuzz
   target "must not `exit()` on any input" [S23].
-- **Ours: skip.** The port does not change the parsers, the data is licensed and trusted, and
-  the data loaders end the game with `Error()` or `UserError()` on bad input (`piggy.cpp`'s PIG,
-  HAM and sound loaders; both are `[[noreturn]]`, `dxxerror.h:48-62`), so they are poor targets
-  as they stand. Network packet decoding (`net_udp`) is the one fit; outside the port's scope.
+- **Ours: skip**, because the port does not change the parsers and the data is licensed and
+  trusted. The loaders also end the game with `Error()` or `UserError()` on a failed open or a
+  wrong header id (`similar/main/piggy.cpp:776,782,1117,1177`; both `[[noreturn]]`,
+  `dxxerror.h:48-70`); our inference is that they are poor fuzz targets as they stand. Network
+  packet decoding (`net_udp`) is the one fit; outside the port's scope.
 
 ### 12. Shader unit tests
 - **Practice.** Rare's Shader Test Framework runs HLSL unit tests, D3D12 only and "very
@@ -126,7 +138,7 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 
 ### 13. Bot playthroughs and human playtests
 - **Practice.** Croteam's bot solved every puzzle of each build in 20 minutes without rendering,
-  guided by designer markers [S13]; Riot: misses come from "a lack of test coverage rather than bad
+  guided by navigational and behavior markers [S13]; Riot: misses come from "a lack of test coverage rather than bad
   tests" [S12].
 - **Ours: skip the bot** (the port changes no gameplay; demos and scripted scenes drive the
   game). **Have** the human pass: R16.
@@ -134,10 +146,12 @@ Verdicts: **have** (we do it), **gap** (we should add it), **skip** (not worth i
 ## Top 3 changes, by value per cost
 
 1. **Exact per-backend baselines for SDL_GPU** after #37 (and on lavapipe with #65): reuse
-   `r1.sh` to hold each SDL_GPU backend to its own previous frames, bit for bit. Catches
-   regressions inside the FLIP bound; the infrastructure exists. [S1][S2][S4]
-2. **A week of report-only for new nightly steps** before a red one holds merges (ADR 6 text,
-   `nightly.sh` list): stops #70-style flakes blocking merges. [S3][S12]
+   `r1.sh` to hold each SDL_GPU backend to its own previous frames, bit for bit. The gain is on
+   Vulkan and D3D12, where regressions inside the FLIP bound now pass; Metal is already
+   bit-exact to GL (R4). The infrastructure exists. [S1][S2][S4]
+2. **A week of report-only for new nightly steps** before a red one holds merges (an ADR 6
+   amendment and a `nightly.sh` list): stops #70-style flakes blocking merges. Inference from
+   [S12][S3].
 3. **Nightly frame-time history** (CSV per scene, no gate yet) for #53: shows performance drift
    between R11 measurements. [S17][S18]
 
