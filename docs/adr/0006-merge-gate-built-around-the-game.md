@@ -23,7 +23,7 @@ checks the budget (as ADR 5's tiers are checked):
 - unit tests, sanitizer tests, leaks
 - clang-tidy and clang-format on the changed fork files
 - doctor once; gitleaks on the new commits
-- **R1** `check` against the base commit's baseline, captured once per base and reused
+- **R1** `check` against the base commit's baseline, captured once per base and R1 inputs and reused
 
 Budget basis, measured 2026-10-22 on the M1 Max: R1 `check` 123 s warm, 161 s cold; the other
 steps about 3 minutes; R1 runs beside the unit and sanitizer tests.

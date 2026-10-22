@@ -116,5 +116,6 @@ tools/dev/r1.sh check     # after each change
 - S2 stands in for the coverage demo with the installed demo until that demo exists; the first
   whole `# demo playback` section of each run is compared.
 - The merge gate (`ci.sh --gate`, ADR 6) runs `r1.sh check` against the base commit's baseline,
-  captured once per base commit into the clone's git directory (`dxx-r1/<commit>`, shared by its
-  worktrees, never committed) and reused; its runs go to `traces/local/r1-gate/`.
+  captured once per base commit and R1 inputs (the scenes, `r1.sh`, `toolchain.pins`) into the
+  clone's git directory (`dxx-r1/<commit>-<inputs>`, shared by its worktrees, never committed)
+  and reused; its runs go to `traces/local/r1-gate/`. Clear the cache by removing `dxx-r1` there.

@@ -265,19 +265,44 @@ step_changed_format()
 }
 
 # The merge gate's R1 (ADR 6): r1.sh check against the base commit's
-# baseline.  r1_baseline captures it, once per base commit, into the
-# clone's git directory (dxx-r1/<commit>: shared by its worktrees, never
-# committed; the baseline's build tree is removed) and reuses it after;
-# step_r1 plays the working tree's scenes into traces/local/r1-gate, its
-# baseline a link to the captured one.  Both derive from the licensed data
-# and stay out of git (game-data.md).
+# baseline.  r1_baseline captures it, once per base commit and R1 inputs
+# (r1_inputs), into the clone's git directory (dxx-r1/<commit>-<inputs>:
+# shared by its worktrees, never committed; the baseline's build tree is
+# removed) and reuses it after; step_r1 plays the working tree's scenes
+# into traces/local/r1-gate, its baseline a link to the captured one.
+# Both derive from the licensed data and stay out of git (game-data.md).
+# To clear the cache, remove the directory dxx-r1 in the clone's git
+# directory: rm -rf "$(git rev-parse --git-common-dir)/dxx-r1".
+
+# Print a 12-digit key of R1's inputs other than the base commit: the
+# working tree's scenes (common/debug/scenes, which both sides play),
+# r1.sh and toolchain.pins.  A change to any of them captures again.
+r1_inputs()
+{
+	local f key hashes files=()
+	while IFS= read -r -d '' f; do
+		files+=("$f")
+	done < <(cd "$root" && find common/debug/scenes -type f -print0 2>/dev/null | sort -z)
+	if [[ ${#files[@]} -eq 0 ]]; then
+		echo "r1_baseline: no scenes in $root/common/debug/scenes" >&2
+		return 1
+	fi
+	files+=(tools/dev/r1.sh tools/dev/toolchain.pins)
+	if ! hashes=$(cd "$root" && git hash-object -- "${files[@]}") ||
+		! key=$(printf '%s\n' "${files[@]}" "$hashes" | git hash-object --stdin); then
+		echo "r1_baseline: cannot hash R1's inputs" >&2
+		return 1
+	fi
+	printf '%s\n' "${key:0:12}"
+}
 r1_baseline()
 {
-	local common
+	local common inputs
 	common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir) || return 1
-	r1_cache=$common/dxx-r1/$gate_rev
+	inputs=$(r1_inputs) || return 1
+	r1_cache=$common/dxx-r1/$gate_rev-$inputs
 	if [[ -f $r1_cache/baseline/commit ]]; then
-		echo "r1_baseline: reusing the baseline of $gate_rev in $r1_cache"
+		echo "r1_baseline: reusing the baseline of $gate_rev and these R1 inputs in $r1_cache"
 		return 0
 	fi
 	echo "r1_baseline: capturing the baseline of $gate_rev, once, outside the budget"

@@ -273,7 +273,8 @@ test_tested_names_the_trees_the_gate_passed()
 
 # Make a throwaway repository holding a copy of tools/dev (no tests, so
 # check.sh does not recurse into this file; lib.sh and a_test.sh, which
-# passes, and b_test.sh, which fails), with fakes that log each call to
+# passes, and b_test.sh, which fails), a scene in common/debug/scenes,
+# with fakes that log each call to
 # calls: doctor.sh, build.sh, format.sh and r1.sh.  The fake r1.sh's
 # capture writes R1_DIR/baseline/commit and a build tree in R1_DIR/src;
 # it exits $FAKE_CAPTURE_RC (default 0); its check writes R1_DIR/run/s1.log
@@ -292,6 +293,8 @@ make_check_repo()
 	printf 'tools\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"
+	mkdir -p "$r/common/debug/scenes"
+	echo scene > "$r/common/debug/scenes/s1-title-menu.txt"
 	printf 'exit 0\n' > "$r/tools/dev/tests/a_test.sh"
 	printf 'echo b failed; exit 1\n' > "$r/tools/dev/tests/b_test.sh"
 	cp "$REPO_ROOT/.gitleaks.toml" "$r/"
@@ -354,15 +357,42 @@ test_gate_runs_its_steps_and_reuses_the_baseline()
 	assert_eq "$(grep -c '^doctor.sh' "$r/calls")" 1
 	assert_contains "$(cat "$r/calls")" "build.sh dev check build/dev/compile_commands.json"
 	assert_contains "$(cat "$r/calls")" "build.sh asan check"
-	assert_contains "$(cat "$r/calls")" "r1.sh capture --base $sha R1_DIR=$common/dxx-r1/$sha"
+	[[ $(cat "$r/calls") =~ r1.sh\ capture\ --base\ $sha\ R1_DIR=$common/dxx-r1/$sha-[0-9a-f]{12}$'\n' ]] ||
+		fail "no capture keyed by the base and its inputs: $(cat "$r/calls")"
 	assert_contains "$(cat "$r/calls")" "r1.sh check --base $sha R1_DIR=$(cd "$r" && pwd)/traces/local/r1-gate"
-	[[ ! -e $common/dxx-r1/$sha/src ]] || fail "the baseline's build tree was kept"
+	[[ -z $(find "$common/dxx-r1" -name src) ]] || fail "the baseline's build tree was kept"
 	assert_eq "$(tgit -C "$r" status --porcelain --ignored=no)" ""
 	: > "$r/calls"
 	out=$(run_check "$r" --gate "$sha") && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 	assert_not_contains "$(cat "$r/calls")" "r1.sh capture"
 	assert_contains "$(cat "$r/calls")" "r1.sh check --base $sha"
+}
+
+# Test that a changed scene, r1.sh or toolchain.pins captures the baseline
+# again, as the base commit alone would reuse one of other inputs.
+test_gate_recaptures_on_changed_r1_inputs()
+{
+	local r out rc p
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" src/game.cpp
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	for p in common/debug/scenes/s1-title-menu.txt common/debug/scenes/s9-new.txt \
+		tools/dev/r1.sh tools/dev/toolchain.pins; do
+		change "$r" "$p"
+		: > "$r/calls"
+		out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+		assert_eq "$rc" 0 "$p: $out"
+		assert_contains "$(cat "$r/calls")" "r1.sh capture --base"
+		: > "$r/calls"
+		out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+		assert_not_contains "$(cat "$r/calls")" "r1.sh capture"
+	done
+	rm -r "$r/common/debug/scenes"
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "no scenes: $out"
+	assert_contains "$out" "check.sh: failed: r1_baseline r1"
 }
 
 # Test that a failed R1 check fails the gate, naming it, and that a failed
