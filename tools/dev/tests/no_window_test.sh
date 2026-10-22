@@ -2,6 +2,8 @@
 # Command-line behaviour of tools/dev/no-window.sh, which runs a command and
 # fails if it changed the frontmost app or left a macOS crash report, and
 # the real check: a headless SDL3 GPU tool stays in the background.
+# Single quotes hold scripts expanded by the shells they are written for.
+# shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 NO_WINDOW="$DEV_DIR/no-window.sh"
 
