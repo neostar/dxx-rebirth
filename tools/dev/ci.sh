@@ -160,14 +160,23 @@ if ! [[ $poll =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)$ && $poll =~ [1-9] ]]; then
 	exit 2
 fi
 waited_for='' wait_start=$EPOCHSECONDS
-while ! try_lock "$machine_lock"; do
+while :; do
+	try_lock "$machine_lock"
+	locked=$?
+	[[ $locked -ne 0 ]] || break
 	if [[ -n $held_by && $held_by != "$waited_for" ]]; then
 		waited_for=$held_by
 		say "ci.sh: waiting for ci.sh pid $held_by in $(cat "$machine_lock/worktree" 2>/dev/null ||
 			echo 'an unknown worktree') (machine lock $machine_lock, up to $max_wait s)"
 	fi
 	if ((EPOCHSECONDS - wait_start >= max_wait)); then
-		say "ci.sh: gave up after $max_wait s waiting for ci.sh pid ${held_by:-unknown};" 			"remove $machine_lock if it no longer runs" >&2
+		if [[ $locked -eq 2 ]]; then
+			say "ci.sh: gave up after $max_wait s waiting for another ci.sh to take over" \
+				"the stale machine lock $machine_lock; remove $machine_lock.takeover if none runs" >&2
+		else
+			say "ci.sh: gave up after $max_wait s waiting for ci.sh pid ${held_by:-unknown};" \
+				"remove $machine_lock if it no longer runs" >&2
+		fi
 		exit 1
 	fi
 	sleep "$poll"

@@ -321,13 +321,33 @@ test_machine_lock_wait_times_out()
 	first=$(cat "$MACHINE_LOCK/pid" 2>/dev/null)
 	out=$(DXX_CI_MAX_WAIT=1 DXX_CI_POLL=0.2 run_ci "$r2" "$bin2" --fast) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "ci.sh: gave up after 1 s waiting for ci.sh pid $first"
+	assert_contains "$out" "ci.sh: gave up after 1 s waiting for ci.sh pid $first; remove $MACHINE_LOCK if it no longer runs"
 	assert_not_contains "$out" "native check"
 	assert_eq "$(cat "$MACHINE_LOCK/pid" 2>/dev/null)" "$first" "the owner's lock was touched"
 	touch "$bin1/release"
 	wait "$(cat "$bin1/ci.job")"
 	out=$(DXX_CI_MAX_WAIT=x run_ci "$r2" "$bin2" --fast) && rc=0 || rc=$?
 	assert_eq "$rc" 2 "$out"
+}
+
+# Test that a ci.sh that gives up on a stale machine lock whose takeover
+# never ends (a machine.lock.takeover left behind) names that takeover
+# directory, which is what blocks it, not the stale lock.
+test_machine_lock_stuck_takeover_gives_up_naming_it()
+{
+	local bin r out rc dead
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	sh -c 'exit 0' &
+	dead=$!
+	wait "$dead"
+	mkdir -p "$bin/machine.lock" "$bin/machine.lock.takeover"
+	echo "$dead" > "$bin/machine.lock/pid"
+	out=$(DXX_CI_MAX_WAIT=0 run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: gave up after 0 s waiting for another ci.sh to take over the stale machine lock $bin/machine.lock; remove $bin/machine.lock.takeover if none runs"
+	assert_not_contains "$out" "native check"
+	[[ -d $bin/machine.lock.takeover ]] || fail "the takeover directory was removed"
 }
 
 # Test that a DXX_CI_POLL that is not a positive number of seconds is a
