@@ -156,3 +156,18 @@ sdl2-compat/README.md https://raw.githubusercontent.com/libsdl-org/sdl2-compat/r
 sdl3/src/joystick/SDL_steam_virtual_gamepad.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/SDL_steam_virtual_gamepad.c 295638b98658caadefb86ca35945c9cf9ba32298d57614c1e88936d29be2742a
 sdl3/src/video/cocoa/SDL_cocoakeyboard.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoakeyboard.m 617a6fd31a7f9823832b6c44fe04bb64ea5b53a5e143c377a990aee462a6b05c
 sdl2-compat/SDL_gamecontroller.h https://raw.githubusercontent.com/libsdl-org/sdl2-compat/release-2.32.74/include/SDL2/SDL_gamecontroller.h 7059c368800744690a524b4adc0389d199ea94973274e4e5b5875f25a0913edd
+# Testing research (#78): docs/agents/testing-games-sources.md cites these.
+testing/fifoci-about-view.html https://raw.githubusercontent.com/dolphin-emu/fifoci/1cf03c9059aa5f1bb5c3c2d9aa7dcb2d44b3ce02/fifoci/frontend/templates/about-view.html 786941683e6debce760bb1c6eb9b259d0d952a4633a84108d65779ec52dafd86
+testing/fifoci-runner-main.py https://raw.githubusercontent.com/dolphin-emu/fifoci/1cf03c9059aa5f1bb5c3c2d9aa7dcb2d44b3ce02/fifoci/runner/__main__.py 99e5ac2fe4af14685b356eddaeeef8a1b1dd4eb4d7c924e094b25aa7668aa863
+testing/mesa-ci-index.rst https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.5/docs/ci/index.rst 1f19afa7fbb93879c6017d4d18616374df37ea2d26ffb2a37d13f39bd9a2f6c3
+testing/mesa-local-traces.rst https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.5/docs/ci/local-traces.rst eec07556942bb092457fcf50ceb552cfcaf61497c96ac33e4b04b6e55700d469
+testing/mesa-traces-llvmpipe.toml https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.5/src/gallium/drivers/llvmpipe/ci/traces-llvmpipe.toml 6b9f3debe42d6d3545012e9a7755d28cd58e2246a3e52d6b8eaa03276d8ad8d4
+testing/bevy-example-run.yml https://raw.githubusercontent.com/bevyengine/bevy/v0.20.0/.github/workflows/example-run.yml d6f458bfa0eaafc14ca787101a62ffe761215984e74161aa121ac7c046e2312b
+testing/bevy-send-screenshots-to-pixeleagle.yml https://raw.githubusercontent.com/bevyengine/bevy/v0.20.0/.github/workflows/send-screenshots-to-pixeleagle.yml 193f7073ca34e47fe41fc5170dc0d334f164943a3f1ed1218c61426f89cc9264
+testing/bevy-ci-testing-config.rs https://raw.githubusercontent.com/bevyengine/bevy/v0.20.0/crates/bevy_dev_tools/src/ci_testing/config.rs 4f3676fd1b6cc08363775ee35d4ae826f28b5d8eb69423f87e60aa97cf70f0ea
+testing/godot-unit_testing.rst https://raw.githubusercontent.com/godotengine/godot-docs/0914a4d43fdce90c21a57374322559baacddf80c/engine_details/architecture/unit_testing.rst e065c2c78e980800ffd8d91e462d81775ef528d9472285d07ed07be1cdedc1fe
+testing/godot-benchmarks-README.md https://raw.githubusercontent.com/godotengine/godot-benchmarks/b059e38a81230a87293828bbf65ab247b6b2d2a8/README.md b2130114ef7e72793dfe45100b52bf28f2fd5f8ea873bfb18a990805043c11f0
+testing/sdl-testautomation_joystick.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testautomation_joystick.c d7fa171fe613d2523ef29dfb391186f521bfb229a76056627f56dd032d1f253a
+testing/sdl-testautomation_audio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testautomation_audio.c e0d9f41d888cccf6c8538be550e9f233d9b7f598149a72a4d4006295f9f8bcd2
+testing/LibFuzzer.md https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-23.1.3/llvm/docs/LibFuzzer.md 034322cbd47c7b3f09130405c3d27936a73c344eb05cb6553da4d5fead036152
+testing/ShaderTestFramework-README.md https://raw.githubusercontent.com/KStocky/ShaderTestFramework/06ae57f02c5cb9f5d9db2b334978ceeb1078fdf1/README.md 8f67d245f470a6228b7922f9094548dca88a3a51855fb8a14bcc415a3ec6ff97
