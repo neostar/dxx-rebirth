@@ -174,121 +174,125 @@ Informs #45 (and its TSan step in ADR 5).
 
 ## 5. Tracks, panning law and channel counts
 
-**SDL_mixer does.** Tracks replace channels; "just call MIX_CreateTrack() in a loop"
-(`sdl3_mixer/README-migration.md:151-163`). Tags group tracks for gain (`MIX_SetTagGain`).
-`MIX_SetTrackStereo` multiplies linearly and only clamps negatives (`SDL_mixer.h:2628`,
-`SDL_mixer.c:2815-2816`), and puts the track on front left/right only. `MIX_SetTrack3DPosition`
-is the alternative: power-normalised VBAP (`sdl3_mixer/src/SDL_mixer_spatialization.c:171`) with
-OpenAL inverse-distance (`:193`).
+**SDL_mixer does.** "just call MIX_CreateTrack() in a loop, storing the pointers in an array"
+(`sdl3_mixer/README-migration.md:160-161`). `MIX_SetTrackStereo`: "Negative gains are clamped to
+zero; there is no clamp for maximum" (`SDL_mixer.h:2628`), on front left/right only. The
+alternative, `MIX_SetTrack3DPosition`, normalises power:
+`const float scale = 1.0f / SDL_sqrtf(gain_a * gain_a + gain_b * gain_b);`
+(`sdl3_mixer/src/SDL_mixer_spatialization.c:171`), with OpenAL inverse distance (`:193`).
 
-**The SDL2 baseline is linear too.** SDL2_mixer 2.8.2: `left_f = left / 255.0f`
-(`sdl2_mixer/src/effect_position.c:2001-2004`), `distance_f = distance / 255.0f` (`:2051`), both
-multiplied into each sample (`:144-151`). The game calls `Mix_SetPanning(255 - pan, pan)` and
-`Mix_SetDistance(255 - volume)` (`digi_mixer.cpp:549-550`). So the -6 dB centre K5 found is what
-players hear today, not a regression.
+**The SDL2 baseline is linear too.** SDL2_mixer 2.8.2: `args->left_f = ((float) left) / 255.0f;`
+(`sdl2_mixer/src/effect_position.c:2002`), `distance = 255 - distance;  /* flip it to our scale. */`
+(`:2037`), `args->distance_f = ((float) distance) / 255.0f;` (`:2051`). The game opens
+`AUDIO_S16` (`MIX_OUTPUT_FORMAT{AUDIO_S16}`, `digi_mixer.cpp:61`), so the S16 stereo path
+applies: `Sint16 swapl = (Sint16) ((((float) (Sint16) SDL_SwapLE16(*(ptr+0))) *` …
+`left_f) * dist_f);` (`effect_position.c:799-800`). The game calls
+`Mix_SetPanning(channel, 255-mix_pan, mix_pan);` and
+`Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));` (`digi_mixer.cpp:549-550`). So K5's
+-6 dB centre is what players hear today.
 
-**Recommendation.** Compute gains in the game with the SDL2 law, including the byte quantisation
-of `fix2byte`: `left = (255 - p) / 255 * v / 255`, `right = p / 255 * v / 255`, as a pure kernel
-with a unit test (R12 parity). Equal-power panning or 3D positions would change the mix: a
-separate, deliberate ticket, not #45. Create 64 tracks at start (`enumerated_bitset<64>`,
-`digi_mixer.cpp:73`); tag `sfx` and `voice`; digi volume via `MIX_SetTagGain`, briefing ducking
-via the music track's gain. On a surround device the mixer runs at its channel count and effects
-stay on front left/right (M8). Informs #45.
+**Recommendation.** The game computes `left = (255 - p) / 255 * v / 255`,
+`right = p / 255 * v / 255` with `fix2byte`'s byte quantisation, as a pure kernel with a unit
+test (R12 parity). Equal-power panning or 3D positions change the mix: a separate ticket. 64
+tracks at start (`enumerated_bitset<64>`, `digi_mixer.cpp:73`); tags `sfx` and `voice`; digi
+volume by `MIX_SetTagGain`; briefing ducking by the music track's gain. On a surround device
+effects stay on front left/right (M8). Informs #45.
 
 ## 6. Music: decoders, MIDI and SoundFonts
 
-**SDL_mixer does.** Native MIDI is gone (`sdl3_mixer/README-migration.md:33`). FluidSynth gets the
-SoundFont from an IOStream or path property (`sdl3_mixer/src/decoder_fluidsynth.c:121-129`,
-names in `SDL_mixer_internal.h:229-230`), on Unix falls back to three system SoundFonts
-(`:134-142`), and does not fail without one: "should we fail if there's no soundfont?" (`:145`).
-It reads the whole SoundFont into memory per loaded song (`:166`) and parses it again each time a
-track starts (`:322`). It sets `synth.gain` 1.0 (`:290`); FluidSynth's own default is 0.2 "to
-avoid the saturation of the output" (`fluidsynth/doc/fluidsettings.xml:148-154`). SDL2_mixer also
-reached 1.0 at full music volume (`sdl2_mixer/src/codecs/music_fluidsynth.c:265-267`), so that is
-parity. Any FluidSynth setting can be passed through the internal
-`"SDL_mixer.decoder.fluidsynth.props"` property (`SDL_mixer_internal.h:231`,
-`decoder_fluidsynth.c:303`), including the look-ahead limiter of the pinned FluidSynth 2.6.1
-(`fluidsettings.xml:164-168`; it needs the Signalsmith libraries, which `toolchain.pins` builds).
+**SDL_mixer does.** "Native MIDI has been removed." (`sdl3_mixer/README-migration.md:33`).
+FluidSynth takes the SoundFont from an IOStream or path property
+(`sdl3_mixer/src/decoder_fluidsynth.c:121-129`), on Unix falls back to three system SoundFonts
+(`:134-142`), and loads without one: "should we fail if there's no soundfont?" (`:145`). It reads
+the whole SoundFont into memory per loaded song (`:166`) and parses it again at each track start
+(`:322`). It sets `"synth.gain", 1.0` (`:290`); FluidSynth's default is 0.2 (`<def>0.2</def>`)
+"to avoid the saturation of the output" (`fluidsynth/doc/fluidsettings.xml:150`, `:154`).
+SDL2_mixer also reached 1.0 at full music volume: "Make 1.0 the maximum gain value"
+(`sdl2_mixer/src/codecs/music_fluidsynth.c:265`): parity. Three property strings are internal
+(`SDL_mixer_internal.h:229-231`): the SoundFont IOStream and path, and
+`MIX_PROP_DECODER_FLUIDSYNTH_PROPS_NUMBER` (`"SDL_mixer.decoder.fluidsynth.props"`), a properties
+ID whose entries become FluidSynth settings (`decoder_fluidsynth.c:191`, `:303`). That reaches the
+look-ahead limiter of FluidSynth 2.6.1 (`fluidsettings.xml:164-168`; it needs Signalsmith, which
+`toolchain.pins` builds).
 
-**Left to us.** ADLMIDI has no decoder: replace `Mix_HookMusic` with "MIX_SetTrackAudioStream and
-set a get-callback on that stream" (`sdl3_mixer/README-migration.md:343`). HMP to MIDI stays in
-the game. SDL1.2's `SDL_CD` (`common/arch/sdl/rbaudio.cpp:52`) has no SDL3 counterpart; the CD
-jukebox is `jukebox.cpp` playing files.
+**Left to us.** ADLMIDI: "Mix_HookMusic => MIX_SetTrackAudioStream and set a get-callback on that
+stream" (`sdl3_mixer/README-migration.md:343`). HMP to MIDI stays in the game. SDL1.2's `SDL_CD`
+(`common/arch/sdl/rbaudio.cpp:52`) has no SDL3 counterpart; the CD jukebox is `jukebox.cpp`.
 
-**Recommendation.** #46: check the SoundFont file is readable before loading (on Linux a missing
-one silently plays a different system SoundFont), pass it by path property, define both internal
-strings locally. Keep `synth.gain` at SDL_mixer's 1.0 for parity; turn the limiter on only if the
-saturation scan flags music. ADLMIDI generates at a fixed rate of its choice into a stream (area 3).
-Measure song-start time with a full SoundFont (M5). Informs #46.
+**Recommendation.** #46: check the SoundFont is readable before loading (on Linux a missing one
+silently plays a system SoundFont); define the three strings locally. Keep `synth.gain` 1.0; the
+limiter only if the saturation scan flags music (M6). ADLMIDI generates at its own fixed rate into
+a stream (area 3). Song-start cost: M5. Informs #46.
 
 ## 7. Movie audio and video sync
 
-**Today.** Video is paced by its own wall-clock timer (`d2x-rebirth/libmve/mveplay.cpp:144-200`);
-audio goes through an SDL2 `SDL_AudioStream` (`:311-337`) into a ring that a post-mix callback
-drains (`:414`). The two clocks are never compared.
+**Today.** Video is paced by a wall-clock timer (`d2x-rebirth/libmve/mveplay.cpp:144-200`); audio
+goes through an SDL2 `SDL_AudioStream` (`:311-337`) into a ring that a post-mix callback drains
+(`:414`). The two clocks are never compared.
 
-**SDL3.** One `SDL_AudioStream` with the MVE format as source, attached to a dedicated track with
-`MIX_SetTrackAudioStream`; the game thread pushes decoded blocks with `SDL_PutAudioStreamData`
-(thread-safe). No post-mix callback, no ring, no format query. Keep the wall-clock video pacing
-for parity; `SDL_GetAudioStreamQueued` bounds how far audio runs ahead. Audio lags video by the
-queued amount plus the device buffer (area 1): measure (M9) before adding drift correction.
-Informs #47.
+**Recommendation.** One `SDL_AudioStream` with the MVE format as source on a dedicated track
+(`MIX_SetTrackAudioStream`), fed from the game thread with `SDL_PutAudioStreamData`. No post-mix
+callback, ring or format query. Keep wall-clock video pacing for parity;
+`SDL_GetAudioStreamQueued` bounds how far audio runs ahead. Audio lags by the queue plus the
+device buffer (area 1): measure (M9) before adding drift correction. Informs #47.
 
 ## 8. Silent, headless and test runs
 
-**SDL does.** `SDL_AUDIO_DRIVER` names the backend; SDL3 still reads the SDL2 name
-`SDL_AUDIODRIVER` when the new one is unset (`sdl3/src/SDL_hints.c:94-99`). A named driver is the
-only one tried (`SDL_audio.c:982-1030`); `dummy` and `disk` are demand-only, never picked
-otherwise (`:1035`, `SDL_dummyaudio.c:131`, `SDL_diskaudio.c:180`). "Environment variables are
-considered to have override priority" over `SDL_SetHint` (`sdl3/SDL_hints.h:4854`).
-`MIX_CreateMixerDevice` initialises the audio subsystem itself (`SDL_mixer.c:859`). The disk
-driver writes raw PCM to `SDL_AUDIO_DISK_OUTPUT_FILE` (default `sdlaudio.raw`,
-`SDL_diskaudio.c:30`); with no requested spec its device is S16, stereo, 44100 Hz
-(`SDL_audio.c:702-711`).
+**SDL does.** SDL3 falls back to the SDL2 variable: `result = SDL_getenv("SDL_AUDIODRIVER");`
+(`sdl3/src/SDL_hints.c:99`). A named driver is the only one tried (`SDL_audio.c:982-1030`);
+`dummy` and `disk` are demand-only: `if (bootstrap[i]->demand_only) {` … `continue;`
+(`:1035-1036`; flags at `SDL_dummyaudio.c:131`, `SDL_diskaudio.c:180`). "Environment variables
+are considered to have override priority." (`sdl3/SDL_hints.h:4854`). `MIX_CreateMixerDevice`
+initialises audio itself (`SDL_mixer.c:859`). The disk driver writes raw PCM to
+`SDL_AUDIO_DISK_OUTPUT_FILE`, default `"sdlaudio.raw"` (`SDL_diskaudio.c:30`); with no requested
+spec it opens S16, stereo, 44100 Hz (`SDL_audio.c:702-711`).
 
-**Catch.** Dummy and disk pace with integer milliseconds: `io_delay = sample_frames * 1000 / freq`
-(`SDL_dummyaudio.c:52`, `SDL_diskaudio.c:123`). At 1024 frames and 48 kHz that is 21 ms for
-21.33 ms of audio, about 1.6 % faster than real time. Captures stay sample-exact; anything that
-ties them to wall-clock time drifts.
+**Pacing.** Both drivers sleep
+`device->hidden->io_delay = ((device->sample_frames * 1000) / device->spec.freq);`
+(`SDL_dummyaudio.c:52`, `SDL_diskaudio.c:123`), an integer: at 1024 frames and 48 kHz, 21 ms per
+21.33 ms of audio, so at most about 1.6 % faster than real time (sleep overrun slows it). The
+timescale hints `SDL_AUDIO_DISK_TIMESCALE` and `SDL_AUDIO_DUMMY_TIMESCALE`
+(`SDL_hints.h:499`, `:526`) multiply that truncated value:
+`device->hidden->io_delay = (Uint32)SDL_round(device->hidden->io_delay * scale);`
+(`SDL_dummyaudio.c:58`, `SDL_diskaudio.c:129`). So they cannot remove the drift, and `0` gives a
+zero delay: an unpaced run. Captures stay sample-exact either way.
 
 **Recommendation.** #66: log `SDL_GetCurrentAudioDriver()` after the mixer opens; the game never
-calls `SDL_SetHintWithPriority(..., SDL_HINT_OVERRIDE)` on the audio driver. R12 captures record
-the device format (`SDL_GetAudioDeviceFormat`, as K5 did) and align by content, not by time.
-Unit-level audio tests use `MIX_CreateMixer` + `MIX_Generate`: no driver, no pacing, no file.
+sets the audio driver with `SDL_HINT_OVERRIDE`. R12 captures record the device format
+(`SDL_GetAudioDeviceFormat`) and align by content, not time. A timescale of `0` speeds captures
+up but decouples audio from the game's clock: use it only where nothing compares against wall
+time. Unit-level audio tests use `MIX_CreateMixer` + `MIX_Generate`: no driver, pacing or file.
 Informs #66, #45, #46, #47.
 
 ## Superseded or inaccurate advice
 
 | Advice | Status | Applies to us? |
 |---|---|---|
-| `SDL_HINT_AUDIO_DEVICE_STREAM_ROLE` maps to WASAPI categories (`SDL_hints.h:421`) | The WASAPI code is `#if 0`: "Setting AudioCategory_GameChat breaks audio on several devices" (`SDL_wasapi.c:765-783`) | No effect on Windows; PipeWire uses it, default "Game" (`SDL_pipewire.c:1130-1136`) |
-| `SDL_HINT_AUDIO_CATEGORY` "on iOS and macOS" (`SDL_hints.h:299`) | The AVAudioSession code is in the iOS-only section (`SDL_coreaudio.m:312`); Apple lists no macOS for AVAudioSession [W8] | No-op on macOS |
+| `SDL_HINT_AUDIO_DEVICE_STREAM_ROLE` maps to WASAPI categories (`SDL_hints.h:421`) | WASAPI code is `#if 0`: "Setting AudioCategory_GameChat breaks audio on several devices" (`SDL_wasapi.c:765-783`) | No effect on Windows; PipeWire defaults to "Game" (`SDL_pipewire.c:1130-1136`) |
+| `SDL_HINT_AUDIO_CATEGORY` "on iOS and macOS" (`SDL_hints.h:299`) | AVAudioSession code is iOS-only (`SDL_coreaudio.m:312`); Apple lists no macOS [W8] | No-op on macOS |
 | SDL2 `SDL_AudioSpec.samples`, `SDL_LockAudio`, `SDL_OpenAudio` | Removed (`README-migration.md:205`, `:217`) | Upstream SDL2 code only |
 | `SDL_SOUNDFONTS` / `Mix_SetSoundFonts` | Removed; per-load property (`sdl3_mixer/README-migration.md:404`) | #46 |
-| Microsoft: use Real-Time Work Queues instead of own threads [W4] | SDL keeps its own thread with MMCSS "Pro Audio" | SDL's choice, not ours |
-| FluidSynth web settings page [W9] | Shows libfluidsynth 2.5.4, older than the 2.6.1 pin | Use `fluidsettings.xml` at the pin |
-| PulseAudio doxygen [W6] | Shows 16.0; not checked against 17.x | Low risk: SDL prefers PipeWire ≥ 1.0 (`SDL_pipewire.c:1338`) |
+| Microsoft: Real-Time Work Queues instead of own threads [W4] | SDL keeps its own MMCSS "Pro Audio" thread | SDL's choice |
+| FluidSynth web settings page [W9] | Shows 2.5.4, older than the 2.6.1 pin | Use `fluidsettings.xml` at the pin |
+| PulseAudio doxygen [W6] | Shows 16.0; 17.x not checked | Low risk: SDL prefers PipeWire ≥ 1.0 (`SDL_pipewire.c:1338`) |
 
 ## Design: one deep audio module
 
-The game already has a real seam: `sound_function_table_t` (`similar/arch/sdl/digi.cpp:154-191`)
-with two adapters, `digi_audio` and `digi_mixer`. Keep it as the interface; put the SDL3
-implementation behind it as a fork module (ADR 3: upstream files get `#elif SDL_MAJOR_VERSION == 3`
-branches that call it; ADR 5: SDL userdata casts only in `sdl_wrap_audio.cpp`).
+The game already has a real seam: `sound_function_table_t` (`similar/arch/sdl/digi.cpp:65-77`,
+tables at `:154-178`) with two adapters, `digi_audio` and `digi_mixer`. Keep it as the
+interface; put the SDL3 implementation behind it as a fork module (ADR 3: upstream files get
+`#elif SDL_MAJOR_VERSION == 3` branches that call it; ADR 5: SDL userdata casts only in
+`sdl_wrap_audio.cpp`).
 
-- **Interface.** The table's ten functions, plus music (play, stop, pause, volume) and one
-  `commit_frame()` called from `digi_sync_sounds()`. Callers learn nothing about tracks, locks,
-  rates, decoders or devices.
-- **Depth.** Behind it: the mixer and its 64 tracks, the per-frame command batch, the SDL2 gain
-  law (a pure, tested kernel), SoundFont checking, ADLMIDI and MVE streams, device-change
-  logging, the driver log line for #66. Leverage: every `digi_*` caller and all four tickets use
-  it unchanged; locality: a fix to gains, threading or device handling is one file.
-- **Seam to the audio thread.** The only crossing is the module's `MIX_LockMixer` batch and
-  `SDL_AudioStream` puts. No game data is read on the mixing thread; the ADLMIDI callback owns its
-  player and takes messages through an SPSC queue.
-- **Adapters at the internal seam.** Device mixer (`MIX_CreateMixerDevice`) in the game; deviceless
-  mixer (`MIX_CreateMixer` + `MIX_Generate`) in tests and the TSan test. Two adapters, same `MIX_*`
-  calls: a real seam.
-- **Platform differences only through SDL.** Driver by environment, buffer by hint (if ever),
-  format by query. No `__APPLE__` / `_WIN32` / `__linux__` in game audio code; the one existing
-  case (`digi_mixer.cpp:55-59`) goes away on SDL3.
+- **Interface.** The table's ten functions, music (play, stop, pause, volume) and
+  `commit_frame()` from `digi_sync_sounds()`. Callers learn nothing about tracks, locks, rates,
+  decoders or devices.
+- **Depth.** Behind it, everything areas 1-8 recommend. Leverage: every `digi_*` caller and the
+  four tickets use it unchanged. Locality: gains, locking and device handling each live in one
+  place.
+- **Seam to the audio thread.** The per-frame batch and `SDL_AudioStream` puts, under area 4's
+  rules.
+- **Adapters at the internal seam.** `MIX_CreateMixerDevice` in the game, `MIX_CreateMixer` and
+  `MIX_Generate` in tests: two adapters behind the same `MIX_*` calls, a real seam.
+- **Platform differences only through SDL** (areas 1, 2, 8): no `__APPLE__` / `_WIN32` /
+  `__linux__` in game audio code.
