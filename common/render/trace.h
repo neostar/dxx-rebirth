@@ -18,10 +18,11 @@
  * A record's payload length must match what its kind holds exactly.  A
  * trace ends at the end of a record; a partial record is malformed.
  * Payloads by kind (enums as u8, booleans as u8 0 or 1):
- *   1 clear: u8 flags, bit 0 colour, bit 1 depth
+ *   1 clear: u8 flags, bit 0 colour, bit 1 depth, at least one set
  *   2 present: u32 frame
- *   3 texture: u32 slot, u8 has image; with one: u32 width, u32 height,
- *     format, filter, anisotropic, has_transparency, width*height*4 bytes
+ *   3 texture: u32 slot (not 0, which is none), u8 has image; with one:
+ *     u32 width, u32 height (each at most max_texture_side), format,
+ *     filter, anisotropic, has_transparency, width*height*4 bytes
  *   4 draw: topology, u32 slot, blend, depth, cull, f32 alpha_ref, wrap,
  *     f32 line_width, i32 x, i32 y, u32 width, u32 height; u8 projection
  *     (0 perspective: f64 fovy, aspect, z_near, z_far, f32 stereo_dx;
@@ -29,7 +30,7 @@
  *     (0 identity; 1 translate_scale: f32 translate[3], scale[3]); u32
  *     count (at most max_draw_vertices), then count vertices of f32 pos[3],
  *     rgba[4], uv[2]
- * A new kind or field is a new version.
+ * A new kind or field, or a changed range, is a new version.
  */
 
 #pragma once
@@ -139,11 +140,14 @@ class writer
 	 * reader would reject.
 	 */
 	explicit writer(extent target);
+	/* Throws std::invalid_argument for a clear of neither colour nor
+	 * depth, which the reader would reject.
+	 */
 	void clear(const trace::clear &c);
 	void present(const trace::present &p);
 	/* The image for a slot, or nullptr to release it.  Throws
-	 * std::length_error for a side over max_texture_side, which the reader
-	 * would reject.
+	 * std::invalid_argument for slot none and std::length_error for a side
+	 * over max_texture_side, which the reader would reject.
 	 */
 	void texture(texture_slot slot, const texture_image *image);
 	/* Throws std::length_error for more than max_draw_vertices vertices,
@@ -171,14 +175,14 @@ enum class read_error : std::uint8_t
 
 /* Reads the records of a trace held in memory, one at a time.  The bytes
  * are viewed, not copied, and must outlive the reader; records own their
- * contents.  The first error is final: every later next() returns it.
+ * contents.  The first error is final: next() stays where it found it, so
+ * every later call finds it again.
  */
 class reader
 {
 	std::span<const std::uint8_t> bytes_;
 	std::size_t offset_{0};
 	trace::header header_{};
-	std::optional<read_error> error_;
 
   public:
 	explicit reader(std::span<const std::uint8_t> bytes);

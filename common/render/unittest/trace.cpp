@@ -96,6 +96,25 @@ BOOST_AUTO_TEST_CASE(clear_and_present_bytes)
 	    (out == header + bytes{1, 1, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 2, 4, 0, 0, 0, 4, 3, 2, 1}));
 }
 
+/* Test that the writer refuses a clear of nothing and a texture call for
+ * slot none, which the reader would reject, leaving the trace as it was.
+ */
+BOOST_AUTO_TEST_CASE(empty_clear_and_slot_none_not_written)
+{
+	const std::vector<std::uint8_t> rgba{0, 0, 0, 255};
+	const render::texture_image image{{.size = {.width = 1, .height = 1},
+	                                   .format = render::texture_format::rgba8,
+	                                   .filter = render::filter::nearest,
+	                                   .anisotropic = false,
+	                                   .has_transparency = false},
+	                                  rgba};
+	trace::writer w{target};
+	BOOST_CHECK_THROW(w.clear({.color = false, .depth = false}), std::invalid_argument);
+	BOOST_CHECK_THROW(w.texture(render::texture_slot::none, &image), std::invalid_argument);
+	BOOST_CHECK_THROW(w.texture(render::texture_slot::none, nullptr), std::invalid_argument);
+	BOOST_TEST(w.take() == header);
+}
+
 /* Test that take() hands over the bytes so far and the writer goes on
  * after them.
  */
@@ -482,6 +501,11 @@ const std::vector<malformed> corpus{
 	 trace::read_error::bad_length},
     {"present with a spare byte", header + bytes{2, 5, 0, 0, 0, 1, 0, 0, 0, 0},
 	 trace::read_error::bad_length},
+    {"clear of nothing", header + bytes{1, 1, 0, 0, 0, 0}, trace::read_error::bad_value},
+    {"texture for slot none", header + with(texture_record(1, 0, 0, 4), 5, 0),
+	 trace::read_error::bad_value},
+    {"release of slot none", header + bytes{3, 5, 0, 0, 0, 0, 0, 0, 0, 0},
+	 trace::read_error::bad_value},
     {"clear flag bit 2", header + bytes{1, 1, 0, 0, 0, 4}, trace::read_error::bad_value},
     {"texture with one pixel", header + texture_record(1, 0, 0, 4), std::nullopt},
     {"texture pixels cut short", header + texture_record(1, 0, 0, 3),

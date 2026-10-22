@@ -162,9 +162,7 @@ class cursor
 		}
 		return v;
 	}
-	/* An enum of up to last, or a boolean as 0 or 1; another value marks
-	 * the cursor invalid.
-	 */
+	/* An enum of up to last; another value marks the cursor invalid. */
 	template <typename E>
 	[[nodiscard]]
 	E enumerated(const E last)
@@ -196,13 +194,16 @@ class cursor
 			v = f32();
 		return a;
 	}
+	/* A boolean as 0 or 1; another value marks the cursor invalid and reads
+	 * as false, so a decoder reads no fields that only true would add.
+	 */
 	[[nodiscard]]
 	bool boolean()
 	{
 		const auto v{le<std::uint8_t>()};
 		if (v > 1)
 			invalid_ = true;
-		return v != 0;
+		return v == 1;
 	}
 	void invalidate()
 	{
@@ -228,7 +229,7 @@ class cursor
 trace::clear decode_clear(cursor &c)
 {
 	const auto flags{c.le<std::uint8_t>()};
-	if (flags > (clear_color | clear_depth))
+	if (flags == 0 || flags > (clear_color | clear_depth))
 		c.invalidate();
 	return {.color = (flags & clear_color) != 0, .depth = (flags & clear_depth) != 0};
 }
@@ -236,6 +237,8 @@ trace::clear decode_clear(cursor &c)
 trace::texture decode_texture(cursor &c)
 {
 	trace::texture t{.slot = {c.le<std::uint32_t>()}, .desc = {}, .rgba = {}};
+	if (t.slot == texture_slot::none)
+		c.invalidate();
 	if (!c.boolean())
 		return t;
 	extent size{.width = c.le<std::uint32_t>(), .height = c.le<std::uint32_t>()};
@@ -361,6 +364,8 @@ writer::writer(const extent target)
 
 void writer::clear(const trace::clear &c)
 {
+	if (!c.color && !c.depth)
+		throw std::invalid_argument("trace::writer: clear of nothing");
 	sink s{bytes_};
 	s.le(std::to_underlying(kind::clear));
 	s.le(std::uint32_t{1});
@@ -377,6 +382,8 @@ void writer::present(const trace::present &p)
 
 void writer::texture(const texture_slot slot, const texture_image *const image)
 {
+	if (slot == texture_slot::none)
+		throw std::invalid_argument("trace::writer: texture call for slot none");
 	if (image && (image->desc().size.width > max_texture_side ||
 	              image->desc().size.height > max_texture_side))
 		throw std::length_error("trace::writer: texture side over max_texture_side");
@@ -508,16 +515,10 @@ std::expected<header, read_error> reader::header()
 
 std::expected<std::optional<record>, read_error> reader::next()
 {
-	if (error_)
-		return std::unexpected{error_.value()};
-	const auto fail{[this](const read_error e) {
-		error_ = e;
-		return std::unexpected{e};
-	}};
 	if (offset_ == 0)
 	{
 		if (const auto h{header()}; !h)
-			return fail(h.error());
+			return std::unexpected{h.error()};
 	}
 	if (offset_ == bytes_.size())
 		return std::nullopt;
@@ -525,19 +526,22 @@ std::expected<std::optional<record>, read_error> reader::next()
 	const auto k{head.le<std::uint8_t>()};
 	const auto length{head.le<std::uint32_t>()};
 	if (head.failed() || length > head.remaining())
-		return fail(read_error::truncated);
+		return std::unexpected{read_error::truncated};
 	cursor payload{head.bytes(length)};
 	auto r{decode(k, payload)};
 	if (!r)
-		return fail(read_error::unknown_kind);
-	/* A bad value comes first: after one (a projection tag of 2) the
-	 * rest of the payload is not where the decoder looks.  A payload too
-	 * short reads zeros, and zero is a valid value of every field.
+		return std::unexpected{read_error::unknown_kind};
+	/* A payload too short is a bad length, whatever the zeros read past
+	 * its end make of the fields.  Then a bad value comes before bytes
+	 * to spare: after one (a projection tag of 2) the rest of the
+	 * payload is not where the decoder looks.
 	 */
+	if (payload.failed())
+		return std::unexpected{read_error::bad_length};
 	if (payload.invalid())
-		return fail(read_error::bad_value);
-	if (payload.failed() || payload.remaining() != 0)
-		return fail(read_error::bad_length);
+		return std::unexpected{read_error::bad_value};
+	if (payload.remaining() != 0)
+		return std::unexpected{read_error::bad_length};
 	offset_ += record_head_size + length;
 	return std::move(r.value());
 }
