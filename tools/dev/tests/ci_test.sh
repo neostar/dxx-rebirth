@@ -330,6 +330,22 @@ test_machine_lock_wait_times_out()
 	assert_eq "$rc" 2 "$out"
 }
 
+# Test that a DXX_CI_POLL that is not a positive number of seconds is a
+# usage error, also while the machine lock is free: sleep would fail at
+# once and the wait would spin.
+test_bad_poll_interval_is_usage_error()
+{
+	local bin r out rc p
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	for p in x 0 -1 1.2.3 ''; do
+		out=$(DXX_CI_POLL=$p run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "DXX_CI_POLL='$p': $out"
+		assert_contains "$out" "ci.sh: DXX_CI_POLL is '$p', not a positive number of seconds"
+		assert_not_contains "$out" "native check"
+	done
+}
+
 # Test that a machine lock left by a ci.sh that no longer runs is taken
 # over without waiting, and removed after the run.
 test_stale_machine_lock_is_taken_over()

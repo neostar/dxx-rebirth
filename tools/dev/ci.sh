@@ -149,10 +149,16 @@ say "ci.sh: log: $log"
 # One ci.sh at a time on this machine, whatever its worktree: parallel runs
 # overload it (budget overruns, timing flakes).  Wait for the machine lock,
 # polling every DXX_CI_POLL seconds (default 5), up to DXX_CI_MAX_WAIT
-# seconds (default 3600), then fail.  It is taken after the worktree's own
-# lock, always in that order.
+# seconds (default 3600), then fail; a value that is no such number is a
+# usage error.  It is taken after the worktree's own lock, always in that
+# order.
 max_wait=${DXX_CI_MAX_WAIT:-3600}
 [[ $max_wait =~ ^[0-9]+$ ]] || { echo "ci.sh: DXX_CI_MAX_WAIT is '$max_wait', not seconds" >&2; exit 2; }
+poll=${DXX_CI_POLL-5}
+if ! [[ $poll =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)$ && $poll =~ [1-9] ]]; then
+	echo "ci.sh: DXX_CI_POLL is '$poll', not a positive number of seconds" >&2
+	exit 2
+fi
 waited_for='' wait_start=$EPOCHSECONDS
 while ! try_lock "$machine_lock"; do
 	if [[ -n $held_by && $held_by != "$waited_for" ]]; then
@@ -164,7 +170,7 @@ while ! try_lock "$machine_lock"; do
 		say "ci.sh: gave up after $max_wait s waiting for ci.sh pid ${held_by:-unknown};" 			"remove $machine_lock if it no longer runs" >&2
 		exit 1
 	fi
-	sleep "${DXX_CI_POLL:-5}"
+	sleep "$poll"
 done
 
 logs=$(mktemp -d "${TMPDIR:-/tmp}/ci.XXXXXX")
