@@ -189,22 +189,37 @@ test_thread_safety_says_when_no_fork_code_locks()
 }
 
 # Replace build.sh in fork repository $1 with a fake that records its
-# arguments, one per line, in $1/build.args, prints scons' list of failed
-# nodes for the test programs named by the remaining arguments, and exits
-# with status $2.
+# arguments, one per line, in $1/build.args, prints $1/build.out (if any)
+# and exits with status $2.
 fake_build()
 {
-	local r=$1 rc=$2
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/build.args"\ncat "%s/build.out" 2>/dev/null\nexit %s\n' \
+		"$1" "$1" "$2" > "$1/tools/dev/build.sh"
+}
+
+# Write to $1/build.out what scons -k check prints for failed test runs
+# (NAME.check), builds (NAME) and a target count ($2, else their number),
+# each run printing its Boost.Test failure in colour.  The remaining
+# arguments are NAME[.check]:FAILURE.
+fake_failures()
+{
+	local r=$1 count=$2 a n=0
 	shift 2
 	{
-		printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/build.args"\n' "$r"
-		if [[ $# -gt 0 ]]; then
-			printf 'echo "Failed node list:"\n'
-			printf 'printf "\\tbuild/nightly/glibcxx-debug/common/%s.check\\n"\n' "$@"
-		fi
-		printf 'exit %s\n' "$rc"
-	} > "$r/tools/dev/build.sh"
+		for a in "$@"; do
+			printf '\e[4;31;49m%s\e[0;39;49m\n' "${a#*:}"
+		done
+		echo "Failed target count: total=${count:-$#}; targets with enable_build_failure_summary=1: $#"
+		echo "Failed node list:"
+		for a in "$@"; do
+			printf '\tbuild/nightly/glibcxx-debug/common/%s\n' "${a%%:*}"
+			n=$((n + 1))
+		done
+	} > "$r/build.out"
 }
+
+# The failure tools/dev/glibcxx-debug-known lists for test-physfsrwops.
+PHYSFS_FAILURE='fatal error: in "read_returns_complete_object_count": memory access violation at address: 0x10000'
 
 # Test that the container leg builds the unit tests with libstdc++'s debug
 # mode beside the hardened flags, in a build directory of its own, and
@@ -213,7 +228,8 @@ test_glibcxx_debug_builds_and_runs_unit_tests()
 {
 	local r out args
 	r=$(fork_repo) || die "fork_repo failed"
-	fake_build "$r" 0
+	fake_build "$r" 2
+	fake_failures "$r" '' "test-physfsrwops.check:$PHYSFS_FAILURE"
 	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1)
 	assert_eq "$?" 0 "$out"
 	args=$(cat "$r/build.args")
@@ -223,7 +239,7 @@ test_glibcxx_debug_builds_and_runs_unit_tests()
 	assert_contains "$args" $'\ncheck'
 }
 
-# Test that a failing unit test in debug mode fails the step.
+# Test that a failing build with no failed-node list fails the step.
 test_glibcxx_debug_fails_with_the_tests()
 {
 	local r out rc
@@ -234,20 +250,60 @@ test_glibcxx_debug_fails_with_the_tests()
 	assert_contains "$out" "nightly.sh: failed: glibcxx_debug"
 }
 
-# Test that a unit test failing for the reason tools/dev/glibcxx-debug-known
-# gives is printed with it and passes, and any other fails the step.
+# Test that a test listed in tools/dev/glibcxx-debug-known passes only when
+# its run fails with the listed failure: another failure of it, its build
+# failing, or another test failing fails the step.
 test_glibcxx_debug_known_failures()
 {
 	local r out rc
 	r=$(fork_repo) || die "fork_repo failed"
-	fake_build "$r" 2 test-physfsrwops
+	fake_build "$r" 2
+	fake_failures "$r" '' "test-physfsrwops.check:$PHYSFS_FAILURE"
 	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "test-physfsrwops fails for a known reason: reads Boost.Test's"
-	fake_build "$r" 2 test-physfsrwops test-homing
+	assert_contains "$out" "test-physfsrwops fails as listed: reads Boost.Test's"
+	fake_failures "$r" '' "test-physfsrwops.check:$PHYSFS_FAILURE" "test-homing.check:x"
 	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-homing.check"
+	fake_failures "$r" '' 'test-physfsrwops.check:Error: attempt to dereference a past-the-end iterator.'
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-physfsrwops.check"
+	fake_failures "$r" '' "test-physfsrwops:$PHYSFS_FAILURE"
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-physfsrwops"
+}
+
+# Test that a listed test which no longer fails makes the entry stale and
+# fails the step, and that a test name is compared whole, not as a pattern.
+test_glibcxx_debug_stale_entry_fails()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	fake_build "$r" 0
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "did not fail as listed: test-physfsrwops"
+	fake_build "$r" 2
+	fake_failures "$r" '' "test-physfsrwopsX.check:$PHYSFS_FAILURE"
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-physfsrwopsX.check"
+}
+
+# Test that a failed-node list shorter than SCons's failed target count
+# fails the step: a failure the list leaves out is not let through.
+test_glibcxx_debug_counts_failed_targets()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	fake_build "$r" 2
+	fake_failures "$r" 2 "test-physfsrwops.check:$PHYSFS_FAILURE"
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "2 failed targets counted and 1 in the failed node list"
 }
 
 # Write into directory $1 (DEMO_TIMEOUT: the demo timeout, default 60 s)

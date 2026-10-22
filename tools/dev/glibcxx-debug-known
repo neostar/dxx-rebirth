@@ -1,3 +1,5 @@
 # Unit tests that fail in the nightly _GLIBCXX_DEBUG build (nightly.sh
-# glibcxx_debug) for a known reason, one per line: "NAME -- reason".
-test-physfsrwops -- reads Boost.Test's master_test_suite().argv, whose offset differs between debug mode and the prebuilt Boost.Test (crash at 0x10000 in the fixture)
+# glibcxx_debug) for a known reason, one per line:
+# "NAME -- FAILURE -- reason", FAILURE a fixed string the test's failing
+# run prints (without colours).
+test-physfsrwops -- fatal error: in "read_returns_complete_object_count": memory access violation at address: 0x10000 -- reads Boost.Test's master_test_suite().argv, whose offset differs between debug mode and the prebuilt Boost.Test (crash at 0x10000 in the fixture)

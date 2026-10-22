@@ -234,31 +234,50 @@ PY
 # the hardened flags, into build/nightly/glibcxx-debug and run them all
 # (scons -k).  Debug mode changes the layout of the standard containers,
 # so a test that reads a class of the prebuilt Boost.Test library holding
-# one gets the library's layout wrong and crashes: a test failing for that
-# is listed in tools/dev/glibcxx-debug-known with the reason, and printed
-# rather than failing the step.  Any other failure fails it.
+# one gets the library's layout wrong and crashes: such a test is listed in
+# tools/dev/glibcxx-debug-known as "NAME -- FAILURE -- reason", and passes
+# only when its run (NAME.check, not its build) fails with FAILURE, a fixed
+# string, in the output.  Any other failure fails the step, as does a
+# listed test that no longer fails (the entry is stale) or a failed-node
+# list that disagrees with SCons's failed target count.
 step_glibcxx_debug()
 {
-	local flags out rc n name reason unexpected=()
+	local flags out rc n name entry failure count known=() unexpected=() matched=() stale=()
 	flags="$(python3 "$dev_dir/hardening.py") -D_GLIBCXX_DEBUG"
 	out=$("$dev_dir/build.sh" dev builddir=build/nightly/glibcxx-debug \
 		compilation_database=build/nightly/glibcxx-debug/compile_commands.json \
 		"CPPFLAGS=$flags" -k check 2>&1) && rc=0 || rc=$?
 	printf '%s\n' "$out"
-	[[ $rc -eq 0 ]] && return 0
+	# shellcheck disable=SC2001  # a regex, which ${out//...} cannot express
+	out=$(sed $'s/\x1b\\[[0-9;]*m//g' <<<"$out")
+	mapfile -t known < <(grep -v -e '^#' -e '^$' "$dev_dir/glibcxx-debug-known")
 	while IFS= read -r n; do
 		name=${n##*/}
-		name=${name%.check}
-		reason=$(sed -n "s/^$name -- //p" "$dev_dir/glibcxx-debug-known")
-		if [[ -n $reason ]]; then
-			echo "glibcxx_debug: $name fails for a known reason: $reason"
+		entry=$(printf '%s\n' "${known[@]+"${known[@]}"}" | awk -F ' -- ' -v t="${name%.check}" '$1 == t')
+		failure=$(awk -F ' -- ' '{ print $2 }' <<<"$entry")
+		if [[ $n == *.check && -n $failure ]] && grep -qF -- "$failure" <<<"$out"; then
+			echo "glibcxx_debug: ${name%.check} fails as listed: $(awk -F ' -- ' '{ print $3 }' <<<"$entry")"
+			matched+=("${name%.check}")
 		else
 			unexpected+=("$n")
 		fi
 	done < <(awk '/^Failed node list:/ { f = 1; next } f && /^\t/ { print $1; next } { f = 0 }' \
 		<<<"$out")
-	[[ $(grep -c '^Failed node list:' <<<"$out") -gt 0 ]] || return 1
-	[[ ${#unexpected[@]} -eq 0 ]] || { echo "glibcxx_debug: failed: ${unexpected[*]}"; return 1; }
+	if [[ $rc -ne 0 ]]; then
+		count=$(sed -n 's/^Failed target count: total=\([0-9]*\).*/\1/p' <<<"$out")
+		if [[ -z $count || $count -ne $((${#matched[@]} + ${#unexpected[@]})) || $count -eq 0 ]]; then
+			echo "glibcxx_debug: the build failed with ${count:-no} failed targets counted and $((${#matched[@]} + ${#unexpected[@]})) in the failed node list"
+			return 1
+		fi
+	fi
+	for entry in "${known[@]+"${known[@]}"}"; do
+		name=${entry%% -- *}
+		[[ " ${matched[*]-} " == *" $name "* ]] || stale+=("$name")
+	done
+	[[ ${#unexpected[@]} -eq 0 ]] || echo "glibcxx_debug: failed: ${unexpected[*]}"
+	[[ ${#stale[@]} -eq 0 ]] ||
+		echo "glibcxx_debug: listed in glibcxx-debug-known but did not fail as listed: ${stale[*]}"
+	[[ ${#unexpected[@]} -eq 0 && ${#stale[@]} -eq 0 ]]
 }
 
 # ThreadSanitizer on the audio-thread tests, on the Mac (TSan fails under
