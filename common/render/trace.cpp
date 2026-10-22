@@ -25,8 +25,11 @@ enum class kind : std::uint8_t
 	draw = 4,
 };
 
-/* The header's length, and a record's before its payload. */
-constexpr std::size_t header_size{magic.size() + 4};
+/* The length of the header up to its version, its whole length, and a
+ * record's before its payload.
+ */
+constexpr std::size_t version_end{magic.size() + 4};
+constexpr std::size_t header_size{version_end + 8};
 constexpr std::size_t record_head_size{5};
 
 /* A clear's flags byte: bit 0 colour, bit 1 depth, the others zero. */
@@ -342,12 +345,16 @@ std::optional<record> decode(const std::uint8_t k, cursor &c)
 
 }
 
-writer::writer()
+writer::writer(const extent target)
 {
+	if (target.width == 0 || target.height == 0)
+		throw std::invalid_argument("trace::writer: render target with no pixels");
 	bytes_.assign(magic.begin(), magic.end());
 	sink s{bytes_};
 	s.le(version);
 	s.le(std::uint16_t{0});
+	s.le(target.width);
+	s.le(target.height);
 }
 
 void writer::clear(const trace::clear &c)
@@ -471,6 +478,31 @@ std::vector<std::uint8_t> writer::take()
 reader::reader(const std::span<const std::uint8_t> bytes) : bytes_{bytes}
 {}
 
+std::expected<header, read_error> reader::header()
+{
+	if (offset_ != 0)
+		return header_;
+	const auto n{std::min(bytes_.size(), magic.size())};
+	if (!std::ranges::equal(bytes_.first(n), std::span{magic}.first(n)))
+		return std::unexpected{read_error::bad_magic};
+	/* The version first: another version may have another header. */
+	if (bytes_.size() < version_end)
+		return std::unexpected{read_error::truncated};
+	cursor h{bytes_.subspan(magic.size())};
+	const auto v{h.le<std::uint16_t>()};
+	const auto zero{h.le<std::uint16_t>()};
+	if (v != version || zero != 0)
+		return std::unexpected{read_error::unsupported_version};
+	if (bytes_.size() < header_size)
+		return std::unexpected{read_error::truncated};
+	const extent target{.width = h.le<std::uint32_t>(), .height = h.le<std::uint32_t>()};
+	if (target.width == 0 || target.height == 0)
+		return std::unexpected{read_error::bad_value};
+	header_ = {.target = target};
+	offset_ = header_size;
+	return header_;
+}
+
 std::expected<std::optional<record>, read_error> reader::next()
 {
 	if (error_)
@@ -481,17 +513,8 @@ std::expected<std::optional<record>, read_error> reader::next()
 	}};
 	if (offset_ == 0)
 	{
-		const auto n{std::min(bytes_.size(), magic.size())};
-		if (!std::ranges::equal(bytes_.first(n), std::span{magic}.first(n)))
-			return fail(read_error::bad_magic);
-		if (bytes_.size() < header_size)
-			return fail(read_error::truncated);
-		cursor h{bytes_.subspan(magic.size())};
-		const auto v{h.le<std::uint16_t>()};
-		const auto zero{h.le<std::uint16_t>()};
-		if (v != version || zero != 0)
-			return fail(read_error::unsupported_version);
-		offset_ = header_size;
+		if (const auto h{header()}; !h)
+			return fail(h.error());
 	}
 	if (offset_ == bytes_.size())
 		return std::nullopt;

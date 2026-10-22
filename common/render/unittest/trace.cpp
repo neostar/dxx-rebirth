@@ -28,8 +28,12 @@ namespace {
 
 using bytes = std::vector<std::uint8_t>;
 
-/* The header of a version 1 trace. */
-const bytes header{'D', 'X', 'X', 'R', 'T', 'R', '\r', '\n', 1, 0, 0, 0};
+/* The render target of the traces written here, and the header of a
+ * version 1 trace for it.
+ */
+constexpr render::extent target{.width = 640, .height = 480};
+const bytes header{'D', 'X', 'X',  'R', 'T', 'R', '\r', '\n', 1, 0,
+                   0,   0,   0x80, 2,   0,   0,   0xe0, 1,    0, 0};
 
 bytes operator+(bytes a, const bytes &b)
 {
@@ -42,9 +46,37 @@ bytes operator+(bytes a, const bytes &b)
 /* Test that a new writer holds the header alone. */
 BOOST_AUTO_TEST_CASE(empty_trace_is_header)
 {
-	trace::writer w;
+	trace::writer w{target};
 	const auto out{w.take()};
 	BOOST_TEST(out == header);
+}
+
+/* Test that the reader gives the render target's size from the header,
+ * with or without records after it.
+ */
+BOOST_AUTO_TEST_CASE(header_round_trip)
+{
+	trace::writer w{{.width = 1, .height = 65536}};
+	auto out{w.take()};
+	trace::reader alone{out};
+	const auto h{alone.header()};
+	BOOST_REQUIRE(h.has_value());
+	BOOST_TEST((h.value() == trace::header{.target = {.width = 1, .height = 65536}}));
+	const auto with_records{header + bytes{1, 1, 0, 0, 0, 3}};
+	trace::reader rd{with_records};
+	BOOST_TEST(rd.next().has_value());
+	const auto again{rd.header()};
+	BOOST_REQUIRE(again.has_value());
+	BOOST_TEST((again.value() == trace::header{.target = target}));
+}
+
+/* Test that the writer refuses a render target with no pixels, which the
+ * reader would reject.
+ */
+BOOST_AUTO_TEST_CASE(empty_target_not_written)
+{
+	BOOST_CHECK_THROW((trace::writer{{.width = 0, .height = 1}}), std::invalid_argument);
+	BOOST_CHECK_THROW((trace::writer{{.width = 1, .height = 0}}), std::invalid_argument);
 }
 
 /* Test that clears and presents are written as their documented bytes, the
@@ -52,7 +84,7 @@ BOOST_AUTO_TEST_CASE(empty_trace_is_header)
  */
 BOOST_AUTO_TEST_CASE(clear_and_present_bytes)
 {
-	trace::writer w;
+	trace::writer w{target};
 	w.clear({.color = false, .depth = true});
 	w.clear({.color = true, .depth = false});
 	w.present();
@@ -66,7 +98,7 @@ BOOST_AUTO_TEST_CASE(clear_and_present_bytes)
  */
 BOOST_AUTO_TEST_CASE(take_hands_over_pieces)
 {
-	trace::writer w;
+	trace::writer w{target};
 	w.present();
 	const auto first{w.take()};
 	w.clear({.color = true, .depth = true});
@@ -80,7 +112,7 @@ BOOST_AUTO_TEST_CASE(take_hands_over_pieces)
  */
 BOOST_AUTO_TEST_CASE(clear_and_present_round_trip)
 {
-	trace::writer w;
+	trace::writer w{target};
 	const auto empty{trace::read_all(w.take())};
 	BOOST_REQUIRE(empty.has_value());
 	BOOST_TEST(empty.value().empty());
@@ -111,7 +143,7 @@ BOOST_AUTO_TEST_CASE(texture_round_trip)
 	    .has_transparency = true,
 	};
 	const render::texture_image image{desc, rgba};
-	trace::writer w;
+	trace::writer w{target};
 	w.texture({7}, &image);
 	w.texture({7}, nullptr);
 	const auto out{w.take()};
@@ -142,7 +174,7 @@ BOOST_AUTO_TEST_CASE(texture_over_bound_not_written)
 	                                   .anisotropic = false,
 	                                   .has_transparency = false},
 	                                  rgba};
-	trace::writer w;
+	trace::writer w{target};
 	BOOST_CHECK_THROW(w.texture({1}, &image), std::length_error);
 	BOOST_TEST(w.take() == header);
 }
@@ -205,7 +237,7 @@ bytes two_frames()
 	                                   .anisotropic = false,
 	                                   .has_transparency = false},
 	                                  rgba};
-	trace::writer w;
+	trace::writer w{target};
 	w.clear({.color = true, .depth = true});
 	w.texture({42}, &image);
 	w.draw(world_draw);
@@ -226,7 +258,7 @@ bytes two_frames()
  */
 BOOST_AUTO_TEST_CASE(draw_round_trip)
 {
-	trace::writer w;
+	trace::writer w{target};
 	(void)w.take();
 	w.draw(hud_draw);
 	w.draw(world_draw);
@@ -256,7 +288,7 @@ BOOST_AUTO_TEST_CASE(double_bytes)
 		                    .z_near = 1,
 		                    .z_far = 2,
 		                    .stereo_dx = 0};
-	trace::writer w;
+	trace::writer w{target};
 	(void)w.take();
 	w.draw(call);
 	const auto out{w.take()};
@@ -279,7 +311,7 @@ BOOST_AUTO_TEST_CASE(nan_payload_round_trip)
 	render::draw_call call{world_draw};
 	call.vertices = nans;
 	call.state.alpha_ref = signalling;
-	trace::writer w;
+	trace::writer w{target};
 	w.draw(call);
 	const auto records{trace::read_all(w.take())};
 	BOOST_REQUIRE(records.has_value());
@@ -298,7 +330,7 @@ BOOST_AUTO_TEST_CASE(draw_over_bound_not_written)
 	const std::vector<render::vertex> many(std::size_t{trace::max_draw_vertices} + 1, fan.front());
 	render::draw_call call{world_draw};
 	call.vertices = many;
-	trace::writer w;
+	trace::writer w{target};
 	BOOST_CHECK_THROW(w.draw(call), std::length_error);
 	BOOST_TEST(w.take() == header);
 	call.vertices = std::span{many}.first(trace::max_draw_vertices);
@@ -324,7 +356,7 @@ BOOST_AUTO_TEST_CASE(frames_round_trip)
 	BOOST_TEST(presents == 2);
 	BOOST_TEST(
 	    (records.value().at(3) == trace::record{trace::clear{.color = false, .depth = true}}));
-	trace::writer again;
+	trace::writer again{target};
 	for (const auto &r : records.value())
 		again.write(r);
 	BOOST_TEST((again.take() == out));
@@ -347,7 +379,10 @@ BOOST_AUTO_TEST_CASE(every_bit_flip_read_safely)
 			if (!records)
 				continue;
 			++accepted;
-			trace::writer w;
+			trace::reader rd{bad};
+			const auto h{rd.header()};
+			BOOST_REQUIRE(h.has_value());
+			trace::writer w{h.value().target};
 			for (const auto &r : records.value())
 				w.write(r);
 			BOOST_TEST_CONTEXT("byte " << i << " bit " << bit)
@@ -355,7 +390,9 @@ BOOST_AUTO_TEST_CASE(every_bit_flip_read_safely)
 				BOOST_TEST((w.take() == bad));
 			}
 		}
-	/* Flips in float fields and pixels are still valid traces. */
+	/* Flips in the target size, float fields and pixels are still valid
+	 * traces.
+	 */
 	BOOST_TEST(accepted > 0u);
 }
 
@@ -366,7 +403,7 @@ namespace {
  */
 bytes draw_record(const std::size_t at, const std::uint8_t value)
 {
-	trace::writer w;
+	trace::writer w{target};
 	(void)w.take();
 	w.draw(hud_draw);
 	auto out{w.take()};
@@ -421,6 +458,11 @@ const std::vector<malformed> corpus{
     {"reserved not zero",
 	 {'D', 'X', 'X', 'R', 'T', 'R', '\r', '\n', 1, 0, 1, 0},
 	 trace::read_error::unsupported_version},
+    {"header without target",
+	 {'D', 'X', 'X', 'R', 'T', 'R', '\r', '\n', 1, 0, 0, 0, 0x80, 2, 0, 0, 0xe0, 1, 0},
+	 trace::read_error::truncated},
+    {"target width 0", with(with(header, 12, 0), 13, 0), trace::read_error::bad_value},
+    {"target height 0", with(with(header, 16, 0), 17, 0), trace::read_error::bad_value},
     {"record head cut short", header + bytes{2, 0, 0}, trace::read_error::truncated},
     {"payload past the end", header + bytes{1, 1, 0, 0, 0}, trace::read_error::truncated},
     {"length near 4 GiB", header + bytes{1, 0xff, 0xff, 0xff, 0xff, 3},
@@ -532,7 +574,7 @@ std::vector<std::size_t> record_ends(const bytes &t)
  */
 BOOST_AUTO_TEST_CASE(every_cut_is_truncated_or_whole)
 {
-	trace::writer w;
+	trace::writer w{target};
 	w.clear({.color = true, .depth = true});
 	w.present();
 	for (const auto &good : {w.take(), two_frames()})

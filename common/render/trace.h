@@ -12,7 +12,8 @@
  * bytes back into records; neither touches a file, the caller does.
  *
  * Layout, every integer little-endian, every float as its IEEE bits:
- *   header: the 8 bytes of magic, u16 version, u16 zero
+ *   header: the 8 bytes of magic, u16 version, u16 zero, u32 width and
+ *     u32 height of the render target, neither zero
  *   record: u8 kind, u32 payload length, payload
  * A record's payload length must match what its kind holds exactly.  A
  * trace ends at the end of a record; a partial record is malformed.
@@ -48,6 +49,16 @@ namespace dcx::render::trace {
 
 inline constexpr std::array<std::uint8_t, 8> magic{{'D', 'X', 'X', 'R', 'T', 'R', '\r', '\n'}};
 inline constexpr std::uint16_t version{1};
+
+/* What a trace holds before its records. */
+struct header
+{
+	/* The size of the render target the calls drew to, which a replay
+	 * creates.
+	 */
+	extent target;
+	constexpr bool operator==(const header &) const = default;
+};
 
 /* A clear of the whole target: colour to (0, 0, 0, 0), depth to 1.  The
  * game clears depth alone in mid-frame for the rear view (spike #55), so
@@ -121,7 +132,10 @@ class writer
 	std::vector<std::uint8_t> bytes_;
 
   public:
-	writer();
+	/* Throws std::invalid_argument for a target with no pixels, which the
+	 * reader would reject.
+	 */
+	explicit writer(extent target);
 	void clear(const trace::clear &c);
 	void present();
 	/* The image for a slot, or nullptr to release it.  Throws
@@ -160,10 +174,14 @@ class reader
 {
 	std::span<const std::uint8_t> bytes_;
 	std::size_t offset_{0};
+	trace::header header_{};
 	std::optional<read_error> error_;
 
   public:
 	explicit reader(std::span<const std::uint8_t> bytes);
+	/* The header, read by the first call to this or next(). */
+	[[nodiscard]]
+	std::expected<trace::header, read_error> header();
 	/* The next record, or nullopt at the end of the trace. */
 	[[nodiscard]]
 	std::expected<std::optional<record>, read_error> next();
