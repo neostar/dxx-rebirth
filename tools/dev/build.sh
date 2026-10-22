@@ -24,6 +24,10 @@
 # tree, has it rewrite the tree's absolute paths (hardening-exit.h's
 # -include) to relative ones, and site-dev.py maps the tree to . in the
 # debug information, which ccache otherwise hashes the directory of.
+# Each build directory keeps its own SCons signature database
+# (<builddir>/.sconsign.dblite, through DXX_SCONSIGN and site-dev.py):
+# with SConstruct's one build/.sconsign, builds running at once (the
+# merge gate's R1 beside its unit tests) drop each other's signatures.
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 cd "$dev_dir/../.."
@@ -87,5 +91,12 @@ if [[ $sdl3 == 1 ]]; then
 	fi
 	export PKG_CONFIG PKG_CONFIG_PATH DXX_SDL3_PREFIX DXX_SDL3_SYSTEM_INCLUDE
 fi
-export CCACHE_BASEDIR=$PWD
+# The build directory SCons uses: the last builddir= wins, as in SCons.
+dir=build/$profile
+[[ $sdl3 == 1 ]] && dir=build/$profile-sdl3
+for a in "$@"; do
+	[[ $a == builddir=* ]] && dir=${a#builddir=}
+done
+mkdir -p "$dir"
+export CCACHE_BASEDIR=$PWD DXX_SCONSIGN=$dir/.sconsign
 exec "${wrap[@]}" scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "${build[@]}" "$@"

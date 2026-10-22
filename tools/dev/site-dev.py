@@ -29,6 +29,12 @@ fork_warnings.install()
 import hardening
 import os
 CPPFLAGS = ' '.join(hardening.HARDENING_FLAGS) + ' -fdebug-prefix-map=' + os.getcwd() + '=.'
+# This build directory's own signature database, from build.sh: builds
+# running at once would drop each other's signatures in SConstruct's
+# shared build/.sconsign.
+if os.environ.get('DXX_SCONSIGN'):
+	import SCons.Script
+	SCons.Script.SConsignFile(os.environ['DXX_SCONSIGN'])
 # Unit tests run through run.sh (test_runner.py).
 import test_runner
 test_runner.install()

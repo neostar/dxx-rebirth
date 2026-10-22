@@ -187,28 +187,53 @@ for k in ("CPPFLAGS", "CXXFLAGS", "LINKFLAGS"):
 ' "$(fake_scons)" "$@" 2>&1
 }
 
-# Print the CCACHE_BASEDIR build.sh gives scons for arguments "$@", run
-# from directory $1.
+# Print the CCACHE_BASEDIR and DXX_SCONSIGN build.sh gives scons for
+# arguments "$@", one per line, run from directory $1.
 scons_env()
 {
 	local bin dir=$1
 	shift
 	bin=$(make_scratch) || die "make_scratch failed"
-	printf '#!/bin/sh\necho "CCACHE_BASEDIR=$CCACHE_BASEDIR"\n' > "$bin/scons"
-	chmod +x "$bin/scons"
+	printf '#!/bin/sh\necho "CCACHE_BASEDIR=$CCACHE_BASEDIR"\necho "DXX_SCONSIGN=$DXX_SCONSIGN"\n' \
+		> "$bin/scons"
+	printf '#!/bin/sh\nexit 0\n' > "$bin/brew"
+	chmod +x "$bin/scons" "$bin/brew"
 	(cd "$dir" && PATH="$bin:$PATH" "$DEV_DIR/build.sh" "$@")
 }
 
 # Test that build.sh, run from anywhere, has ccache rewrite the source
-# tree's absolute paths (hardening-exit.h's -include) to relative ones,
-# so worktrees share the cache.
-test_builds_share_ccache()
+# tree's absolute paths (hardening-exit.h's) to relative ones, so worktrees
+# share the cache, and gives each build directory its own SCons signature
+# database: builds run at once in one tree (the merge gate's R1 beside its
+# unit tests) would otherwise drop each other's signatures, last writer
+# wins, and rebuild next time.
+test_builds_share_ccache_and_keep_their_own_signatures()
 {
-	local a out
-	for a in dev asan; do
-		out=$(scons_env "$_scratch_root" "$a" 2>&1)
-		assert_eq "$out" "CCACHE_BASEDIR=$REPO_ROOT"
+	local out a want
+	declare -A want=(
+		[dev]=build/dev [asan]=build/asan [dev sdl3=1]=build/dev-sdl3
+		[dev dbg_harness=1 builddir=build/r1]=build/r1
+		[dev builddir=build/asan builddir=build/r1]=build/r1
+	)
+	for a in "${!want[@]}"; do
+		# shellcheck disable=SC2086  # split the arguments on purpose
+		out=$(scons_env "$_scratch_root" $a 2>&1)
+		assert_eq "$out" "CCACHE_BASEDIR=$REPO_ROOT
+DXX_SCONSIGN=${want[$a]}/.sconsign"
 	done
+}
+
+# Test that site-dev.py hands DXX_SCONSIGN to SConsignFile, and leaves
+# SConstruct's database alone without it.
+test_site_dev_reads_the_signature_database()
+{
+	local fake out
+	fake=$(fake_scons)
+	printf 'def SConsignFile(name):\n\tprint("SConsignFile(" + name + ")")\n' > "$fake/SCons/Script.py"
+	out=$(DXX_SCONSIGN=build/r1/.sconsign python3 -I -c "$read_sites" "$fake" "$DEV_DIR/site-dev.py")
+	assert_eq "$out" "SConsignFile(build/r1/.sconsign)"
+	out=$(env -u DXX_SCONSIGN python3 -I -c "$read_sites" "$fake" "$DEV_DIR/site-dev.py")
+	assert_eq "$out" ""
 }
 
 # Test that site-sdl3.py puts the pinned prefix's lib directory ahead of
