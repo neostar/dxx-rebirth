@@ -180,7 +180,4 @@ can be offered upstream, named by subject (see Commits):
 - C++ safety rules, the gates that enforce them and the active clang-tidy level:
   `docs/adr/0005-cpp-safety-rules-for-new-code.md` (ADR 5).
 - Domain terms: `GLOSSARY.md`. Decisions: `docs/adr/` (soft fork, render device, SDL3 approach).
-- Licensed game data, demos, captures and goldens derived from them stay out of git.
-- Development tools run windowless and in the background: launch binaries with `tools/dev/run.sh`
-  and any other command that may open a window with `tools/dev/no-window.sh`
-  (`SDL_MAC_BACKGROUND_APP=1`).
+- Hard rules for agents (windowless runs, crash reports, licensed data, git): `issue-tracker.md`.

@@ -38,26 +38,45 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
   the board as the run lands, also for work on a ticket that stays open (a spike, a split part);
   GitHub timestamps (claim, PR ready, first review, merge, close) give review wait and cycle time.
 
+**Hard rules**, for implementers and reviewers; prompts point here instead of repeating them:
+
+- Git: never `git stash` (one list for all worktrees); commit unsigned
+  (`git -c commit.gpgsign=false commit`); no pushes, no issue or PR writes.
+- Processes: kill only your own pids, never `pkill -f` with a broad pattern.
+- Crash reports: create, change or delete nothing in `~/Library/Logs/DiagnosticReports`; on a
+  new crash report, stop and report it.
+- Windowless: launch binaries with `tools/dev/run.sh` and any other command that may open a window
+  with `tools/dev/no-window.sh` (with `ASAN_OPTIONS=abort_on_error=0`, which `run.sh` sets). The
+  game runs only hidden through `run.sh` (`game-data.md`): `DXX_DBG_HIDDEN=1`, a fresh
+  `D2X_REBIRTH_HOME`, `-window`; never `-userdir`, never full screen.
+- Licensed data and everything derived from it (`game-data.md`) stay in your own scratch folder:
+  never committed or quoted; report counts and pass/fail only. Leave other agents' scratch
+  folders alone.
+- Owner's OK first: the `dxx-rebirth-ref*` Docker images and the reference image inputs (`env.sh`,
+  `deps.sh`, `tools/dev/container/Dockerfile`, `toolchain.pins`, `requirements.lock`).
+- No environment dumps, no installs. On a denied permission, stop and report.
+
 **Implementer**
 
 1. **Clock**: run `date -u +%FT%TZ` as your first and last command.
 2. **Worktree**: work in your own worktree on a new branch from `sdl-gpu-port`, and confirm the base
    (`git merge-base --is-ancestor sdl-gpu-port HEAD`) before the first edit.
-3. **Commits**: unsigned (`git -c commit.gpgsign=false commit`), in the Commits format of
-   `conventions.md`, ending with your model's `Co-Authored-By: ... <noreply@anthropic.com>`
-   trailer. The orchestrator signs them at merge.
-4. **Windowless**: launch binaries with `tools/dev/run.sh` and any other command that may open a
-   window with `tools/dev/no-window.sh`.
-5. **Local**: your output is commits on your branch and the report; pushes and issue writes belong
-   to the orchestrator.
-6. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
+3. **Commits**: in the Commits format of `conventions.md`, ending with your model's
+   `Co-Authored-By: ... <noreply@anthropic.com>` trailer. The orchestrator signs them at merge.
+4. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
    pass everything) and run its test: the test must go red. Restore it before committing.
-7. **Time box**: at the box, commit what is green and go to the report.
-8. **Report**, once the full `tools/dev/ci.sh`, both legs, passes on your branch merged with the
+5. **Time box**: at the box, commit what is green and go to the report.
+6. **Report**, once the full `tools/dev/ci.sh`, both legs, passes on your branch merged with the
    current `sdl-gpu-port` tip. Start `ci.sh` and other long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
    fakes), or open, with why; the plants, each with the test that went red; anything surprising.
+
+**Reviewer**
+
+- Follow the hard rules above.
+- Check each implementer report for its plants, and each `tools/dev` script against the
+  fail-closed checklist in `conventions.md`.
 
 ## Pull requests as a triage surface
 
