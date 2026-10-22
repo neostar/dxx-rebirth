@@ -187,6 +187,30 @@ for k in ("CPPFLAGS", "CXXFLAGS", "LINKFLAGS"):
 ' "$(fake_scons)" "$@" 2>&1
 }
 
+# Print the CCACHE_BASEDIR build.sh gives scons for arguments "$@", run
+# from directory $1.
+scons_env()
+{
+	local bin dir=$1
+	shift
+	bin=$(make_scratch) || die "make_scratch failed"
+	printf '#!/bin/sh\necho "CCACHE_BASEDIR=$CCACHE_BASEDIR"\n' > "$bin/scons"
+	chmod +x "$bin/scons"
+	(cd "$dir" && PATH="$bin:$PATH" "$DEV_DIR/build.sh" "$@")
+}
+
+# Test that build.sh, run from anywhere, has ccache rewrite the source
+# tree's absolute paths (hardening-exit.h's -include) to relative ones,
+# so worktrees share the cache.
+test_builds_share_ccache()
+{
+	local a out
+	for a in dev asan; do
+		out=$(scons_env "$_scratch_root" "$a" 2>&1)
+		assert_eq "$out" "CCACHE_BASEDIR=$REPO_ROOT"
+	done
+}
+
 # Test that site-sdl3.py puts the pinned prefix's lib directory ahead of
 # every other -L, so -lSDL3, -lSDL3_image and -lSDL3_mixer find the pinned
 # libraries before Homebrew's (whose lib directory physfs and libpng add),
@@ -212,14 +236,18 @@ _CPPINCFLAGS=-isystem /brew/include $INC $_DXX_FORK_WARNINGS'
 }
 
 # Test that both profiles build with the hardened standard library
-# (ADR 5): libc++'s debug hardening mode and libstdc++'s assertions.
+# (ADR 5): libc++'s debug hardening mode and libstdc++'s assertions; and
+# with the source tree's path mapped to . in the debug information, so
+# ccache, which hashes the directory of a -g compile, shares its results
+# across worktrees.
 test_profiles_harden_the_standard_library()
 {
-	local out
-	out=$(site_settings "$DEV_DIR/site-dev.py" | grep '^CPPFLAGS=')
-	assert_eq "$out" "$hardened"
-	out=$(site_settings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" | grep '^CPPFLAGS=')
-	assert_eq "$out" "$hardened"
+	local out map=" -fdebug-prefix-map=$REPO_ROOT=."
+	out=$(cd "$REPO_ROOT" && site_settings "$DEV_DIR/site-dev.py" | grep '^CPPFLAGS=')
+	assert_eq "$out" "$hardened$map"
+	out=$(cd "$REPO_ROOT" && site_settings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" |
+		grep '^CPPFLAGS=')
+	assert_eq "$out" "$hardened$map"
 	assert_contains "$hardened" "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG"
 	assert_contains "$hardened" "-D_GLIBCXX_ASSERTIONS"
 }

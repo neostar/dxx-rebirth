@@ -20,6 +20,10 @@
 # --define-prefix, relocates them to where the prefix lies, and
 # site-sdl3.py, read last, links the pinned libraries ahead of Homebrew's
 # and on macOS makes Homebrew's headers system ones (see its header).
+# ccache shares its cache across worktrees: CCACHE_BASEDIR, the source
+# tree, has it rewrite the tree's absolute paths (hardening-exit.h's
+# -include) to relative ones, and site-dev.py maps the tree to . in the
+# debug information, which ccache otherwise hashes the directory of.
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 cd "$dev_dir/../.."
@@ -83,4 +87,5 @@ if [[ $sdl3 == 1 ]]; then
 	fi
 	export PKG_CONFIG PKG_CONFIG_PATH DXX_SDL3_PREFIX DXX_SDL3_SYSTEM_INCLUDE
 fi
+export CCACHE_BASEDIR=$PWD
 exec "${wrap[@]}" scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "${build[@]}" "$@"

@@ -22,9 +22,13 @@ sconf_optimize_builtin_constant_p = 'force-failure'
 # on sys.path while it reads it.
 import fork_warnings
 fork_warnings.install()
-# Hardened standard library (ADR 5).
+# Hardened standard library (ADR 5), and the source tree mapped to . in
+# the debug information: ccache hashes the directory of a -g compile, so
+# without it no two worktrees share a cache entry (build.sh).  SCons reads
+# this file in the source tree.
 import hardening
-CPPFLAGS = ' '.join(hardening.HARDENING_FLAGS)
+import os
+CPPFLAGS = ' '.join(hardening.HARDENING_FLAGS) + ' -fdebug-prefix-map=' + os.getcwd() + '=.'
 # Unit tests run through run.sh (test_runner.py).
 import test_runner
 test_runner.install()
