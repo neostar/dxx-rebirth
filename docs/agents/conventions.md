@@ -115,7 +115,14 @@ are the calls it cannot make:
   `tools/dev/env.sh`, so git's repository variables never reach the real repository.
 - Use options that behave the same in BSD and GNU tools (`od`, not `xxd`; no `sed -i`).
 - Test each option's default path, not only its overrides.
-- A missing tool is a visible SKIP naming the tool, never a silent pass.
+
+Fail closed: reviewers check every `tools/dev` script for these.
+
+- Unknown, empty, missing, timed out or killed means failure: an unknown option or value is a
+  usage error; an empty or missing input, output or file fails; so does a timeout or a kill.
+- Every exit status is checked or passed on, also inside pipelines, command substitutions and
+  background jobs (`wait "$pid" || rc=1`).
+- A skip is a visible `SKIP <what>: <reason>` line, such as a missing tool named; never a silent pass.
 
 ## Commits
 
