@@ -1419,6 +1419,11 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 }
 #endif
 
+void ogl_set_alpha_ref(const float ref)
+{
+	glAlphaFunc(GL_GEQUAL, ref);
+}
+
 void ogl_end_frame(void){
 	OGL_VIEWPORT(0, 0, grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height());
 	glMatrixMode(GL_PROJECTION);

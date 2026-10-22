@@ -76,6 +76,8 @@ void ogl_start_frame(grs_canvas &);
 void ogl_stereo_frame(bool left_eye, int xoff);
 #endif
 void ogl_end_frame(void);
+/* Draw only pixels whose alpha is at least ref (the alpha test ogl_start_frame enables). */
+void ogl_set_alpha_ref(float ref);
 void ogl_set_screen_mode(void);
 
 struct ogl_colors

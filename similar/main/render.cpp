@@ -1710,9 +1710,9 @@ void render_mine(grs_canvas &canvas, const vms_vector &Viewer_eye, const vcsegid
 									// Do NOT render geometry with blending textures. Since we've not rendered any objects, yet, they would disappear behind them.
 									continue;
 							}
-							glAlphaFunc(GL_GEQUAL,0.8); // prevent ugly outlines if an object (which is rendered later) is shown behind a grate, door, etc. if texture filtering is enabled. These sides are rendered later again with normal AlphaFunc
+							ogl_set_alpha_ref(0.8); // prevent ugly outlines if an object (which is rendered later) is shown behind a grate, door, etc. if texture filtering is enabled. These sides are rendered later again with normal AlphaFunc
 							render_side(vcvertptr, canvas, seg, sn, wid, Viewer_eye);
-							glAlphaFunc(GL_GEQUAL,0.02);
+							ogl_set_alpha_ref(0.02);
 						}
 						else
 							render_side(vcvertptr, canvas, seg, sn, wid, Viewer_eye);
