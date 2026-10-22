@@ -15,12 +15,14 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
 
 #include "common/render/device.h"
 #include "common/render/gl_state.h"
+#include "common/render/gl_texture_names.h"
 
 namespace dcx::render {
 
@@ -39,10 +41,21 @@ struct gl_front_end
 	 * which the code not yet drawing through the device reads.
 	 */
 	std::function<void()> untextured;
+	/* Binds the texture of a slot with a wrap and turns GL_TEXTURE_2D on,
+	 * through the front end's shadows of both (OGL_ENABLE and the
+	 * texture's wrap state), which the code not yet drawing through the
+	 * device reads.  That code binds textures behind the state shadow's
+	 * back, so the adapter calls this on every textured draw.
+	 */
+	std::function<void(texture_slot, render::wrap)> textured;
 	/* Multiplies the current matrix by the perspective's: gluPerspective,
 	 * or the front end's replacement for it on GLES.
 	 */
 	std::function<void(const render::perspective &)> build_perspective;
+	/* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 0 without the extension: the
+	 * anisotropy an anisotropic texture gets above 1.
+	 */
+	float max_anisotropy;
 };
 
 /* The state shadow keeps each draw's GL state right while two things hold
@@ -50,12 +63,23 @@ struct gl_front_end
  * reference, depth test, culling, viewport and transforms at each draw;
  * and code outside the device leaves the alpha test on, glDepthFunc
  * LEQUAL, glCullFace FRONT and the modelview matrix current, which
- * ogl_start_frame sets before every 3D draw today.
+ * ogl_start_frame sets before every 3D draw today.  The bound texture, its
+ * wrap and GL_TEXTURE_2D are outside the state shadow: every textured draw
+ * binds its texture, and every draw sets GL_TEXTURE_2D and the wrap through
+ * the front end (gl_front_end::textured and untextured), whose own shadows
+ * of those two, OGL_ENABLE's of GL_TEXTURE_2D and each texture's wrap
+ * state, the code outside the device reads.
  */
 class gl_device final : public device
 {
 	gl::state_shadow shadow_;
 	gl_front_end front_end_;
+	/* The GL texture name of each slot that holds an image.  A device made
+	 * for the same GL context takes them (take_textures); the front end
+	 * releases every slot before it closes the context.  The destructor
+	 * deletes nothing, since it may run after the context is gone.
+	 */
+	gl::texture_names names_;
 
   public:
 	/* A device for the current GL context.  The front end makes a new one
@@ -63,12 +87,31 @@ class gl_device final : public device
 	 * empty and the first draw sets everything.
 	 */
 	gl_device(const render::caps &c, gl_front_end front_end);
-	/* Untextured draws only: textures go through the device from #11, and
-	 * a textured draw throws std::logic_error until then.
-	 */
 	void draw(const draw_call &call) override;
-	/* Throws std::logic_error: textures go through the device from #11. */
+	/* Makes a new GL texture of image for slot, deleting the slot's old one,
+	 * with the GL calls ogl_loadtexture made, and leaves it bound as they
+	 * did.  The pixels go up as GL_RGBA in the image's internal format
+	 * (GL_RGBA on GLES, where the two must match).  A null image deletes
+	 * the slot's texture; texture_slot::none holds none and throws
+	 * std::invalid_argument.
+	 */
 	void texture(texture_slot slot, const texture_image *image) override;
+	/* The GL texture name of slot, 0 when it holds none: the front end binds
+	 * it for the code not yet drawing through the device.
+	 */
+	[[nodiscard]]
+	std::uint32_t gl_name(texture_slot slot) const;
+	/* Takes the textures of from, a device of the same GL context that
+	 * this one replaces, as upstream keeps them across an SDL2 mode change;
+	 * from is left with none.  Throws std::logic_error when this device
+	 * holds textures already.
+	 */
+	void take_textures(gl_device &from);
+	/* How many slots hold a texture: 0 once the front end released them
+	 * all.
+	 */
+	[[nodiscard]]
+	std::size_t texture_count() const;
 	void clear(clear_targets targets) override;
 	void present() override;
 	void read_pixels(read_source source, const read_rect &rect, pixel_format format,

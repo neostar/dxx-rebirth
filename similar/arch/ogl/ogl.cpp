@@ -59,6 +59,7 @@
 #include "byteutil.h"
 #include "internal.h"
 #include "common/render/gl_device.h"
+#include "common/render/palette_expand.h"
 #include "gauges.h"
 #include "object.h"
 #include "args.h"
@@ -149,11 +150,69 @@ static int r_polyc,r_tpolyc,r_bitmapc,r_ubitbltc;
 /* I assume this ought to be >= MAX_BITMAP_FILES in piggy.h? */
 static std::array<ogl_texture, 20000> ogl_texture_list;
 static int ogl_texture_list_cur;
+static std::unique_ptr<render::gl_device> ogl_device_instance;
+/* The movie frame ogl_ubitblt_i is drawing, kept outside the list. */
+static ogl_texture *ogl_movie_frame;
+
+/* The render device of the current GL context, made by gr_set_mode. */
+static render::gl_device &ogl_gl_device()
+{
+	if (!ogl_device_instance) [[unlikely]]
+		throw std::logic_error("ogl_device: no render device before gr_set_mode");
+	return *ogl_device_instance;
+}
+
+/* The render device's texture slot of t: its place in ogl_texture_list
+ * plus one, or for the movie frame, which ogl_ubitblt_i keeps outside the
+ * list, the slot after the list's.
+ */
+static render::texture_slot ogl_texture_slot(const ogl_texture &t)
+{
+	const std::less<const ogl_texture *> before;
+	if (before(&t, ogl_texture_list.data()) || !before(&t, ogl_texture_list.data() + ogl_texture_list.size()))
+	{
+		if (&t != ogl_movie_frame)
+			throw std::logic_error("ogl_texture_slot: a texture outside the texture list that is not the movie frame");
+		return {static_cast<uint32_t>(ogl_texture_list.size() + 1)};
+	}
+	return {static_cast<uint32_t>(&t - ogl_texture_list.data() + 1)};
+}
+
+/* The texture of slot, as ogl_texture_slot numbers them; null for the
+ * movie frame's slot while no movie frame is drawn, and for slots past it.
+ */
+static ogl_texture *ogl_texture_of(const render::texture_slot slot)
+{
+	if (slot.index >= 1 && slot.index <= ogl_texture_list.size())
+		return &ogl_texture_list[slot.index - 1];
+	if (slot.index == ogl_texture_list.size() + 1)
+		return ogl_movie_frame;
+	return nullptr;
+}
+
+/* Deletes the GL texture of t through the render device that made it. */
+static void ogl_release_texture(ogl_texture &t)
+{
+	if (ogl_device_instance)
+		ogl_device_instance->texture(ogl_texture_slot(t), nullptr);
+	t.handle = 0;
+}
+
+/* Deletes every GL texture of the list, keeping the bitmaps' places. */
+static void ogl_release_texture_list()
+{
+	range_for (auto &i, ogl_texture_list)
+	{
+		if (i.handle>0)
+			ogl_release_texture(i);
+		i.wrapstate = -1;
+	}
+}
 
 /* some function prototypes */
 
 #define GL_TEXTURE0_ARB 0x84C0
-static int ogl_loadtexture(const palette_array_t &, const uint8_t *data, int dxo, int dyo, ogl_texture &tex, int bm_flags, int data_format, opengl_texture_filter texfilt, bool texanis, bool edgepad) dxx_compiler_attribute_nonnull();
+static int ogl_loadtexture(const palette_array_t &, const uint8_t *data, int dxo, int dyo, ogl_texture &tex, int bm_flags, opengl_texture_filter texfilt, bool texanis, bool edgepad) dxx_compiler_attribute_nonnull();
 static void ogl_freetexture(ogl_texture &gltexture);
 
 static void ogl_loadbmtexture(grs_bitmap &bm, bool edgepad)
@@ -273,14 +332,10 @@ void ogl_smash_texture_list_internal(void){
 	circle_va.reset();
 	disk_va.reset();
 	secondary_lva = {};
-	range_for (auto &i, ogl_texture_list)
-	{
-		if (i.handle>0){
-			glDeleteTextures( 1, &i.handle );
-			i.handle=0;
-		}
-		i.wrapstate = -1;
-	}
+	ogl_release_texture_list();
+	if (ogl_device_instance)
+		if (const auto left{ogl_device_instance->texture_count()})
+			con_printf(CON_URGENT, "OpenGL: %zu textures left after deleting them all", left);
 }
 
 ogl_texture* ogl_get_free_texture(void){
@@ -1179,10 +1234,12 @@ bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw,
 		~bitblt_free_ogl_texture()
 		{
 			ogl_freetexture(t);
+			ogl_movie_frame = nullptr;
 		}
 	};
 	ogl_client_states<bitblt_free_ogl_texture, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
 	ogl_texture &tex = std::get<0>(cs).t;
+	ogl_movie_frame = &tex;
 	r_ubitbltc++;
 
 	ogl_init_texture(tex, sw, sh, OGL_FLAG_ALPHA);
@@ -1200,7 +1257,7 @@ bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw,
 	
 	OGL_ENABLE(TEXTURE_2D);
 	
-	ogl_loadtexture(gr_current_pal, src.get_bitmap_data(), sx, sy, tex, src.get_flags(), 0, texfilt, 0, 0);
+	ogl_loadtexture(gr_current_pal, src.get_bitmap_data(), sx, sy, tex, src.get_flags(), texfilt, 0, 0);
 	OGL_BINDTEXTURE(tex.handle);
 	
 	ogl_texwrap(&tex,GL_CLAMP_TO_EDGE);
@@ -1444,21 +1501,25 @@ render::ambient &ogl_ambient()
 	return ambient;
 }
 
-static std::unique_ptr<render::gl_device> ogl_device_instance;
-
 render::device &ogl_device()
 {
-	if (!ogl_device_instance) [[unlikely]]
-		throw std::logic_error("ogl_device: no render device before gr_set_mode");
-	return *ogl_device_instance;
+	return ogl_gl_device();
 }
 
 void ogl_create_device()
 {
-	ogl_device_instance = std::make_unique<render::gl_device>(render::gl_caps(ogl_maxanisotropy), render::gl_front_end{
+	auto device{std::make_unique<render::gl_device>(render::gl_caps(ogl_maxanisotropy), render::gl_front_end{
 		.swap = ogl_swap_buffers_internal,
 		.target_height = []() -> uint32_t { return SHEIGHT; },
 		.untextured = []() { OGL_DISABLE(TEXTURE_2D); },
+		.textured = [](const render::texture_slot slot, const render::wrap wrap) {
+			const auto tex{ogl_texture_of(slot)};
+			if (!tex || !tex->handle) [[unlikely]]
+				throw std::logic_error("ogl_device: textured draw of a slot that holds no texture");
+			OGL_ENABLE(TEXTURE_2D);
+			OGL_BINDTEXTURE(tex->handle);
+			ogl_texwrap(tex, wrap == render::wrap::repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+		},
 		.build_perspective = [](const render::perspective &p) {
 #if DXX_USE_OGLES
 			perspective(p.fovy, p.aspect, p.z_near, p.z_far);
@@ -1466,7 +1527,15 @@ void ogl_create_device()
 			gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
 #endif
 		},
-	});
+		.max_anisotropy = ogl_maxanisotropy,
+	})};
+	/* A device of the same GL context keeps the textures, as upstream did
+	 * across an SDL2 mode change; SDL1's mode changes delete them
+	 * (ogl_smash_texture_list_internal).
+	 */
+	if (ogl_device_instance)
+		device->take_textures(*ogl_device_instance);
+	ogl_device_instance = std::move(device);
 }
 
 void ogl_record_2d_state()
@@ -1604,127 +1673,50 @@ void ogl_close_pixel_buffers(void)
 	texbuf.reset();
 }
 
-static void ogl_filltexbuf(const palette_array_t &pal, const uint8_t *const data, GLubyte *texp, const unsigned truewidth, const unsigned width, const unsigned height, const int dxo, const int dyo, const unsigned twidth, const unsigned theight, const int type, const int bm_flags, const int data_format)
+/* The render device's format of tex, from the internal format
+ * ogl_init_texture chose.
+ */
+static render::texture_format ogl_texture_format(const ogl_texture &tex)
 {
-	if ((width > max(static_cast<unsigned>(grd_curscreen->get_screen_width()), 1024u)) ||
-		(height > max(static_cast<unsigned>(grd_curscreen->get_screen_height()), 256u)))
-		Error("Texture is too big: %ix%i", width, height);
-
-	for (unsigned y=0;y<theight;y++)
+	switch (tex.internalformat)
 	{
-		int i=dxo+truewidth*(y+dyo);
-		for (unsigned x=0;x<twidth;x++)
-		{
-			int c;
-			if (x<width && y<height)
-			{
-				if (data_format)
-				{
-					int j;
+#if !DXX_USE_OGLES
+		case GL_INTENSITY4:
+			return render::texture_format::intensity4;
+		case GL_LUMINANCE4_ALPHA4:
+			return render::texture_format::luminance4_alpha4;
+		case GL_RGBA2:
+			return render::texture_format::rgba2;
+#endif
+		default:
+			return tex.format == GL_RGBA ? render::texture_format::rgba8 : render::texture_format::rgb8;
+	}
+}
 
-					for (j = 0; j < data_format; ++j)
-						(*(texp++)) = data[i * data_format + j];
-					i++;
-					continue;
-				}
-				else
-				{
-					c = data[i++];
-				}
-			}
-			else if (x == width && y < height) // end of bitmap reached - fill this pixel with last color to make a clean border when filtering this texture
-			{
-				c = data[(width*(y+1))-1];
-			}
-			else if (y == height && x < width) // end of bitmap reached - fill this row with color or last row to make a clean border when filtering this texture
-			{
-				c = data[(width*(height-1))+x];
-			}
-			else
-			{
-				c = 256; // fill the pad space with transparency (or blackness)
-			}
-
-			if (c == 254 && (bm_flags & BM_FLAG_SUPER_TRANSPARENT))
-			{
-				switch (type)
-				{
-					case GL_RGBA:
-						(*(texp++)) = 255;
-						(*(texp++)) = 255;
-						[[fallthrough]];
-					case GL_LUMINANCE_ALPHA:
-						(*(texp++)) = 255;
-						(*(texp++)) = 0; // transparent pixel
-						break;
-#if !DXX_USE_OGLES
-					case GL_COLOR_INDEX:
-						(*(texp++)) = c;
-						break;
-#endif
-					default:
-						Error("ogl_filltexbuf unhandled super-transparent texformat\n");
-						break;
-				}
-			}
-			else if ((c == 255 && (bm_flags & BM_FLAG_TRANSPARENT)) || c == 256)
-			{
-				switch (type)
-				{
-					case GL_RGBA:
-						(*(texp++))=0;
-						[[fallthrough]];
-					case GL_RGB:
-						(*(texp++))=0;
-						[[fallthrough]];
-					case GL_LUMINANCE_ALPHA:
-						(*(texp++))=0;
-						[[fallthrough]];
-					case GL_LUMINANCE:
-						(*(texp++))=0;//transparent pixel
-						break;
-#if !DXX_USE_OGLES
-					case GL_COLOR_INDEX:
-						(*(texp++)) = c;
-						break;
-#endif
-					default:
-						Error("ogl_filltexbuf unknown texformat\n");
-						break;
-				}
-			}
-			else
-			{
-				switch (type)
-				{
-					case GL_LUMINANCE_ALPHA:
-						(*(texp++))=255;
-						[[fallthrough]];
-					case GL_LUMINANCE://these could prolly be done to make the intensity based upon the intensity of the resulting color, but its not needed for anything (yet?) so no point. :)
-						(*(texp++))=255;
-						break;
-					case GL_RGB:
-						(*(texp++)) = pal[c].r * 4;
-						(*(texp++)) = pal[c].g * 4;
-						(*(texp++)) = pal[c].b * 4;
-						break;
-					case GL_RGBA:
-						(*(texp++)) = pal[c].r * 4;
-						(*(texp++)) = pal[c].g * 4;
-						(*(texp++)) = pal[c].b * 4;
-						(*(texp++)) = 255;//not transparent
-						break;
-#if !DXX_USE_OGLES
-					case GL_COLOR_INDEX:
-						(*(texp++)) = c;
-						break;
-#endif
-					default:
-						Error("ogl_filltexbuf unknown texformat\n");
-						break;
-				}
-			}
-		}
+/* Fills texp, tex's padded size in RGBA pixels, from the palette indices
+ * of data whose rows are truewidth long, starting at column dxo, row dyo.
+ */
+static void ogl_filltexbuf(const palette_array_t &pal, const uint8_t *const data, const std::span<uint8_t> texp, const unsigned truewidth, const ogl_texture &tex, const int dxo, const int dyo, const int bm_flags)
+{
+	if ((tex.w > max(static_cast<unsigned>(grd_curscreen->get_screen_width()), 1024u)) ||
+		(tex.h > max(static_cast<unsigned>(grd_curscreen->get_screen_height()), 256u)))
+		Error("Texture is too big: %ix%i", tex.w, tex.h);
+	try {
+		render::expand_palette(pal, {
+			/* The rows of data up to the bitmap's last. */
+			.indices = std::span(data, std::size_t{truewidth} * (dyo + tex.h)),
+			.stride = truewidth,
+			.x = static_cast<uint32_t>(dxo),
+			.y = static_cast<uint32_t>(dyo),
+			.size = {tex.w, tex.h},
+			.transparent = (bm_flags & BM_FLAG_TRANSPARENT) != 0,
+			.super_transparent = (bm_flags & BM_FLAG_SUPER_TRANSPARENT) != 0,
+		}, ogl_texture_format(tex), {tex.tw, tex.th}, texp);
+	} catch (const std::logic_error &e) {
+		/* domain_error, out_of_range and length_error: a bitmap the
+		 * texture cannot hold ends the game with a message, not abort().
+		 */
+		Error("ogl_filltexbuf: %s", e.what());
 	}
 }
 
@@ -1796,7 +1788,7 @@ static void tex_set_size(ogl_texture &tex)
 //In theory this could be a problem for repeating textures, but all real
 //textures (not sprites, etc) in descent are 64x64, so we are ok.
 //stores OpenGL textured id in *texid and u/v values required to get only the real data in *u/*v
-static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, const int dxo, int dyo, ogl_texture &tex, const int bm_flags, const int data_format, opengl_texture_filter texfilt, const bool texanis, const bool edgepad)
+static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, const int dxo, int dyo, ogl_texture &tex, const int bm_flags, opengl_texture_filter texfilt, const bool texanis, const bool edgepad)
 {
 	tex.tw = {std::bit_ceil(tex.w)};
 	tex.th = {std::bit_ceil(tex.h)};	//calculate smallest texture size that can accommodate us (must be power of 2)
@@ -1805,119 +1797,13 @@ static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, cons
 	tex.u = static_cast<float>(static_cast<double>(tex.w) / static_cast<double>(tex.tw));
 	tex.v = static_cast<float>(static_cast<double>(tex.h) / static_cast<double>(tex.th));
 
-	auto *bufP = texbuf.get();
+	const std::span<uint8_t> texp(texbuf.get(), std::size_t{tex.tw} * tex.th * 4);
+	ogl_filltexbuf(pal, data, texp, tex.lw, tex, dxo, dyo, bm_flags);
 	const uint8_t *outP = texbuf.get();
-	{
-		if (bm_flags >= 0)
-			ogl_filltexbuf (pal, data, texbuf.get(), tex.lw, tex.w, tex.h, dxo, dyo, tex.tw, tex.th,
-								 tex.format, bm_flags, data_format);
-		else {
-			if (!dxo && !dyo && (tex.w == tex.tw) && (tex.h == tex.th))
-				outP = data;
-			else {
-				int h, w, tw;
-
-				h = tex.lw / tex.w;
-				w = (tex.w - dxo) * h;
-				data += tex.lw * dyo + h * dxo;
-				
-				tw = tex.tw * h;
-				h = tw - w;
-				for (; dyo < tex.h; dyo++, data += tex.lw) {
-					memcpy (bufP, data, w);
-					bufP += w;
-					memset (bufP, 0, h);
-					bufP += h;
-				}
-				memset (bufP, 0, tex.th * tw - (bufP - texbuf.get()));
-			}
-		}
-	}
 
 	//bleed color (rgb) into the alpha area, to deal with "dark edges problem"
 	if (tex.format == GL_RGBA && texfilt != opengl_texture_filter::classic && edgepad && !CGameArg.OglDarkEdges)
-	{
-		GLubyte *p = bufP;
-		GLubyte *pdone = p + (4 * tex.tw * tex.th);
-		int line = 4 * tex.tw;
-		p += 4;
-		pdone -= 4;
-		GLubyte *ptop = p + line;
-		GLubyte *pbottom = pdone - line;
-
-		for (; p < pdone; p += 4)
-		{
-			//offsets 0 to 2 are r, g, b. offset 3 is alpha. 0x00 is transparent, 0xff is opaque.
-			if (! *(p + 3))
-			{
-				if (*(p - 1))
-				{
-					*p = *(p - 4);
-					*(p + 1) = *(p - 3);
-					*(p + 2) = *(p - 2);
-					continue;
-				} //from left
-				if (*(p + 7))
-				{
-					*p = *(p + 4);
-					*(p + 1) = *(p + 5);
-					*(p + 2) = *(p + 6);
-					continue;
-				} //from right
-				if (p >= ptop)
-				{
-					if (*(p - line + 3))
-					{
-						*p = *(p - line);
-						*(p + 1) = *(p - line + 1);
-						*(p + 2) = *(p - line + 2);
-						continue;
-					} //from above
-				}
-				if (p < pbottom)
-				{
-					if (*(p + line + 3))
-					{
-						*p = *(p + line);
-						*(p + 1) = *(p + line + 1);
-						*(p + 2) = *(p + line + 2);
-						continue;
-					} //from below
-					if (*(p + line - 1))
-					{
-						*p = *(p + line - 4);
-						*(p + 1) = *(p + line - 3);
-						*(p + 2) = *(p + line - 2);
-						continue;
-					} //bottom left
-					if (*(p + line + 7))
-					{
-						*p = *(p + line + 4);
-						*(p + 1) = *(p + line + 5);
-						*(p + 2) = *(p + line + 6);
-						continue;
-					} //bottom right
-				}
-				if (p >= ptop)
-				{
-					if (*(p - line - 1))
-					{
-						*p = *(p - line - 4);
-						*(p + 1) = *(p - line - 3);
-						*(p + 2) = *(p - line - 2);
-						continue;
-					} //top left
-					if (*(p - line + 7))
-					{
-						*p = *(p - line + 4);
-						*(p + 1) = *(p - line + 5);
-						*(p + 2) = *(p - line + 6);
-						continue;
-					} //top right
-				}
-			}
-		}
-	}
+		render::bleed_edges(texp, tex.tw);
 
 	int rescale{1};
 	if (texfilt == opengl_texture_filter::upscale)
@@ -1935,9 +1821,7 @@ static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, cons
 	std::unique_ptr<GLubyte[]> buftemp;
 	if (rescale > 1)
 	{
-		int rebpp{3};
-		if (tex.format == GL_RGBA) rebpp = 4;
-		if (tex.format == GL_LUMINANCE) rebpp = 1;
+		const int rebpp{4};
 		buftemp = std::make_unique<GLubyte[]>(rescale * tex.tw * rescale * tex.th * rebpp);
 		int x,y;
 		GLubyte *p = buftemp.get();
@@ -1946,7 +1830,7 @@ static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, cons
 
 		for (y = 0; y < tex.th; y++)
 		{
-			GLubyte	*p1 = bufP;
+			GLubyte	*p1;
 
 			for (x = 0; x < len; x++)
 			{
@@ -1965,69 +1849,18 @@ static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, cons
 		outP = buftemp.get();
 	}
 
-	// Generate OpenGL texture IDs.
-	glGenTextures (1, &tex.handle);
-#if !DXX_USE_OGLES
-	//set priority
-	glPrioritizeTextures (1, &tex.handle, &tex.prio);
-#endif
-	// Give our data to OpenGL.
-	OGL_BINDTEXTURE(tex.handle);
-	glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-
-	// should match structue in menu.cpp
-	// organized in switches for better readability
-	bool buildmipmap = false;
-	GLint gl_mag_filter_int, gl_min_filter_int;
-	switch (texfilt)
-	{
-		default:
-		case opengl_texture_filter::classic: // Classic - Nearest
-			gl_mag_filter_int = GL_NEAREST;
-			if (texanis && ogl_maxanisotropy > 1.0f)
-			{
-				// looks nicer if anisotropy is applied.
-				gl_min_filter_int = GL_NEAREST_MIPMAP_LINEAR;
-				buildmipmap = true;
-			}
-			else
-			{
-				gl_min_filter_int = GL_NEAREST;
-				buildmipmap = false;
-			}
-			break;
-		case opengl_texture_filter::upscale: // Upscaled - i.e. Blocky Filtered (Bilinear)
-		case opengl_texture_filter::trilinear: // Smooth - Trilinear
-			gl_mag_filter_int = GL_LINEAR;
-			gl_min_filter_int = GL_LINEAR_MIPMAP_LINEAR;
-			buildmipmap = true;
-			break;
-	}
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_mag_filter_int);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_min_filter_int);
-	if (texanis && ogl_maxanisotropy > 1.0f)
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, ogl_maxanisotropy);
-
-#if DXX_USE_OGLES // in OpenGL ES 1.1 the mipmaps are automatically generated by a parameter
-	glTexParameteri (GL_TEXTURE_2D, GL_GENERATE_MIPMAP, buildmipmap ? GL_TRUE : GL_FALSE);
-#else
-	if (buildmipmap)
-	{
-		gluBuild2DMipmaps (
-				GL_TEXTURE_2D, tex.internalformat, 
-				tex.tw * rescale, tex.th * rescale, tex.format,
-				GL_UNSIGNED_BYTE, 
-				outP);
-	}
-	else
-#endif
-	{
-		glTexImage2D (
-			GL_TEXTURE_2D, 0, tex.internalformat,
-			tex.tw * rescale, tex.th * rescale, 0, tex.format, // RGBA textures.
-			GL_UNSIGNED_BYTE, // imageData is a GLubyte pointer.
-			outP);
-	}
+	const std::span<const uint8_t> pixels(outP, std::size_t{tex.tw} * rescale * tex.th * rescale * 4);
+	const render::texture_image image{{
+		.size = {tex.tw * rescale, tex.th * rescale},
+		.format = ogl_texture_format(tex),
+		.filter = texfilt == opengl_texture_filter::classic ? render::filter::nearest : render::filter::trilinear,
+		.anisotropic = texanis,
+		.has_transparency = render::has_transparency(pixels),
+	}, pixels};
+	const auto slot{ogl_texture_slot(tex)};
+	auto &device{ogl_gl_device()};
+	device.texture(slot, &image);
+	tex.handle = device.gl_name(slot);
 
 	tex_set_size(tex);
 	r_texcount++;
@@ -2071,7 +1904,7 @@ void ogl_loadbmtexture_f(grs_bitmap &rbm, const opengl_texture_filter texfilt, b
 			con_printf(CON_URGENT, "error: insufficient space to decode %ux%hu bitmap.  Please report this as a bug.", bm_w, bm->bm_h);
 		}
 	}
-	ogl_loadtexture(gr_palette, buf, 0, 0, *bm->gltexture, bm->get_flags(), 0, texfilt, texanis, edgepad);
+	ogl_loadtexture(gr_palette, buf, 0, 0, *bm->gltexture, bm->get_flags(), texfilt, texanis, edgepad);
 }
 
 static void ogl_freetexture(ogl_texture &gltexture)
@@ -2079,8 +1912,7 @@ static void ogl_freetexture(ogl_texture &gltexture)
 	if (gltexture.handle>0) {
 		r_texcount--;
 		glmprintf((CON_DEBUG, "ogl_freetexture(%p):%i (%i left)", &gltexture, gltexture.handle, r_texcount));
-		glDeleteTextures( 1, &gltexture.handle );
-//		gltexture->handle=0;
+		ogl_release_texture(gltexture);
 		ogl_reset_texture(gltexture);
 	}
 }

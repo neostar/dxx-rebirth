@@ -13,6 +13,7 @@
 #include "common/render/gl_device.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -27,7 +28,12 @@
 // clang-format off
 #include "tools/dev/upstream_begin.h"
 #include "d_gl.h"
+#include "ogl_extensions.h"
 #include "tools/dev/upstream_end.h"
+#if !DXX_USE_OGLES && !(defined(__APPLE__) && defined(__MACH__))
+/* gluBuild2DMipmaps: d_gl.h includes GLU only on macOS. */
+#include <GL/glu.h>
+#endif
 // clang-format on
 
 namespace dcx::render {
@@ -89,6 +95,74 @@ constexpr GLenum gl_mode(const topology t)
 		break;
 	}
 	return GL_POINTS;
+}
+
+/* The internal format ogl_init_texture chose for f.  GLES takes only the
+ * format of the pixels, GL_RGBA, for which an RGB texture samples the same,
+ * its alpha being 255.
+ */
+[[nodiscard]]
+constexpr GLint gl_internal_format(const texture_format f)
+{
+#if DXX_USE_OGLES
+	(void)f;
+	return GL_RGBA;
+#else
+	switch (f)
+	{
+	case texture_format::rgba8:
+		return GL_RGBA8;
+	case texture_format::rgb8:
+		return GL_RGB8;
+	case texture_format::intensity4:
+		return GL_INTENSITY4;
+	case texture_format::luminance4_alpha4:
+		return GL_LUMINANCE4_ALPHA4;
+	case texture_format::rgba2:
+		break;
+	}
+	return GL_RGBA2;
+#endif
+}
+
+/* Uploads image to the bound texture with ogl_loadtexture's filters and
+ * mipmaps.
+ */
+void upload(const texture_image &image, const float max_anisotropy)
+{
+	const texture_desc &d{image.desc()};
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	const bool anisotropic{d.anisotropic && max_anisotropy > 1.0f};
+	GLint mag_filter{GL_LINEAR};
+	GLint min_filter{GL_LINEAR_MIPMAP_LINEAR};
+	bool mipmaps{true};
+	if (d.filter == filter::nearest)
+	{
+		mag_filter = GL_NEAREST;
+		/* Anisotropy looks better on mipmaps. */
+		min_filter = anisotropic ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
+		mipmaps = anisotropic;
+	}
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
+	if (anisotropic)
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, max_anisotropy);
+	const auto width{static_cast<GLsizei>(d.size.width)};
+	const auto height{static_cast<GLsizei>(d.size.height)};
+	const GLint internal_format{gl_internal_format(d.format)};
+#if DXX_USE_OGLES
+	/* GLES 1.1 makes the mipmaps itself when asked. */
+	glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, mipmaps ? GL_TRUE : GL_FALSE);
+#else
+	if (mipmaps)
+	{
+		gluBuild2DMipmaps(GL_TEXTURE_2D, internal_format, width, height, GL_RGBA, GL_UNSIGNED_BYTE,
+		                  image.rgba().data());
+		return;
+	}
+#endif
+	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+	             image.rgba().data());
 }
 
 /* The state shadow's GL calls (gl::ops), each as the front end made it. */
@@ -181,11 +255,13 @@ gl_device::gl_device(const render::caps &c, gl_front_end front_end)
 
 void gl_device::draw(const draw_call &call)
 {
-	if (call.texture != texture_slot::none)
-		throw std::logic_error("gl_device::draw: textures go through the device from #11");
 	gl_calls gl{.build_perspective = front_end_.build_perspective};
 	shadow_.apply(gl, call);
-	front_end_.untextured();
+	const bool textured{call.texture != texture_slot::none};
+	if (textured)
+		front_end_.textured(call.texture, call.state.wrap);
+	else
+		front_end_.untextured();
 	if (call.vertices.empty())
 		return;
 	glEnableClientState(GL_VERTEX_ARRAY);
@@ -193,14 +269,46 @@ void gl_device::draw(const draw_call &call)
 	constexpr GLsizei stride{sizeof(vertex)};
 	glVertexPointer(3, GL_FLOAT, stride, call.vertices.front().pos.data());
 	glColorPointer(4, GL_FLOAT, stride, call.vertices.front().rgba.data());
+	if (textured)
+	{
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer(2, GL_FLOAT, stride, call.vertices.front().uv.data());
+	}
 	glDrawArrays(gl_mode(call.topology), 0, static_cast<GLsizei>(call.vertices.size()));
+	if (textured)
+		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 	glDisableClientState(GL_COLOR_ARRAY);
 	glDisableClientState(GL_VERTEX_ARRAY);
 }
 
-void gl_device::texture(texture_slot, const texture_image *)
+void gl_device::texture(const texture_slot slot, const texture_image *const image)
 {
-	throw std::logic_error("gl_device::texture: textures go through the device from #11");
+	if (slot == texture_slot::none)
+		throw std::invalid_argument("gl_device::texture: texture_slot::none holds no texture");
+	if (const GLuint old{names_.exchange(slot, 0)}; old != 0)
+		glDeleteTextures(1, &old);
+	if (!image)
+		return;
+	GLuint name{0};
+	glGenTextures(1, &name);
+	(void)names_.exchange(slot, name);
+	glBindTexture(GL_TEXTURE_2D, name);
+	upload(*image, front_end_.max_anisotropy);
+}
+
+std::uint32_t gl_device::gl_name(const texture_slot slot) const
+{
+	return names_.find(slot);
+}
+
+void gl_device::take_textures(gl_device &from)
+{
+	names_.take(from.names_);
+}
+
+std::size_t gl_device::texture_count() const
+{
+	return names_.size();
 }
 
 void gl_device::clear(const clear_targets targets)

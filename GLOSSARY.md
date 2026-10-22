@@ -18,7 +18,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Readback**: `gr_read_pixels`, reading a rectangle of the presented or the in-progress frame
   back from the renderer, named from the top left and returned top row first
   (`common/render/readback.h`); the savegame thumbnail and screenshots use it.
-- **Texture slot**: a texture's index in the front end's texture pool; slot 0 draws untextured.
+- **Texture slot**: where a texture lives for the render device: its index in the front end's
+  texture pool plus one, or for the movie frame, kept outside the pool, the slot after the pool's;
+  slot 0 draws untextured.
 - **Texture image**: the pixels uploaded to a texture slot, RGBA and padded to a power of two,
   with its size, internal format, filter and `has_transparency`.
 - **Transform recipe**: a projection or modelview described by the GL calls that build it
