@@ -81,6 +81,5 @@ wayland-protocols/fifo-v1.xml https://gitlab.freedesktop.org/wayland/wayland-pro
 wayland-protocols/fractional-scale-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/staging/fractional-scale/fractional-scale-v1.xml 5941de5d28f427ecdadddc8623a6f6af0a30b0ab4726847236ba7a7652b81316
 wayland-protocols/xdg-shell.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/stable/xdg-shell/xdg-shell.xml 7ba7f9c8473deee674cb1f154a18abd0bb0cc072604fc055b0c15e459fc4c7df
 wayland-protocols/idle-inhibit-unstable-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml c2ac9f002c6669ca6c02eb9b587b8e9108e3ce6deab4a2de58b576f4f864ca38
-sdl3/src/gpu/d3d12/SDL_gpu_d3d12.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/gpu/d3d12/SDL_gpu_d3d12.c 6cd3964004aff0aef48b2959131fb0eb6f3ad8dfd1d9befc571385f7e00c1e4d
 sdl3/src/video/windows/SDL_windowsmodes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsmodes.c 9b9ac4717f328e5448170ea4e101d4299e87aa4bb41dd3b8a9c49a6a1b642654
 sdl3/src/video/x11/SDL_x11modes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11modes.c c116ce1eb966d0c4c0927221d1e65dab8843778038341b1a8d3eebf94905343a
