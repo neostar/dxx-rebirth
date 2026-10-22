@@ -18,37 +18,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 The orchestrating session owns the ticket, the merge and every push; an implementer agent owns one
 branch. A prompt that says "follow Working a ticket" adds only the ticket number and the time box.
 
-**Orchestrator**
-
-- **Claim**: assign yourself, comment `started <ISO time>`, and on the board
-  (https://github.com/users/neostar/projects/2) set Status to In Progress and Started to today.
-- **Agents at once**: at most two implementer agents (fix rounds included); reviewers may run
-  beside them.
-- **Time box**: 60 + 15 × story points minutes, wait time included. Calibrated on 17 tickets
-  (2026-10-22): 1 pt took about 72 min, 3 pt 82, 5 pt 135, 8 pt 172; about an hour is fixed per
-  ticket (worktree, prefix build, CI, review, merge). At the box, comment on the ticket what is
-  done, what is open, and why it took longer. The overrun is data for the estimates, not a
-  failure.
-- **Review prompts** tell reviewers that the artefacts ADR 5 requires for a new fork directory
-  (its `fork-dirs` line, its `.clang-tidy` copy, the `unittest/` copies) belong to the ticket and
-  are not scope creep.
-- **Merge**: first check that the last nightly (`build/nightly/nightly.log`, whose full run is
-  `ci.sh --clean`) is green, or that a follow-up issue names each red step: a red nightly holds
-  every merge until then. Then run the merge gate, `tools/dev/ci.sh --gate` (ADR 6), on the
-  branch merged with the current `sdl-gpu-port` tip, with `DXX_D2_DATA` set; it must pass, and it
-  refuses an empty range (a branch already merged). Sign the implementer's commits, merge them
-  into `sdl-gpu-port`, then run `tools/dev/ci.sh --tested sdl-gpu-port`: it passes only when the
-  merged tree is one a passing gate checked (signing changes commits, not trees). Push.
-- **Finish**: close with a comment giving review rounds and anything that surprised you, and on
-  the board set Status to Done, Done to today, and Review rounds; check Agent minutes and Agent
-  tokens against the metrics log. Remove the ticket's worktree (`git worktree remove`; the branch
-  stays).
-- **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
-  orchestrating session records each agent run's system-reported duration, tokens and tool calls,
-  per ticket, in the metrics log (`~/Developer/dxx-rebirth-spike/notes/agent-runs.csv`, outside
-  the repository), and adds it to that ticket's Agent minutes and Agent tokens on
-  the board as the run lands, also for work on a ticket that stays open (a spike, a split part);
-  GitHub timestamps (claim, PR ready, first review, merge, close) give review wait and cycle time.
+**Orchestrator**: follow `orchestrating.md`.
 
 **Hard rules**, for implementers and reviewers; prompts point here instead of repeating them:
 

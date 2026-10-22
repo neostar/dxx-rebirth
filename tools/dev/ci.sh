@@ -57,7 +57,7 @@
 #
 # --tested REV: succeed when the merge gate passed on REV's tree, in any
 # worktree of this clone, else fail.  The orchestrator runs it on the
-# merged sdl-gpu-port before pushing (issue-tracker.md): signing rewrites
+# merged sdl-gpu-port before pushing (orchestrating.md): signing rewrites
 # the commits, not their tree.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)

@@ -31,7 +31,7 @@
 #                   and fails; the 8 MiB/h limit is provisional until
 #                   calibrated from the numbers each run logs
 #   full_run        before both legs (no --leg): the full run, ci.sh --clean
-#                   (ADR 6); a red one holds merges (issue-tracker.md)
+#                   (ADR 6); a red one holds merges (orchestrating.md)
 #   container leg:
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run

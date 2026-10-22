@@ -140,7 +140,7 @@ Fail closed: reviewers check every `tools/dev` script for these.
   header says what else they count and let through.
 - Docs change in the same series as the code they describe.
 - Commits are signed. The one exception: implementer agents commit unsigned and the orchestrator
-  signs at merge (`issue-tracker.md`). Push only signed commits.
+  signs at merge (`orchestrating.md`). Push only signed commits.
 - Cite fork commits by subject, never by hash: rebases and re-signing change every fork hash.
   `check.sh --fast` fails on a fork hash in `docs/`, `CLAUDE.md` or `GLOSSARY.md`; upstream
   hashes are fine.
