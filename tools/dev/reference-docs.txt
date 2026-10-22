@@ -53,3 +53,34 @@ vulkan-docs/appendices/roadmap/Roadmap-2026.adoc https://raw.githubusercontent.c
 vulkan-docs/chapters/queries.adoc https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/v1.4.365/chapters/queries.adoc 3a8fbe3823942f3e0ff6413e14beb47c6b7500af386562b12d69bf93bcb9f090
 directx-specs/D3D12EnhancedBarriers.md https://raw.githubusercontent.com/microsoft/DirectX-Specs/f625c91cf8dd3d88863bc0e1b05f4164c614a886/d3d/D3D12EnhancedBarriers.md 9ed7cf45a04c7f588ffc05e88fa7142e8423bbd45af5d18344cf059f822c9b01
 arm/101897-gpu-best-practices-0304-10.pdf https://documentation-service.arm.com/static/67a62b17091bfc3e0a947695 9d54788e8c40aaf696bb52a7bae67d1022c0734481b658d1f4d171d91f30c890
+# Window research (#74): SDL3 3.4.18 window/timer sources, Microsoft docs at
+# the MicrosoftDocs commit current on 2026-10-22, wayland-protocols 1.49.
+sdl3/SDL_video.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_video.h e4a25b506dfb5b0657edc264b7130cfea3bad0abc0265e280e046f9ec4dcaeaf
+sdl3/SDL_main.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_main.h cc1b4a1ad67b6e090951babc392548ce9cd7e5a33618f262f567a51659239ff9
+sdl3/SDL_init.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_init.h 4b13bf96c7f2c2efd1bdf9d935ab0d436cd238d626f5f09bd7f27adeff27b0c7
+sdl3/SDL_timer.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_timer.h 60a809df30e0c549a91b986f517ff94515ab80a529db95d97655a2c417f0f927
+sdl3/SDL_events.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_events.h df509bcdb9fb84ad82ebfbd3d77eb8176e0c34ed5dc54044f8e20e97e72214f7
+sdl3/README-main-functions.md https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/docs/README-main-functions.md b9e548f99b0c18a61023b901ef7ca0e092eac65589a954564f3e2e432d994e42
+sdl3/README-wayland.md https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/docs/README-wayland.md dcea47bc638cb00e845ad80fad9cf38db161e0bd2a9b802b92226176b8a64ba6
+sdl3/src/video/SDL_video.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/SDL_video.c 512e26c2b34111fca7f258bec2c815ca94ce8294fa1442111ca8a6ef18adfc08
+sdl3/src/timer/SDL_timer.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/timer/SDL_timer.c c7092989829f2470a582e1fde9bcc65db72446b8be0da45969da98aaecf4e197
+sdl3/src/timer/windows/SDL_systimer.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/timer/windows/SDL_systimer.c 67c4262b6fcac462a1a36fb8ca6e114b180899ca875479087e1a43868a1799be
+sdl3/src/main/generic/SDL_sysmain_callbacks.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/main/generic/SDL_sysmain_callbacks.c 22fa1ff2b602921d32276143aed9f7bdbecc2ca0a067c2ed9d078e1b746f15a0
+sdl3/src/video/cocoa/SDL_cocoawindow.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoawindow.m 549d702807137749bef48b5822803a11a00f0e3ddae957f1d88fb200b4b07ded
+sdl3/src/video/cocoa/SDL_cocoamodes.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoamodes.m f51df32d58cd20ced1d9375e50deaf33f05cc3fdc9a36fea3f38d79a2010492f
+sdl3/src/video/windows/SDL_windowsvideo.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsvideo.c 3f29e9ed4998e20aca04a8095a19ac7ccefc9adefdcd5fdb8309e90b440a26bb
+sdl3/src/video/wayland/SDL_waylandvideo.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/wayland/SDL_waylandvideo.c 2020e11f1d2b24bc4132363233e222b9d9f308fffae244838a43efdfc2bebea5
+sdl3/src/video/wayland/SDL_waylandwindow.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/wayland/SDL_waylandwindow.c fb6639c85a2e6b2be35df2b0ad0692683f65217416a3a7ad6e62f02d602e10c7
+sdl3/src/video/wayland/SDL_waylandopengles.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/wayland/SDL_waylandopengles.c e0eeeb6eecbb0f2f3ef900f5170f59102f44a8578157cbd6c4987ee3b2fe098e
+sdl3/src/video/x11/SDL_x11events.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11events.c e14c383526d3955d9e07d849cf5571e5b6535e9a9aec73e08335bc2b66f3eb86
+sdl3/src/video/offscreen/SDL_offscreenvideo.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/offscreen/SDL_offscreenvideo.c 597f8e0b1a4f5da3fbf3fec97c0d50a2c42c2bcc24db2fbb73e8d92155761ce0
+microsoft/nf-timeapi-timebeginperiod.md https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/1a7909a936dbc06faa7572ed9492968bed817649/sdk-api-src/content/timeapi/nf-timeapi-timebeginperiod.md acf51c3dddb66393bcb672a901aba044d5dffc946930988ec26d16c90b342a38
+microsoft/high-dpi-desktop-application-development-on-windows.md https://raw.githubusercontent.com/MicrosoftDocs/win32/79eaaa46b30bd0efef0d0f5a65fd7d11fdd8e2de/desktop-src/hidpi/high-dpi-desktop-application-development-on-windows.md 2ac83a484dc7bf5e38340aec34af18cf742f5ce70feed26e7ceb5efd6f877880
+microsoft/for-best-performance--use-dxgi-flip-model.md https://raw.githubusercontent.com/MicrosoftDocs/win32/3fcc17ad9e68fca2c1f53cdb2b8cd3b274bbd406/desktop-src/direct3ddxgi/for-best-performance--use-dxgi-flip-model.md 442382fedaa88acee3a69ac065f14cf1fe322bc65e97cb75c70f7a1b4104d019
+wayland-protocols/fifo-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/staging/fifo/fifo-v1.xml 0b6c31dfe6bca19b712745c9de7a4a398558cfa1087b1938e96fd3b10ffc1069
+wayland-protocols/fractional-scale-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/staging/fractional-scale/fractional-scale-v1.xml 5941de5d28f427ecdadddc8623a6f6af0a30b0ab4726847236ba7a7652b81316
+wayland-protocols/xdg-shell.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/stable/xdg-shell/xdg-shell.xml 7ba7f9c8473deee674cb1f154a18abd0bb0cc072604fc055b0c15e459fc4c7df
+wayland-protocols/idle-inhibit-unstable-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml c2ac9f002c6669ca6c02eb9b587b8e9108e3ce6deab4a2de58b576f4f864ca38
+sdl3/src/gpu/d3d12/SDL_gpu_d3d12.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/gpu/d3d12/SDL_gpu_d3d12.c 6cd3964004aff0aef48b2959131fb0eb6f3ad8dfd1d9befc571385f7e00c1e4d
+sdl3/src/video/windows/SDL_windowsmodes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsmodes.c 9b9ac4717f328e5448170ea4e101d4299e87aa4bb41dd3b8a9c49a6a1b642654
+sdl3/src/video/x11/SDL_x11modes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11modes.c c116ce1eb966d0c4c0927221d1e65dab8843778038341b1a8d3eebf94905343a
