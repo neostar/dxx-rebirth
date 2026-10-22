@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a binary the way every dev and probe run should: windowless.
+# Run a binary the way every dev and probe run should: windowless and silent.
 #
 #   run.sh BINARY [ARG...]
 #

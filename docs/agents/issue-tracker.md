@@ -49,6 +49,8 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
   with `tools/dev/no-window.sh` (with `ASAN_OPTIONS=abort_on_error=0`, which `run.sh` sets). The
   game runs only hidden through `run.sh` (`game-data.md`): `DXX_DBG_HIDDEN=1`, a fresh
   `D2X_REBIRTH_HOME`, `-window`; never `-userdir`, never full screen.
+- Silent: nothing plays sound. `no-window.sh` (and so `run.sh`) forces SDL's dummy audio driver;
+  never set `NO_WINDOW_SOUND=1` and never launch the game around these scripts.
 - Licensed data and everything derived from it (`game-data.md`) stay in your own scratch folder:
   never committed or quoted; report counts and pass/fail only. Leave other agents' scratch
   folders alone.

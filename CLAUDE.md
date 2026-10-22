@@ -5,8 +5,8 @@ Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-
 
 ## Hard rules
 
-Every agent follows the hard rules in `docs/agents/issue-tracker.md` (windowless runs, crash
-reports, licensed data, git). Running the game and where the licensed data is: `docs/agents/game-data.md`.
+Every agent follows the hard rules in `docs/agents/issue-tracker.md` (windowless and silent
+runs, crash reports, licensed data, git). Running the game and where the licensed data is: `docs/agents/game-data.md`.
 
 ## Dev workflow
 

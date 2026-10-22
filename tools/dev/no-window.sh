@@ -11,13 +11,18 @@
 # and other crash reports pass.  If the frontmost app cannot be read
 # (osascript needs the Automation permission for System Events), it exits 1
 # without running CMD.  On other systems CMD just runs.
-# SDL_MAC_BACKGROUND_APP=1 is exported for CMD.
+# SDL_MAC_BACKGROUND_APP=1 is exported for CMD, and the run is silent: SDL's
+# audio driver is dummy (SDL_AUDIODRIVER for SDL2, SDL_AUDIO_DRIVER for
+# SDL3), also over one the caller set, unless NO_WINDOW_SOUND=1.
 #
 # NO_WINDOW_FRONTMOST_CMD replaces the sampler (it prints "PID NAME") and
 # NO_WINDOW_REPORTS_DIR the crash report directory (used by the tests).
 set -u
 [[ $# -gt 0 ]] || { echo "usage: $0 CMD [ARG...]" >&2; exit 2; }
 export SDL_MAC_BACKGROUND_APP=1
+if [[ ${NO_WINDOW_SOUND-} != 1 ]]; then
+	export SDL_AUDIODRIVER=dummy SDL_AUDIO_DRIVER=dummy
+fi
 if [[ $(uname -s) != Darwin && -z ${NO_WINDOW_FRONTMOST_CMD-} ]]; then
 	exec "$@"
 fi

@@ -19,6 +19,24 @@ test_unchanged_frontmost_passes()
 	assert_eq "$rc" 7
 }
 
+# Test that the run is silent: SDL2's and SDL3's audio driver is dummy for
+# the command, also over a driver the caller chose, and only
+# NO_WINDOW_SOUND=1 keeps the caller's (a game run played sound through
+# the speakers during a meeting).
+test_run_is_silent()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	out=$(SDL_AUDIODRIVER=coreaudio SDL_AUDIO_DRIVER=coreaudio \
+		NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo "$SDL_AUDIODRIVER $SDL_AUDIO_DRIVER"' 2>&1)
+	assert_eq "$out" "dummy dummy"
+	out=$(SDL_AUDIODRIVER=coreaudio SDL_AUDIO_DRIVER=coreaudio NO_WINDOW_SOUND=1 \
+		NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo "$SDL_AUDIODRIVER $SDL_AUDIO_DRIVER"' 2>&1)
+	assert_eq "$out" "coreaudio coreaudio"
+}
+
 # Test that a child of the run taking focus fails and names it.  The child
 # keeps focus until the sampler has reported it twice: the second sample
 # listed the run's processes while the child was alive, so the result does
