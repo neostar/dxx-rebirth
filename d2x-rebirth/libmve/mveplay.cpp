@@ -40,6 +40,11 @@
 #include "args.h"
 #include "console.h"
 #include "u_mem.h"
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+#include "dxxerror.h"
+#include "common/debug/audio_driver_report.h"
+#include "common/debug/hidden_window.h"
+#endif
 
 namespace dsx {
 
@@ -383,6 +388,18 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 	{
 		if (SDL_OpenAudio(&s, NULL) >= 0) {
 			con_puts(CON_CRITICAL, "   success");
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+			/* As digi_init: a hidden run names the driver the movie's
+			 * audio opened, and stops on one that could play sound.
+			 */
+			if (harness_hidden_requested(read_harness_hidden()))
+			{
+				const char *const driver = SDL_GetCurrentAudioDriver();
+				write_harness_report(stderr, audio_driver_report(driver));
+				if (const auto refusal = audio_driver_refusal(driver, getenv("NO_WINDOW_SOUND")); !refusal.empty())
+					UserError("%s", refusal.c_str());
+			}
+#endif
 		}
 		else {
 			con_printf(CON_CRITICAL, "   failure : %s", SDL_GetError());

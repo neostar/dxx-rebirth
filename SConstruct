@@ -5097,6 +5097,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-insertion-sort', (
 			'common/algorithm/unittest/insertion_sort.cpp',
 			)),
+		RuntimeTest('test-audio-driver-report', (
+			'common/debug/unittest/audio_driver_report.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-frame-time-policy', (
 			'common/debug/unittest/frame_time_policy.cpp',
 			)),

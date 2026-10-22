@@ -31,6 +31,11 @@
 #ifdef _WIN32
 #include "hmp.h"
 #endif
+#if DXX_USE_DBG_HARNESS
+#include <SDL.h>
+#include "common/debug/audio_driver_report.h"
+#include "common/debug/hidden_window.h"
+#endif
 
 namespace dcx {
 
@@ -214,7 +219,22 @@ void digi_select_system()
 int  digi_init()
 {
 	digi_init_sounds();
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+	/* A hidden run names the audio driver SDL opened, and stops at once
+	 * on one that could play sound (audio_driver_report.h).
+	 */
+	const int r = fptr->init();
+	if (harness_hidden_requested(read_harness_hidden()))
+	{
+		const char *const driver = SDL_GetCurrentAudioDriver();
+		write_harness_report(stderr, audio_driver_report(driver));
+		if (const auto refusal = audio_driver_refusal(driver, getenv("NO_WINDOW_SOUND")); !refusal.empty())
+			UserError("%s", refusal.c_str());
+	}
+	return r;
+#else
 	return fptr->init();
+#endif
 }
 
 void digi_close() { fptr->close(); }
