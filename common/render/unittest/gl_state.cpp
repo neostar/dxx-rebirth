@@ -168,6 +168,23 @@ struct gl_model
 
 static_assert(gl::ops<gl_model>);
 
+const std::array<render::vertex, 3> triangle{{
+    {.pos = {{0, 0, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{0, 0}}},
+    {.pos = {{1, 0, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{0, 0}}},
+    {.pos = {{0, 1, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{0, 0}}},
+}};
+
+/* A fan in the state ogl_start_frame leaves: the 3D view. */
+render::draw_call view_fan()
+{
+	render::ambient a;
+	a.depth = render::depth::test_and_write;
+	a.cull = render::cull::front;
+	a.viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
+	a.transforms = {.projection = render::view_perspective, .modelview = render::identity{}};
+	return a.fan(triangle, render::texture_slot::none);
+}
+
 /* The projection matrix p's recipe stands for: the game's gluPerspective
  * with the stereo shift of element 8, or its glOrtho.
  */
@@ -196,6 +213,32 @@ mat4 expected_modelview(const render::modelview &m)
 	return identity_matrix;
 }
 
+/* Checks that GL holds everything call asks for. */
+void check_state(const gl_model &g, const render::draw_call &call)
+{
+	const auto &s{call.state};
+	const auto f{gl::blend_function(s.blend)};
+	BOOST_TEST(g.is_enabled(gl::capability::blend) == f.has_value());
+	if (f)
+		BOOST_TEST((g.blend == *f));
+	BOOST_TEST(g.is_enabled(gl::capability::alpha_test));
+	BOOST_TEST(g.alpha_ref == s.alpha_ref);
+	const bool depth_on{s.depth == render::depth::test_and_write};
+	BOOST_TEST(g.is_enabled(gl::capability::depth_test) == depth_on);
+	if (depth_on)
+		BOOST_TEST(g.depth_lequal);
+	const bool cull_on{s.cull == render::cull::front};
+	BOOST_TEST(g.is_enabled(gl::capability::cull_face) == cull_on);
+	if (cull_on)
+		BOOST_TEST(g.cull_front);
+	BOOST_TEST((g.view == call.viewport));
+	BOOST_TEST((g.mode == gl::matrix::modelview));
+	BOOST_TEST(g.projection == expected_projection(call.transforms.projection),
+	           boost::test_tools::per_element());
+	BOOST_TEST(g.modelview == expected_modelview(call.transforms.modelview),
+	           boost::test_tools::per_element());
+}
+
 }
 
 /* Test that each blend selects the GL blend function the game sets for it
@@ -213,6 +256,46 @@ BOOST_AUTO_TEST_CASE(blend_function_matches_game)
 	BOOST_TEST((gl::blend_function(render::blend::palfx_neg) ==
 	            gl::blend_factors{.src = f::zero, .dst = f::one_minus_src_color}));
 	BOOST_TEST(!gl::blend_function(render::blend::none).has_value());
+}
+
+/* Test that after each of a run of draws GL holds exactly what that draw
+ * asks for, whatever the draws before it asked: no draw inherits the alpha
+ * test, blend, depth test, culling, viewport or transforms of another.
+ */
+BOOST_AUTO_TEST_CASE(each_draw_leaves_its_state)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	std::vector<render::draw_call> draws;
+	draws.push_back(view_fan());
+	auto grate{view_fan()};
+	grate.state.alpha_ref = 0.8f;
+	draws.push_back(grate);
+	draws.push_back(view_fan());
+	auto movie{view_fan()};
+	movie.state.blend = render::blend::none;
+	draws.push_back(movie);
+	auto flash{view_fan()};
+	flash.state.blend = render::blend::additive_c;
+	draws.push_back(flash);
+	auto flat2d{view_fan()};
+	flat2d.state.depth = render::depth::off;
+	flat2d.state.cull = render::cull::none;
+	flat2d.viewport = {.x = 8, .y = 16, .size = {.width = 320, .height = 200}};
+	flat2d.transforms = {.projection = render::screen_ortho,
+	                     .modelview = render::translate_scale{.translate = {{0.25f, 0.5f, 0}},
+	                                                          .scale = {{2, 3, 1}}}};
+	draws.push_back(flat2d);
+	auto eye{view_fan()};
+	eye.transforms.projection = render::perspective{
+	    .fovy = 90, .aspect = 1, .z_near = 0.1, .z_far = 5000, .stereo_dx = 0.25f};
+	draws.push_back(eye);
+	draws.push_back(view_fan());
+	for (const auto &call : draws)
+	{
+		shadow.apply(g, call);
+		check_state(g, call);
+	}
 }
 
 /* Test that replaying a recipe leaves the matrices it stands for and the
@@ -237,4 +320,80 @@ BOOST_AUTO_TEST_CASE(replay_leaves_recipe_matrices)
 	BOOST_TEST(g.modelview == expected_modelview(moved), boost::test_tools::per_element());
 	gl::replay(g, render::modelview{render::identity{}});
 	BOOST_TEST(g.modelview == identity_matrix, boost::test_tools::per_element());
+}
+
+/* Test that a draw is right after code outside the device changed GL
+ * behind the shadow's back and the front end recorded the change in its
+ * ambient state (invariant (a) of gl_state.h): culling turned off by a
+ * line, blending by a movie, the 2D projection by the end of a frame.
+ */
+BOOST_AUTO_TEST_CASE(draw_right_after_recorded_change_behind_shadow)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	render::ambient a;
+	a.depth = render::depth::test_and_write;
+	a.cull = render::cull::front;
+	a.viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
+	a.transforms = {.projection = render::view_perspective, .modelview = render::identity{}};
+	const auto check{[&] {
+		const auto call{a.fan(triangle, render::texture_slot::none)};
+		shadow.apply(g, call);
+		check_state(g, call);
+	}};
+	check();
+	/* g3_draw_line: glDisable(GL_CULL_FACE). */
+	g.enable(gl::capability::cull_face, false);
+	a.cull = render::cull::none;
+	check();
+	/* ogl_start_frame turns culling on again. */
+	g.enable(gl::capability::cull_face, true);
+	a.cull = render::cull::front;
+	check();
+	/* The movie player: glDisable(GL_BLEND), and back. */
+	g.enable(gl::capability::blend, false);
+	a.blending = false;
+	check();
+	g.enable(gl::capability::blend, true);
+	a.blending = true;
+	check();
+	/* ogl_end_frame's 2D projection, then ogl_start_frame's 3D one. */
+	g.mode = gl::matrix::projection;
+	g.projection = ortho_matrix(render::screen_ortho);
+	g.mode = gl::matrix::modelview;
+	a.transforms.projection = render::screen_ortho;
+	check();
+	g.projection = perspective_matrix(render::view_perspective);
+	a.transforms.projection = render::view_perspective;
+	check();
+}
+
+/* Test that a second draw in the same state makes no GL call: this saving
+ * is the shadow's purpose, and no frame shows it, so it is counted.
+ */
+BOOST_AUTO_TEST_CASE(same_state_makes_no_calls)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	shadow.apply(g, view_fan());
+	const auto calls{g.calls};
+	shadow.apply(g, view_fan());
+	BOOST_TEST(g.calls == calls);
+}
+
+/* Test that a fan leaves the line width as the code not drawing through
+ * the device set it, and lines get their own.
+ */
+BOOST_AUTO_TEST_CASE(line_width_only_for_lines)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	g.width = 3.f;
+	auto call{view_fan()};
+	call.state.line_width = 2.f;
+	shadow.apply(g, call);
+	BOOST_TEST(g.width == 3.f);
+	call.topology = render::topology::lines;
+	shadow.apply(g, call);
+	BOOST_TEST(g.width == 2.f);
 }
