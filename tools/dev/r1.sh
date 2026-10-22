@@ -12,7 +12,8 @@
 # frame of every scene matches.  DXX_D2_DATA names the game data
 # (docs/agents/game-data.md); R1_FPS the -maxfps values (default "60 200");
 # R1_DIR the directory of baseline, runs and builds (default
-# traces/local/r1, kept out of git: the logs derive from licensed data).
+# traces/local/r1, kept out of git: the logs derive from licensed data);
+# R1_TIMEOUT the seconds a run may take (default 900).
 # baseline/commit records the commit a baseline was built from.
 #
 # capture builds a `git archive` copy of REV in R1_DIR/src; the scene
@@ -72,7 +73,8 @@ demo_closed()
 # log $4.  A demo run ends by TERM once its first demo is whole.
 play()
 {
-	local bin=$1 scene=$2 fps=$3 log=$4 home=${4%.log}.home pid t=0 limit=900 rc
+	local bin=$1 scene=$2 fps=$3 log=$4 home=${4%.log}.home pid rc
+	local start=$SECONDS limit=${R1_TIMEOUT:-900}
 	local env=(DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH="$log"
 		D2X_REBIRTH_HOME="$home")
 	local args=(-hogdir "$data" -window -pilot harness -nomovies -maxfps "$fps")
@@ -91,13 +93,13 @@ play()
 			kill -TERM "$pid"
 			break
 		fi
-		if ((t++ >= limit)); then
+		if ((SECONDS - start >= limit)); then
 			echo "r1.sh: $scene at $fps fps still runs after $limit s; ending it" >&2
 			kill -TERM "$pid"
 			wait "$pid"
 			return 1
 		fi
-		sleep 1
+		sleep 0.2
 	done
 	wait "$pid"
 	rc=$?
