@@ -6,11 +6,19 @@ names; the design section applies to all of them. Research for #72, 2026-10-22.
 
 **Citations.** `file:line` points into `docs/reference/`, which `tools/dev/fetch-docs.sh` fills
 from the pinned raw files in `tools/dev/reference-docs.txt` (block `# Audio research (#72)`): run
-it first. Game code is cited from the repo root. `[Wn]`, every source with its version and date,
-and the open questions and measurements (M1-M10) are in **`docs/agents/sdl-audio-sources.md`**.
-**Proven by the spike, not repeated here** (`~/Developer/dxx-rebirth-spike/notes/T4.md`, K5):
-`MIX_SetTrackStereo` is linear; FluidSynth is in the Homebrew SDL3_mixer, TiMidity is not; the
-SoundFont property string is internal; a missing SoundFont plays silence; disk-driver capture works.
+it first. Quoted text is verbatim (code joined across line breaks is marked `…`); where a claim is
+not quoted, the pinned line range is the cited passage. Game code is cited from the repo root.
+`[Wn]`, every source with its version and date, and the open questions and measurements (M1-M10)
+are in **`docs/agents/sdl-audio-sources.md`**.
+
+**Spike facts this builds on** (K5; provenance `~/Developer/dxx-rebirth-spike/notes/T4.md`,
+outside the repo; SDL3 3.4.18, SDL3_mixer 3.2.4 from Homebrew, FluidSynth 2.6.1):
+- A U8 mono 22050 Hz effect panned with `MIX_SetTrackStereo` gains {1,0}, {0.5,0.5}, {0,1}
+  measured RMS 0.360/0, 0.180/0.180, 0/0.360: the gains are plain linear multipliers.
+- The Homebrew SDL3_mixer has the FLUIDSYNTH decoder and no TIMIDITY.
+- A MIDI load with a missing SoundFont succeeds and plays silence.
+- The disk driver wrote headerless raw PCM in the device format (that run: F32LE, 2 ch,
+  48000 Hz, 1024 frames).
 
 ## Versions: keep both pins for now
 
@@ -39,80 +47,79 @@ The pins are the latest releases on 2026-10-22: SDL `release-3.4.18` (2026-10-02
 
 ## 1. Latency and buffer size
 
-**SDL does.** Picks the device buffer ("sample frames"): 512 at ≤22050 Hz, 1024 at ≤48000 Hz
-(`sdl3/src/audio/SDL_audio.c:161-166`), unless `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` is set:
-"SDL will try to accommodate this value, but there is no promise you'll get the buffer size
-requested" (`sdl3/SDL_hints.h:364`). What each backend does with it:
+**SDL does.** Picks the device buffer: `if (freq <= 22050) {` … `return 512;` …
+`} else if (freq <= 48000) {` … `return 1024;` (`sdl3/src/audio/SDL_audio.c:161-164`), unless
+`SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` is set: "there is no promise you'll get the buffer size
+requested. Many platforms won't honor this request at all, or might adjust it."
+(`sdl3/SDL_hints.h:364-366`).
 
-| Backend | Buffering (pinned source) | Honours the hint |
+| Backend | Buffering at the pin | Honours the hint |
 |---|---|---|
-| CoreAudio (macOS) | AudioQueue (`SDL_coreaudio.m:728`), "THREE audio buffers by default" of `sample_frames` each, more if they sum under 15 ms (`:813-828`): about 64 ms queued at 1024@48k | Yes, directly |
-| WASAPI | Shared mode only (`SDL_wasapi.c:686`). IAudioClient3: period = `sample_frames` rounded to the engine's fundamental period, clamped to its min..max (`:814-816`); else the device period (`:848-854`) | Within the driver's range; Microsoft: default 10 ms, smaller only with drivers that declare it, inbox HDAudio 128-480 frames [W4] |
-| PipeWire | `node.latency = frames/rate` (`SDL_pipewire.c:1192`), at least 32 frames (`:36`, `:1154`); graph defaults quantum 1024, min 32, max 2048 at 48 kHz (`pipewire/src/daemon/pipewire.conf.in:44-48`) | As a request; the graph decides [W5] |
-| PulseAudio | `tlength` = one buffer with `PA_STREAM_ADJUST_LATENCY` (`SDL_pulseaudio.c:749-753`): sink latency plus buffer target that size [W6] | Yes, as a target |
-| ALSA | period = `sample_frames`, at least 2 periods (`SDL_alsa_audio.c:1021-1029`) | Near |
+| CoreAudio (macOS) | AudioQueue (`SDL_coreaudio.m:728`): "we use THREE audio buffers by default" of `sample_frames` each (`:821-825`), more if one buffer is under 15 ms (`:813`, `:826-828`): about 64 ms queued at 1024@48k | Yes, directly |
+| WASAPI | Shared mode only (`SDL_wasapi.c:686`). "IAudioClient3_InitializeSharedAudioStream only accepts the integral multiple of fundamental_period_in_frames" (`:814`), clamped to the engine's min..max (`:816`); else the device period (`:848-854`) | Within the driver's range: default 10 ms, smaller only with drivers that declare it [W4] |
+| PipeWire | `PW_KEY_NODE_LATENCY, "%u/%i", device->sample_frames, device->spec.freq` (`SDL_pipewire.c:1192`), at least 32 frames (`:36`, `:1154-1155`); graph quantum default 1024, min 32, max 2048 (`pipewire/src/daemon/pipewire.conf.in:46-48`) | As a request; the graph decides [W5] |
+| PulseAudio | `paattr.tlength = device->buffer_size;` with `PA_STREAM_ADJUST_LATENCY` (`SDL_pulseaudio.c:749-753`) | Yes, as a target [W6] |
+| ALSA | `ctx->persize = ctx->device->sample_frames;` and "we target a double buffer" (`SDL_alsa_audio.c:1021`, `:1027`) | Near |
 
-WASAPI's audio thread runs at MMCSS "Pro Audio" (`SDL_wasapi.c:933-936`). PipeWire's callback is
-not on the realtime thread: "this flag is omitted" (`SDL_pipewire.c:1084-1090`).
+WASAPI's thread runs at MMCSS "Pro Audio" (`SDL_wasapi.c:933-936`); PipeWire's callback is off
+the realtime thread (`SDL_pipewire.c:1084-1090`).
 
 **Left to us.** Whether to set the hint. The SDL2 build used 1024 frames on the Mac and 2048
-elsewhere, at 44.1 kHz (`similar/arch/sdl/digi_mixer.cpp:55-59`), so SDL3's default is already
-equal or lower. The SDL migration guide: "most apps should not risk messing with the defaults"
+elsewhere, at 44.1 kHz (`similar/arch/sdl/digi_mixer.cpp:55-59`), so SDL3's default is equal or
+lower. The migration guide: "most apps should not risk messing with the defaults"
 (`sdl3/README-migration.md:217`).
 
-**Recommendation.** Keep SDL's default; the SDL3 branch leaves out the `__APPLE__` buffer size
-(`digi_mixer.cpp:55-59`). Set the hint only if #45's measurement (M1) shows trigger-to-ear latency over budget on one platform, and then with
-`SDL_SetHint` (normal priority, so a user's environment variable still wins).
-Informs #45.
+**Recommendation.** Keep SDL's default; the SDL3 branch leaves out the `__APPLE__` buffer size.
+Set the hint only if M1 shows trigger-to-ear latency over budget, with `SDL_SetHint` so a user's
+environment variable still wins (area 8). Informs #45.
 
 ## 2. Format, rate and resampling
 
-**SDL does.** Opens the physical device at the requested spec, raised to at least S16, stereo,
-44100 Hz (`SDL_audio.c:1831-1842`, `SDL_sysaudio.h:41-43`); with no spec, at the device's own
-format: CoreAudio's nominal rate (`SDL_coreaudio.m:161`), WASAPI's engine mix format
-(`sdl3/src/core/windows/SDL_immdevice.c:162-165`). SDL mixes in float. Its resampler is
-"bandlimited interpolation" (`SDL_audioresample.c:27`), 6 zero crossings with SSE/NEON (`:34`).
-SDL3_mixer always mixes in F32 at the device's rate and channels (`sdl3_mixer/src/SDL_mixer.c:783`)
-and its header says "specifying a NULL spec is a reasonable choice" (`sdl3_mixer/SDL_mixer.h:388`).
+**SDL does.** Opens the device at the requested spec raised to at least S16, stereo, 44100 Hz
+(`SDL_audio.c:1836-1842`, `SDL_sysaudio.h:41-43`): "These are just requests! The backend may
+change any of these values during OpenDevice method!" (`SDL_audio.c:1834`). With no spec it uses
+the device's own format: CoreAudio's nominal rate (`SDL_coreaudio.m:161`), WASAPI's mix format
+(`sdl3/src/core/windows/SDL_immdevice.c:162-165`). "SDL's resampler uses a "bandlimited
+interpolation" algorithm" (`SDL_audioresample.c:27`), 6 zero crossings with SIMD (`:34`).
+SDL3_mixer: "on our end, we always work in float32 format." (`sdl3_mixer/src/SDL_mixer.c:783`);
+"specifying a NULL spec is a reasonable choice" (`sdl3_mixer/SDL_mixer.h:388`).
 
-**Platform catch.** On WASAPI, if the requested rate differs from the mix rate, SDL hands
-resampling to Windows: "favor WASAPI's resampler over our own" with
-`AUTOCONVERTPCM | SRC_DEFAULT_QUALITY` (`SDL_wasapi.c:737-741`); the comment above (`:733-735`) cites "reports
-that WASAPI's resampler introduces distortions". Microsoft lists only `EVENTCALLBACK` as a
-supported flag for `InitializeSharedAudioStream` [W7], so a rate mismatch probably also loses the
-low-latency IAudioClient3 path (inference; M2).
+**Platform catch.** On WASAPI a requested rate other than the mix rate goes to Windows: "favor
+WASAPI's resampler over our own" (`SDL_wasapi.c:737`) adds `AUTOCONVERTPCM` and
+`SRC_DEFAULT_QUALITY` (`:738-739`), under "we've gotten reports that WASAPI's resampler
+introduces distortions" (`:733`). Microsoft lists only `EVENTCALLBACK` as a flag for
+`InitializeSharedAudioStream` [W7], so a rate mismatch probably also loses the low-latency path
+(inference; M2).
 
-**Left to us.** The spec passed to `MIX_CreateMixerDevice`, and the source format of each sound.
+**Left to us.** The spec given to `MIX_CreateMixerDevice`; each sound's source format.
 
-**Recommendation.** `MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr)`: the
-device runs at its native rate and SDL resamples each source once. Drop the SDL2-era "always
-request 44Khz" (`digi_mixer.cpp:64-72`). Load effects as raw U8 mono at their own 11025/22050 Hz
-(`MIX_LoadRawAudio`, as in K5). Whether the game's internal resamplers
-(`DXX_FEATURE_INTERNAL_RESAMPLER*`) stay on SDL3 is decided by R12 envelope parity (M4).
-Informs #45, #46, #47.
+**Recommendation.** `MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr)`: native
+device rate, one resample per source in SDL. Drop the SDL2-era "always request 44Khz"
+(`digi_mixer.cpp:64-72`). Load effects as raw U8 mono at their own 11025/22050 Hz
+(`MIX_LoadRawAudio`). R12 parity (M4) decides whether `DXX_FEATURE_INTERNAL_RESAMPLER*` stays on
+SDL3. Informs #45, #46, #47.
 
 ## 3. Device change and hot-plug
 
-**SDL does.** A device opened as the default follows the default: SDL migrates its logical devices
-to the new physical one (`SDL_audio.c:2418`) and keeps them on a zombie device until then
-(`:784`). Every desktop backend reports default changes: CoreAudio listener
-(`SDL_coreaudio.m:255`), WASAPI `IMMNotificationClient` with role `eConsole`
-(`SDL_immdevice.c:36`, `:243`), PipeWire `default.audio.sink` metadata (`SDL_pipewire.c:624`,
-`:637`), PulseAudio's default sink (`SDL_pulseaudio.c:885-890`). WASAPI re-activates a lost device
-(`SDL_wasapi.c:494-506`). A format change raises `SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED`, on which
-SDL3_mixer reformats its output and every track itself (`SDL_mixer.c:189-219`). PulseAudio and
-PipeWire leave `DONT_MOVE`/`DONT_RECONNECT` off so users can move the stream
-(`SDL_pulseaudio.c:775-779`, `SDL_pipewire.c:1196-1199`). CoreAudio keeps three buffers partly for
-Bluetooth headsets (`SDL_coreaudio.m:821-824`).
+**SDL does.** A device opened as the default follows it: "migrate any logical devices that were
+opened as a default to the new physical device" (`SDL_audio.c:2418`), parked on a zombie device
+until then (`:784`). Every desktop backend except ALSA reports default changes: CoreAudio
+(`SDL_coreaudio.m:255`), WASAPI with role `eConsole` (`SDL_immdevice.c:36`, `:243`), PipeWire
+`default.audio.sink` (`SDL_pipewire.c:624`, `:637`), PulseAudio (`SDL_pulseaudio.c:885-890`).
+WASAPI re-activates a lost device (`SDL_wasapi.c:494-506`). On
+`SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED` SDL3_mixer reformats its output and tracks
+(`SDL_mixer.c:189-219`). PulseAudio and PipeWire let users move the stream
+(`SDL_pulseaudio.c:775-779`, `SDL_pipewire.c:1196-1199`). CoreAudio's three buffers help
+"Bluetooth headsets when recording and playing at the same time" (`SDL_coreaudio.m:823`).
 
-**Left to us.** Any state that copies the device's rate or channel count: today ADLMIDI is
-created at `Mix_QuerySpec`'s rate (`common/arch/sdl/digi_mixer_music.cpp:188-189`) and MVE
-converts to it (`d2x-rebirth/libmve/mveplay.cpp:528`). After a switch those would be wrong.
+**Left to us.** State that copies the device format: ADLMIDI is created at `Mix_QuerySpec`'s rate
+(`common/arch/sdl/digi_mixer_music.cpp:188-189`), MVE converts to it
+(`d2x-rebirth/libmve/mveplay.cpp:528`). After a switch both would be wrong.
 
-**Recommendation.** Always open the default device; no device picker. Generators (ADLMIDI, MVE)
-produce at a rate they choose and feed an `SDL_AudioStream`, so SDL converts after any switch.
-Log device name and format at open and on each `SDL_EVENT_AUDIO_DEVICE_*` event. Sleep/wake and
-Bluetooth have no backend-specific code in SDL beyond the above: M7. Informs #45, #46, #47.
+**Recommendation.** Always open the default device; no device picker. ADLMIDI and MVE produce at
+a rate they choose into an `SDL_AudioStream`, so SDL converts after any switch. Log device name
+and format at open and on each `SDL_EVENT_AUDIO_DEVICE_*` event. Sleep/wake and Bluetooth: M7.
+Informs #45, #46, #47.
 
 ## 4. Threads, locks and #45's command queue
 
