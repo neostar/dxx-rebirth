@@ -14,6 +14,9 @@ Read this to verify a claim there or to extend the research; to implement, read 
   `src/pipewire/context.c` at 1.6.10.
 - PulseAudio 17 buffer-attribute docs (only 16.0 read).
 - Whether TiMidity with SF2 (SDL_mixer `main`) would make FluidSynth optional once released.
+- Whether `SDL_CreateAudioStream`/`SDL_DestroyAudioStream` (reached from `MIX_SetTrackAudio`)
+  take any lock that can meet the device lock; trace `OnAudioStreamCreated` and
+  `SDL_DestroyAudioStream` in `sdl3/src/audio/SDL_audio.c` and `SDL_audiocvt.c` (area 4, rule 2).
 - SDL wiki pages were not read separately: the headers are their source (SDL_mixer commits "Sync
   SDL3_mixer wiki -> header").
 
@@ -28,7 +31,7 @@ Read this to verify a claim there or to extend the research; to implement, read 
 - M7 Default-device switch, Bluetooth headset connect/disconnect, sleep/wake on macOS (#45, R16 checklist).
 - M8 Surround devices: effects on front left/right only, music upmix (#45, #46, manual).
 - M9 Movie audio lead or lag against video on each platform (#47).
-- M10 Disk-driver pacing drift (computed 1.6 % at 1024@48k) in R12 scripts (#45).
+- M10 Disk-driver pacing drift in R12 scripts: at most 1.6 % fast at 1024@48k by arithmetic, less with sleep overrun; the timescale hints scale it, `0` removes pacing (#45, #66).
 
 ## Sources
 
@@ -37,14 +40,14 @@ Accessed 2026-10-22. Pinned raw files: path under `docs/reference/`, URL and SHA
 
 | Source | Version, date | Claims |
 |---|---|---|
-| SDL `include/SDL3/SDL_audio.h`, `docs/README-migration.md`, `include/SDL3/SDL_hints.h`, `src/SDL_hints.c`, `src/audio/{SDL_audio.c, SDL_sysaudio.h, SDL_audioresample.c}`, `coreaudio/SDL_coreaudio.m`, `wasapi/SDL_wasapi.c`, `src/core/windows/SDL_immdevice.c`, `pipewire/SDL_pipewire.c`, `pulseaudio/SDL_pulseaudio.c`, `alsa/SDL_alsa_audio.c`, `dummy/SDL_dummyaudio.c`, `disk/SDL_diskaudio.c` | tag `release-3.4.18`, released 2026-10-02 | Areas 1-5, 8, superseded table; quotes inline at `file:line` |
+| SDL `include/SDL3/SDL_audio.h`, `docs/README-migration.md`, `include/SDL3/SDL_hints.h`, `src/SDL_hints.c`, `src/audio/{SDL_audio.c, SDL_audiocvt.c, SDL_sysaudio.h, SDL_audioresample.c}`, `coreaudio/SDL_coreaudio.m`, `wasapi/SDL_wasapi.c`, `src/core/windows/SDL_immdevice.c`, `pipewire/SDL_pipewire.c`, `pulseaudio/SDL_pulseaudio.c`, `alsa/SDL_alsa_audio.c`, `dummy/SDL_dummyaudio.c`, `disk/SDL_diskaudio.c` | tag `release-3.4.18`, released 2026-10-02 | Areas 1-5, 8, superseded table; quotes inline at `file:line` |
 | SDL_mixer `include/SDL3_mixer/SDL_mixer.h`, `docs/README-migration.md`, `src/SDL_mixer.c`, `src/SDL_mixer_internal.h`, `src/SDL_mixer_spatialization.c`, `src/decoder_fluidsynth.c` | tag `release-3.2.4`, released 2026-06-03 | Areas 2-8 |
 | SDL_mixer `src/effect_position.c`, `src/codecs/music_fluidsynth.c` | tag `release-2.8.2`, released 2026-05-11 | SDL2 pan law and music gain (area 5, 6) |
 | FluidSynth `doc/fluidsettings.xml` | commit `71e85b2ca6bf` "Bump to 2.6.1", 2026-09-19 (the `toolchain.pins` pin) | Gain default, limiter (area 6) |
 | PipeWire `src/pipewire/keys.h`, `src/daemon/pipewire.conf.in` | tag `1.6.10`, released 2026-10-22 | `node.latency` "the requested latency of the node as a fraction. Ex: 128/48000" (`keys.h:167-168`); quantum defaults (`pipewire.conf.in:44-48`) |
 | [W1] GitHub releases API, `repos/libsdl-org/{SDL,SDL_mixer}/releases` | fetched 2026-10-22 | Latest: SDL `release-3.4.18` 2026-10-02T22:43:21Z; SDL_mixer `release-3.2.4` 2026-06-03T00:39:37Z |
-| [W2] GitHub commits API, SDL `path=src/audio`, `sha=release-3.4.x` and `main`, since 2026-05-01 | fetched 2026-10-22 | No audio commit on `release-3.4.x` after the tag except PS2 ones it contains; `main` commits listed in Versions, with their messages quoted from `repos/libsdl-org/SDL/commits/<sha>` |
-| [W3] GitHub commits API, SDL_mixer `main` since 2026-06-03 | fetched 2026-10-22 | TiMidity SoundFont work, "cmake: support vendored fluidsynth" |
+| [W2] GitHub commits API, `repos/libsdl-org/SDL/commits`: `sha=release-3.4.x` since the 3.4.18 tag, all paths; `main` with `path=src/audio` and with `path=include/SDL3/SDL_audio.h`, since 2026-05-01; each cited commit read at `commits/<sha>` | fetched 2026-10-22 | `release-3.4.x` after the tag: 41 commits, the audio one is `e72b27af4141` (2026-10-07) "audio: Added notes about the risks of SDL_LockAudioStream vs the device lock." (cherry-pick of `6c518525ac7f`) with wiki sync `f07211bfcebc`; its added text: "Note that when the stream's callback runs, SDL is holding both an internal mutex for the audio device and the stream's lock, in that order." `main`: `c4cfa42f2348`, `36fed09edb7b`, `ab5541ec5d43`, `0ccb0bf6269a`, messages as quoted in the main doc |
+| [W3] GitHub commits API, `repos/libsdl-org/SDL_mixer/commits`: `main` and `release-3.2.x` since the 3.2.4 tag, all paths, and `path=src/SDL_mixer.c` on both | fetched 2026-10-22 | `4aab76ed760c` (`main`, 2026-06-17) "mixer: Lock tracks while mixing them." / "there is a lot more state involved with mixing after that--including a user callback--that were running unlocked" / "Fixes #869.", on `release-3.2.x` as `2edc28031a5e`, which is at "Updated to version 3.2.5 for development" (`53c9edfe8cef`); also TiMidity SoundFont work and `408d8b065f00` "cmake: support vendored fluidsynth" |
 | [W4] https://learn.microsoft.com/en-us/windows-hardware/drivers/audio/low-latency-audio | ms.date 2024-12-13, updated 2025-03-26 | "by default all applications in Windows 10 and later will use 10-ms buffers"; "in order for a system to support small buffers it needs to have updated drivers"; "The inbox HDAudio driver has been updated to support buffer sizes between 128 samples (2.66ms@48kHz) and 480 samples (10ms@48kHz)"; "Microsoft recommends for applications that use WASAPI to also use the Real-Time Work Queue API" |
 | [W5] https://docs.pipewire.org/page_man_pipewire_conf_5.html | PipeWire 1.6.10, no date stated | `default.clock.quantum`: "Default quantum used when no client specifies one."; no statement on how client latencies combine |
 | [W6] https://freedesktop.org/software/pulseaudio/doxygen/structpa__buffer__attr.html | PulseAudio 16.0, no date stated | `PA_STREAM_ADJUST_LATENCY`: "the overall latency of the sink plus the playback buffer size is configured to this value." |

@@ -89,6 +89,7 @@ sdl3/src/video/x11/SDL_x11modes.c https://raw.githubusercontent.com/libsdl-org/S
 sdl3/SDL_audio.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_audio.h 244fa8da51ac74d9c01414de18e35ce4371c2e15250c8e450ffe4d67d62d16f3
 sdl3/src/audio/SDL_audio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_audio.c f53b727691e3eec7f74c05098fd7f8e74ac0324384fda23741dbe76f9da080b4
 sdl3/src/audio/SDL_sysaudio.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_sysaudio.h 68780b3bb878fbb7815be9a034d2b7bdd7d19c15ae8de73a0a207b19048a07fd
+sdl3/src/audio/SDL_audiocvt.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_audiocvt.c 4bfcf6cdab1af144dee9733770b1116a1859ba5d62294bbc4669278c468de9a4
 sdl3/src/audio/SDL_audioresample.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_audioresample.c 3d21cb5aaafaa5e9795a83bc163b4df2048309620ce7a2953b6aa3f46030951d
 sdl3/src/audio/coreaudio/SDL_coreaudio.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/coreaudio/SDL_coreaudio.m c1ed4d18205056f615ae3f7098b53cd69ccbb939e1e8f212f029c0e8c1cc44af
 sdl3/src/audio/wasapi/SDL_wasapi.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/wasapi/SDL_wasapi.c 4e1364566baf310f84558d613d3d90b60a3e426df122d75d83d967fe357fba80

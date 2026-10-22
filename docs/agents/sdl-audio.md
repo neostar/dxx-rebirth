@@ -12,26 +12,30 @@ and the open questions and measurements (M1-M10) are in **`docs/agents/sdl-audio
 `MIX_SetTrackStereo` is linear; FluidSynth is in the Homebrew SDL3_mixer, TiMidity is not; the
 SoundFont property string is internal; a missing SoundFont plays silence; disk-driver capture works.
 
-## Versions: keep both pins
+## Versions: keep both pins for now
 
 The pins are the latest releases on 2026-10-22: SDL `release-3.4.18` (2026-10-02) and SDL_mixer
-`release-3.2.4` (2026-06-03) [W1]. The `release-3.4.x` branch has no audio commit after 3.4.18
-[W2]. Unreleased audio changes on SDL `main` that matter to us:
+`release-3.2.4` (2026-06-03) [W1]. Unreleased changes that matter to us [W2, W3]:
 
-- `c4cfa42f2348` (2026-10-13) "Fixed an audio crash when the device format changes at runtime":
-  "Also fixed a potential crash if the format changes from F32 to non-F32 without the work size
-  growing, leaving mix_buffer NULL." 3.4.18 has the unfixed code (`sdl3/src/audio/SDL_audio.c:2549-2572`
-  reallocates `mix_buffer` only when the work buffer grows). It needs the device to
-  change from float to an integer format at runtime (a default-device switch or WASAPI recovery
-  could do it; whether it happens on our platforms is unknown). **Move the SDL pin to the first 3.4.x release that
-  carries it**; until then a format-change crash is a known SDL bug, not ours.
-- `36fed09edb7b` (2026-09-21) "audio: Don't force minimum device spec" and its regression fix
-  `ab5541ec5d43`; `0ccb0bf6269a` adds `SDL_GetAudioDeviceProperties()`. Main only (next minor
-  release); no action.
-
-SDL_mixer `main` since 3.2.4 [W3]: TiMidity gains SoundFont support (`359465af9ece` and follow-ups)
-and CMake can vendor FluidSynth (`408d8b065f00`). Neither is released; nothing to move. If a
-release ships SF2 support in TiMidity, it could replace the FluidSynth dependency (#46, open).
+- **SDL_mixer `4aab76ed760c` "mixer: Lock tracks while mixing them."** (2026-06-17, fixes #869;
+  on `release-3.2.x` as `2edc28031a5e`): "there is a lot more state involved with mixing after
+  that--including a user callback--that were running unlocked". At 3.2.4 the mix loop reads track
+  state without the track lock (`sdl3_mixer/src/SDL_mixer.c:581-621`); area 4 gives the rule that
+  makes this safe. **Move the SDL_mixer pin to the first release that carries it** (3.2.6 or
+  later; 3.2.5 is the development version).
+- **SDL `e72b27af4141`** (`release-3.4.x`, 2026-10-07; wiki sync `f07211bfcebc`) adds to the
+  `SDL_LockAudioStream` doc: "when the stream's callback runs, SDL is holding both an internal
+  mutex for the audio device and the stream's lock, in that order" and warns of deadlock. It
+  documents 3.4.18 behaviour; area 4 applies it.
+- **SDL `c4cfa42f2348`** (`main`, 2026-10-13) "Fixed an audio crash when the device format changes
+  at runtime": "potential crash if the format changes from F32 to non-F32 without the work size
+  growing, leaving mix_buffer NULL". 3.4.18 reallocates `mix_buffer` only when the work buffer
+  grows (`sdl3/src/audio/SDL_audio.c:2549-2572`). It needs the device to change from float to an
+  integer format at runtime; whether that happens on our platforms is unknown. **Move the SDL pin
+  to the first 3.4.x release that carries it.**
+- No action (`main` only): SDL `36fed09edb7b` "audio: Don't force minimum device spec." (fix
+  `ab5541ec5d43`), `0ccb0bf6269a` adds `SDL_GetAudioDeviceProperties()`; SDL_mixer TiMidity
+  SoundFont support (`359465af9ece` and follow-ups) and "cmake: support vendored fluidsynth".
 
 ## 1. Latency and buffer size
 
@@ -110,31 +114,56 @@ produce at a rate they choose and feed an `SDL_AudioStream`, so SDL converts aft
 Log device name and format at open and on each `SDL_EVENT_AUDIO_DEVICE_*` event. Sleep/wake and
 Bluetooth have no backend-specific code in SDL beyond the above: M7. Informs #45, #46, #47.
 
-## 4. Threads, the stream model and #45's command queue
+## 4. Threads, locks and #45's command queue
 
-**SDL does.** Audio is pulled: streams are bound to devices, "there is still a callback method
-available if needed" (`sdl3/README-migration.md:102`). Stream callbacks "may run from any thread"
-(`sdl3/SDL_audio.h:1867`); `SDL_LockAudioDevice` is gone, streams carry their own lock
-(`README-migration.md:205`). SDL3_mixer pulls through one get-callback on its output stream
-(`SDL_mixer.c:811`); the mixer lock *is* that stream's lock (`:106-108`), held while it mixes, so
-every `MIX_*` call is thread-safe and blocks for at most one mix pass. `MIX_LockMixer` groups
-changes so they land on the same sample frame; "Do not lock the mixer for significant amounts of
-time" (`sdl3_mixer/SDL_mixer.h:553`). A track's stopped callback can run on the mixing thread, with the track locked
-(`SDL_mixer.c:222-228`, called from the mix loop at `:367`).
+**SDL does.** The device thread takes the device lock, `SDL_LockMutex(device->lock);`
+(`SDL_audio.c:1188`), then reads each bound stream with `SDL_GetAudioStreamDataAdjustGain`
+(`:1220`), which takes that stream's lock and runs its get-callback. Stream calls take only the
+stream lock, `SDL_LockMutex(stream->lock);` (`sdl3/src/audio/SDL_audiocvt.c:600`, `:1461`). So
+the order is device, then stream, which `e72b27af4141` (Versions) documents; calling "into
+something that wants to obtain the device lock" while holding a stream lock can deadlock.
+
+**SDL_mixer 3.2.4 does.** Its locks are stream locks:
+- **Mixer lock**: `SDL_LockAudioStream(mixer->output_stream);` (`SDL_mixer.c:108`), the
+  device-bound output stream; `MIX_LockMixer` takes it (`:943-946`). The mix is that stream's
+  get-callback (`:811`), so the mixer lock is held for the whole mix, inside the device lock.
+- **Track lock**: `SDL_LockAudioStream(track->output_stream);` (`:120`). Track calls take only
+  this one, e.g. `MIX_TrackPlaying` (`:2607`) and `MIX_SetTrackStereo` (`:2803`).
+- The mix loop reads each track's gains and spatialisation without the track lock (`:581-621`),
+  which `4aab76ed760c` fixes. So at 3.2.4 a track call from the game thread races the mix.
+
+Order inside SDL_mixer: device, mixer, track. One path goes the other way: a fire-and-forget track
+(`MIX_PlayAudio`) stopping under its track lock calls `LockMixer(mixer);` (`SDL_mixer.c:236`). A
+stopped callback runs with the track locked (`:222-228`), on the mixing thread (`:367`) or on the
+thread that stopped the track.
+
+**Device-lock check.** The calls #45 needs (`MIX_PlayTrack`, `MIX_StopTrack`,
+`MIX_SetTrackStereo`, `MIX_SetTrackGain`, `MIX_SetTagGain`, `MIX_TrackPlaying`,
+`MIX_SetTrackLoops`, `MIX_SetTrackAudio`) make no device-level SDL call: in `SDL_mixer.c` those
+appear only in mixer create/destroy and the format watcher (`:809`, `:863-869`, `:903-906`), and
+track streams are never bound to a device. Open: `MIX_SetTrackAudio` may create a stream
+(`SDL_CreateAudioStream`, `:1610`), whose registration lock was not traced.
 
 **Today's race.** `Mix_ChannelFinished(digi_mixer_free_channel)` clears bits of `channels` on the
 audio thread (`similar/arch/sdl/digi_mixer.cpp:110-114`, `:141`) while the game thread reads and
-sets them. This is the data race #45's queue removes.
+sets them.
 
-**Recommendation.** The command queue is a per-frame batch in the game's audio module: the game
-thread records start/stop/gain commands, and `digi_sync_sounds()`
-(`similar/main/digiobj.cpp:588`) ends the frame with one `MIX_LockMixer`, apply,
-`MIX_UnlockMixer`. No game callback on the mixing thread for effects: the game learns a channel
-is free by asking `MIX_TrackPlaying` on its own thread. The remaining callbacks (ADLMIDI's stream
-get-callback) own their state and take control messages through an SPSC queue. The TSan test
-needs no device: `MIX_CreateMixer` plus `MIX_Generate` on a second thread
-(`sdl3_mixer/SDL_mixer.h:3161`: `MIX_Generate` "can not be used with mixers from
-MIX_CreateMixerDevice()"). Informs #45 (and its TSan step in ADR 5).
+**Rules for #45.**
+1. Every track change happens in one per-frame batch: `MIX_LockMixer`, apply the frame's
+   commands, `MIX_UnlockMixer`, from `digi_sync_sounds()` (`similar/main/digiobj.cpp:588`). The
+   held mixer lock keeps the mix out, which 3.2.4 needs; keep this rule until a release carries
+   `4aab76ed760c`, and keep the batch after that so a frame's starts land on one sample frame.
+2. Inside the batch only the calls listed above: no `MIX_PlayAudio`, no track create/destroy, no
+   device or mixer-level calls. Set `MIX_SetTrackAudio` outside the batch until the open point
+   above is traced.
+3. No game callback on the mixing thread for effects: the game polls `MIX_TrackPlaying`. ADLMIDI's
+   stream get-callback owns its player; control reaches it through an SPSC queue.
+4. The TSan test uses `MIX_CreateMixer` and `MIX_Generate` on a second thread. `MIX_Generate`
+   pulls the unbound output stream with `SDL_GetAudioStreamData` (`SDL_mixer.c:644-659`) and never
+   takes a device lock, so it finds game-versus-mix races but cannot show a device-lock
+   inversion; rule 2 is what prevents those.
+
+Informs #45 (and its TSan step in ADR 5).
 
 ## 5. Tracks, panning law and channel counts
 
