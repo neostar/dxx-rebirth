@@ -30,6 +30,8 @@
 #                   under 30 min after the warm-up is too short to judge
 #                   and fails; the 8 MiB/h limit is provisional until
 #                   calibrated from the numbers each run logs
+#   full_run        before both legs (no --leg): the full run, ci.sh --clean
+#                   (ADR 6); a red one holds merges (issue-tracker.md)
 #   container leg:
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run
@@ -605,7 +607,7 @@ if ! mkdir -p "${log%/*}" || ! : > "$log"; then
 fi
 legs=$(mktemp -d "${TMPDIR:-/tmp}/nightly.XXXXXX") || exit 1
 trap 'rm -rf "$legs"' EXIT
-native='' container=''
+native='' container='' full=''
 # On signal $1 (exit status $2), pass TERM to both legs, wait for them to
 # end (each bounds its own end), print their output so far, and exit.
 end_legs()
@@ -613,12 +615,13 @@ end_legs()
 	local p
 	trap '' TERM INT HUP
 	echo "nightly.sh: $1; ending the run" | tee -a "$log"
-	for p in $native $container; do
+	for p in $full $native $container; do
 		kill -TERM "$p" 2>/dev/null
 	done
-	for p in $native $container; do
+	for p in $full $native $container; do
 		wait "$p"
 	done
+	[[ ! -s $legs/full ]] || { echo "== nightly: full run"; cat "$legs/full"; } | tee -a "$log"
 	{ echo "== nightly: native leg"; cat "$legs/native"; } 2>/dev/null | tee -a "$log"
 	{ echo "== nightly: container leg"; cat "$legs/container"; } 2>/dev/null | tee -a "$log"
 	exit "$2"
@@ -626,15 +629,38 @@ end_legs()
 trap 'end_legs TERM 143' TERM
 trap 'end_legs INT 130' INT
 trap 'end_legs HUP 129' HUP
+failed=()
+full_run=1 legs_too=1
+if [[ -n $only ]]; then
+	[[ ",$only," == *,full_run,* ]] || full_run=0
+	only=$(tr ',' '\n' <<<"$only" | grep -vx full_run | paste -sd , -)
+	[[ -n $only ]] || legs_too=0
+fi
 args=(--endurance "$endurance")
 [[ -z $only ]] || args+=(--steps "$only")
 echo "nightly.sh: log: $log" | tee -a "$log"
+if [[ $full_run -eq 1 ]]; then
+	echo "== nightly: full run (ci.sh --clean)" | tee -a "$log"
+	# ci.sh writes its own log; its output also goes into this one.
+	"$dev_dir/ci.sh" --clean > "$legs/full" 2>&1 &
+	full=$!
+	wait "$full" || failed+=(full_run)
+	full=''
+	tee -a "$log" < "$legs/full"
+fi
+if [[ $legs_too -eq 0 ]]; then
+	if [[ ${#failed[@]} -ne 0 ]]; then
+		echo "nightly.sh: failed legs: ${failed[*]}; log: $log" | tee -a "$log" >&2
+		exit 1
+	fi
+	echo "nightly.sh: passed; log: $log" | tee -a "$log"
+	exit 0
+fi
 "$0" --leg native "${args[@]}" > "$legs/native" 2>&1 &
 native=$!
 "$dev_dir/container.sh" run --clean tools/dev/nightly.sh --leg container "${args[@]}" \
 	> "$legs/container" 2>&1 &
 container=$!
-failed=()
 wait "$native" || failed+=(native)
 { echo "== nightly: native leg"; cat "$legs/native"; } | tee -a "$log"
 wait "$container" || failed+=(container)

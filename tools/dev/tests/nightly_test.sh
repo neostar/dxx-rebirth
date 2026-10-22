@@ -735,4 +735,31 @@ test_both_legs_run_and_log()
 	assert_contains "$out" "nightly.sh: failed legs: container"
 }
 
+# Test that the full run (ci.sh --clean, ADR 6) runs before both legs when
+# no --steps is given or --steps names full_run, a failed one failing the
+# run, naming it; and that --leg takes no full_run.
+test_full_run_runs_first()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
+	printf '#!/bin/sh\necho "ci.sh $*"\nexit "${FAKE_CI_RC:-0}"\n' > "$r/tools/dev/ci.sh"
+	out=$("$r/tools/dev/nightly.sh" --steps full_run,tsan 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" $'== nightly: full run (ci.sh --clean)\nci.sh --clean'
+	assert_contains "$out" "SKIP tsan"
+	assert_contains "$out" "container.sh run --clean tools/dev/nightly.sh --leg container --endurance 3600 --steps tsan"
+	assert_contains "$(cat "$r/build/nightly/nightly.log")" "ci.sh --clean"
+	out=$("$r/tools/dev/nightly.sh" --steps full_run 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_not_contains "$out" "container.sh"
+	out=$(FAKE_CI_RC=1 "$r/tools/dev/nightly.sh" --steps full_run,tsan 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "nightly.sh: failed legs: full_run"
+	out=$("$r/tools/dev/nightly.sh" --steps tsan 2>&1)
+	assert_not_contains "$out" "ci.sh"
+	out=$("$r/tools/dev/nightly.sh" --leg native --steps full_run 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+}
+
 run_tests --parallel
