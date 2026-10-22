@@ -28,7 +28,11 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - **Review prompts** tell reviewers that the artefacts ADR 5 requires for a new fork directory
   (its `fork-dirs` line, its `.clang-tidy` copy, the `unittest/` copies) belong to the ticket and
   are not scope creep.
-- **Merge**: sign the implementer's commits, merge them into `sdl-gpu-port`, push.
+- **Merge**: first check that the last nightly (`build/nightly/nightly.log`, whose full run is
+  `ci.sh --clean`) is green, or that a follow-up issue names each red step: a red nightly holds
+  every merge until then. Then run the merge gate, `tools/dev/ci.sh --gate` (ADR 6), on the
+  branch merged with the current `sdl-gpu-port` tip, with `DXX_D2_DATA` set; it must pass. Sign
+  the implementer's commits, merge them into `sdl-gpu-port`, push.
 - **Finish**: close with a comment giving review rounds and anything that surprised you, and on
   the board set Status to Done, Done to today, and Review rounds; check Agent minutes and Agent
   tokens against the metrics log.
@@ -57,6 +61,9 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - Owner's OK first: the `dxx-rebirth-ref*` Docker images and the reference image inputs (`env.sh`,
   `deps.sh`, `tools/dev/container/Dockerfile`, `toolchain.pins`, `requirements.lock`).
 - No environment dumps, no installs. On a denied permission, stop and report.
+- Merge gate: `tools/dev/ci.sh --gate` (ADR 6) decides a merge, run on committed work with
+  `DXX_D2_DATA` set (it fails without the data); its R1 outputs are licensed-data derived
+  (`game-data.md`).
 
 **Implementer**
 
@@ -68,8 +75,9 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 4. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
    pass everything) and run its test: the test must go red. Restore it before committing.
 5. **Time box**: at the box, commit what is green and go to the report.
-6. **Report**, once the full `tools/dev/ci.sh`, both legs, passes on your branch merged with the
-   current `sdl-gpu-port` tip. Start `ci.sh` and other long builds first, in the background, and
+6. **Report**, once the merge gate, `tools/dev/ci.sh --gate` (ADR 6), passes on your branch merged
+   with the current `sdl-gpu-port` tip; it adds the container leg or the full run when the
+   changed paths need them. Start `ci.sh` and other long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
    fakes), or open, with why; the plants, each with the test that went red; anything surprising.
