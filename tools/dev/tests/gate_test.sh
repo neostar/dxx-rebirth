@@ -122,8 +122,9 @@ test_plan_picks_shell_tests()
 }
 
 # Test that a planted unmapped path runs the gate and then the full run,
-# both legs, the container leg on a clean clone; and that a failed gate
-# fails ci.sh, naming it.
+# both legs, the container leg on a clean clone, in place of the tools and
+# container parts, which it holds; and that a failed gate fails ci.sh,
+# naming it.
 test_unmapped_path_runs_the_full_run()
 {
 	local bin r out rc sha
@@ -131,9 +132,12 @@ test_unmapped_path_runs_the_full_run()
 	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 	sha=$(tgit -C "$r" rev-parse base)
 	change "$r" contrib/planted.txt
+	change "$r" tools/dev/run.sh
+	change "$r" SConstruct
 	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 	assert_contains "$out" "gate: contrib/planted.txt: full"
+	assert_contains "$out" "gate: parts: gate full"
 	assert_contains "$out" "native check --gate $sha"
 	assert_contains "$out" $'== ci: native check.sh \nnative check \n'
 	assert_contains "$out" "container ran"

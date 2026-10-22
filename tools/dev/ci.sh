@@ -37,7 +37,8 @@
 # tools/dev and docs/agents files run shellcheck and the shell tests of the
 # changed scripts (`check.sh --tools`); image inputs, SConstruct,
 # site_scons, fork build flags and shaders the container leg on a clean
-# clone; any other path the full run, both legs, --clean.  Each part runs,
+# clone; any other path the full run, both legs, --clean, which holds the
+# tools and container parts.  Each part runs,
 # in that order, after the one before; exit 1 names the failed ones.  It
 # fails before running anything when DXX_D2_DATA names no directory
 # holding DESCENT2.HOG (R1 needs the game data, game-data.md).  --plan
@@ -140,8 +141,8 @@ gate_plan()
 	gate_parts=(gate)
 	for c in tools container full; do
 		[[ " ${classes[*]-} " != *" $c "* ]] && continue
-		# The full run's container leg is the container part's.
-		[[ $c == container && " ${classes[*]} " == *" full "* ]] && continue
+		# The full run holds the container leg and every shell test.
+		[[ $c != full && " ${classes[*]} " == *" full "* ]] && continue
 		gate_parts+=("$c")
 	done
 	mapfile -t gate_tests < <(printf '%s\n' "${tests[@]+"${tests[@]}"}" | sed '/^$/d' | sort -u)
