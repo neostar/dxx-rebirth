@@ -326,4 +326,24 @@ test_unbuilt_steps_skip_visibly()
 	assert_contains "$out" "SKIP codeql: codeql is not pinned"
 }
 
+# Test that without --leg both legs run, the container leg through
+# container.sh run --clean with the same steps, each leg printed whole
+# and logged, and a failed leg fails the run, naming it.
+test_both_legs_run_and_log()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '#!/bin/sh\necho "container.sh $*"\nexit "${FAKE_CONTAINER_RC:-0}"\n' \
+		> "$r/tools/dev/container.sh"
+	out=$("$r/tools/dev/nightly.sh" --steps tsan --endurance 60 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP tsan: no audio-thread tests yet"
+	assert_contains "$out" \
+		"container.sh run --clean tools/dev/nightly.sh --leg container --endurance 60 --steps tsan"
+	assert_contains "$(cat "$r/build/nightly/nightly.log")" "== nightly: container leg"
+	out=$(FAKE_CONTAINER_RC=1 "$r/tools/dev/nightly.sh" --steps tsan 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "nightly.sh: failed legs: container"
+}
+
 run_tests --parallel

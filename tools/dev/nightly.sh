@@ -33,7 +33,9 @@
 # --steps runs only the steps named (of the leg's); --endurance sets the
 # endurance run's length.  DXX_NIGHTLY_DATABASE names a compilation
 # database to analyse instead of building the harness (the tests).
-# Exit status 1 names the failed steps, 2 is a usage error.
+# Exit status 1 names the failed steps (or legs), 2 is a usage error.
+# Build the image first with `container.sh build`; the container leg tests
+# the commit (HEAD), not uncommitted changes.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
@@ -400,3 +402,32 @@ if [[ -n $leg ]]; then
 	run_leg "$leg"
 	exit
 fi
+
+# Both legs at once; each one's output is printed whole, native first, and
+# into the log.
+log=$root/build/nightly/nightly.log
+dev_tm_exclude "$root/build" >/dev/null
+if ! mkdir -p "${log%/*}" || ! : > "$log"; then
+	echo "nightly.sh: cannot write $log" >&2
+	exit 1
+fi
+legs=$(mktemp -d "${TMPDIR:-/tmp}/nightly.XXXXXX") || exit 1
+trap 'rm -rf "$legs"' EXIT
+args=(--endurance "$DXX_NIGHTLY_ENDURANCE")
+[[ -z $only ]] || args+=(--steps "$only")
+echo "nightly.sh: log: $log" | tee -a "$log"
+"$0" --leg native "${args[@]}" > "$legs/native" 2>&1 &
+native=$!
+"$dev_dir/container.sh" run --clean tools/dev/nightly.sh --leg container "${args[@]}" \
+	> "$legs/container" 2>&1 &
+container=$!
+failed=()
+wait "$native" || failed+=(native)
+{ echo "== nightly: native leg"; cat "$legs/native"; } | tee -a "$log"
+wait "$container" || failed+=(container)
+{ echo "== nightly: container leg"; cat "$legs/container"; } | tee -a "$log"
+if [[ ${#failed[@]} -ne 0 ]]; then
+	echo "nightly.sh: failed legs: ${failed[*]}; log: $log" | tee -a "$log" >&2
+	exit 1
+fi
+echo "nightly.sh: passed; log: $log" | tee -a "$log"
