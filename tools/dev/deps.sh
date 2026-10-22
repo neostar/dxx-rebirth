@@ -360,8 +360,10 @@ reproducible_options()
 # in the prefix, and so does everything linked against them (SDL3_mixer),
 # which then loads only while the prefix stays where it was built.  Rename
 # each Mach-O file's install name and references under $prefix/lib to
-# @rpath, which the build's rpath resolves, and sign it again: a renamed
-# file's signature no longer matches and arm64 refuses to load it.
+# @rpath, which the build's rpath resolves.  install_name_tool re-signs a
+# file the linker signed, but leaves any other signature broken (a
+# project may sign at install), and arm64 refuses to load such a file:
+# sign each renamed file again, ad hoc.
 relocatable_install_names()
 {
 	local f kind ref p loads id changes logical physical

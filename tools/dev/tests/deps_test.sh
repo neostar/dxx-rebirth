@@ -328,8 +328,11 @@ unmovable_refs()
 # Test that on the Mac a library whose CMake sets an absolute install name,
 # as FluidSynth's does, and what links it, in its own project and in a
 # later dependency (as SDL3_mixer does), name only @rpath and system
-# libraries, so they still load once the prefix moves.  Read with otool,
-# never run: a library that does not load would crash in dyld.
+# libraries, so they still load once the prefix moves, and that their
+# signatures verify: the library is signed again at install, as a project
+# may, and install_name_tool re-signs only a linker-signed file.  Read
+# with otool and codesign, never run: a library that does not load would
+# crash in dyld.
 test_prefix_loads_after_it_moves()
 {
 	local d n f out bad=()
@@ -349,7 +352,10 @@ test_prefix_loads_after_it_moves()
 		'set_target_properties(fs PROPERTIES VERSION 3.6.1 SOVERSION 3)' \
 		'add_executable(fsdemo main.c)' \
 		'target_link_libraries(fsdemo fs)' \
-		'install(TARGETS fs fsdemo)' > "$d/src/fsdemo-1.0/CMakeLists.txt"
+		'install(TARGETS fs fsdemo)' \
+		'install(CODE "execute_process(COMMAND codesign --force --sign -' \
+		'	\${CMAKE_INSTALL_PREFIX}/lib/libfs.3.6.1.dylib COMMAND_ERROR_IS_FATAL ANY)")' \
+		> "$d/src/fsdemo-1.0/CMakeLists.txt"
 	printf '%s\n' 'int fs(void);' 'int mix(void) { return fs(); }' \
 		> "$d/src/mixdemo-1.0/mix.c"
 	printf '%s\n' 'int mix(void);' 'int main(void) { return mix(); }' \
@@ -376,6 +382,7 @@ test_prefix_loads_after_it_moves()
 		[[ -f $f ]] || { fail "$f not installed"; continue; }
 		out=$(unmovable_refs "$f") || fail "otool failed on $f"
 		[[ -z $out ]] || bad+=("$out")
+		out=$(codesign -v "$f" 2>&1) || bad+=("$f: signature: $out")
 	done
 	[[ ${#bad[@]} -eq 0 ]] || fail "not loadable from the moved prefix: ${bad[*]}"
 }
