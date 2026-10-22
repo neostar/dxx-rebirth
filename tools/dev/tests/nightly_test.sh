@@ -617,11 +617,13 @@ test_demo_steps_fail_without_data()
 
 # Print a fork repository (lib.sh) for the endurance run, whose memory
 # sampler takes 6 s a sample, as under emulation on a loaded machine.  How
-# many samples a 10 s run takes depends on that load (2 under emulation
+# many samples a run takes depends on that load (2 in 10 s under emulation
 # while others built, too few to judge), so the real rss_trend.py, given
-# the run's options, judges a fixed series instead, once the run has taken
-# a sample: 20 samples over 10 s (4 whole windows of 2 s) from 1000 KiB,
-# growing by $1 KiB (default 0) each.
+# the run's options, judges a fixed series instead: 20 samples over 10 s
+# (4 whole windows of 2 s) from 1000 KiB, growing by $1 KiB (default 0)
+# each.  It does so once the run has taken a sample and, with $2, once the
+# run's own samples (the first and the last, taken at least 6 s apart)
+# show the game's memory up by $2 KiB: proof the run samples the game.
 endurance_repo()
 {
 	local r i
@@ -636,8 +638,11 @@ endurance_repo()
 	cat > "$r/tools/dev/rss_trend.py" <<STANDIN
 import runpy, sys
 with open(sys.argv[-1]) as f:
-	if not f.read().strip():
-		sys.exit('rss_trend stand-in: the run took no memory sample')
+	kib = [float(line.split()[1]) for line in f if line.strip()]
+if not kib:
+	sys.exit('rss_trend stand-in: the run took no memory sample')
+if '${2-}' and kib[-1] - kib[0] < float('${2:-0}'):
+	sys.exit(f'rss_trend stand-in: the run sampled {kib[0]:g} then {kib[-1]:g} KiB, not up by ${2-} KiB')
 sys.argv[-1] = '$r/series.mem'
 runpy.run_path('$r/tools/dev/real-rss_trend.py', run_name='__main__')
 STANDIN
@@ -662,9 +667,10 @@ test_endurance_fails_growing_memory()
 {
 	local r d out rc
 	# 500 KiB every 0.5 s: about 3500 MiB/h, over the test's 1000 MiB/h.
-	r=$(endurance_repo 500) || die "endurance_repo failed"
+	# The game takes 0.5 MB every 0.1 s: over 6 s 1 MiB is a few of those.
+	r=$(endurance_repo 500 1024) || die "endurance_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
-	out=$(NIGHTLY_DEV_DIR=$r/tools/dev game_step "$d" endurance --endurance 10) \
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev FAKE_GAME=grow game_step "$d" endurance --endurance 10) \
 		&& rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" ": growing"
@@ -675,10 +681,11 @@ test_endurance_fails_growing_memory()
 # rss_trend.py's default 30) fails as too short to judge, with no slope.
 test_endurance_too_short_fails()
 {
-	local d out rc
+	local r d out rc
+	r=$(endurance_repo) || die "endurance_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
-	out=$(TREND_ARGS="--warmup 0 --window 2 --min-samples 4" game_step "$d" endurance --endurance 10) \
-		&& rc=0 || rc=$?
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev TREND_ARGS="--warmup 0 --window 2 --min-samples 4" \
+		game_step "$d" endurance --endurance 10) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rss_trend: too short to judge: "
 	assert_contains "$out" "windows of 2 s after the 0 s warm-up, need 30"
