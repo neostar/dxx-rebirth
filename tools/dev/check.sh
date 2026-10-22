@@ -8,6 +8,9 @@
 #   check.sh --fast         quick subset: the pre-commit steps and more,
 #                           the shell tests among them
 #   check.sh                everything: the fast subset plus the full steps
+#   check.sh --tools [TEST...]  shellcheck, the docs and test checks, and
+#                           the named tools/dev/tests files (ci.sh --gate's
+#                           tools part)
 #
 # Later tickets add a step by writing a step_<name> function and listing it
 # in fast_steps or full_steps.  Each step prints what it runs; check.sh runs
@@ -19,7 +22,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--pre-commit|--pre-push|--fast]" >&2
+	echo "usage: $0 [--pre-commit|--pre-push|--fast|--tools [TEST...]]" >&2
 	exit 2
 }
 
@@ -246,6 +249,18 @@ step_shell_tests()
 	# no-window.sh exports SDL_MAC_BACKGROUND_APP=1 before env -i, which
 	# would drop it: pass it on by name.
 	test_env+=(SDL_MAC_BACKGROUND_APP=1)
+	if [[ $mode == tools ]]; then
+		tests=()
+		for t in "${only_tests[@]+"${only_tests[@]}"}"; do
+			if [[ ! -f $dev_dir/tests/$t ]]; then
+				echo "shell_tests: $t: no such shell test in tools/dev/tests"
+				rc=1
+			fi
+			tests+=("$dev_dir/tests/$t")
+		done
+		[[ $rc -eq 0 ]] || return 1
+		[[ ${#tests[@]} -gt 0 ]] || { echo "shell_tests: none named"; return 0; }
+	fi
 	for i in "${!tests[@]}"; do
 		while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
 			wait -n
@@ -532,19 +547,23 @@ fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellc
 	workflows commit_sizes test_git gpu_gate sdl_arms shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests
 	sdl3_link)
+tools_steps=(shellcheck stale_hashes test_git shell_tests)
 
 mode=full
 case "${1-}" in
 	--pre-commit) mode=pre-commit ;;
 	--pre-push) mode=pre-push ;;
 	--fast) mode=fast ;;
+	--tools) mode=tools; only_tests=("${@:2}") ;;
 	'') ;;
 	*) usage ;;
 esac
+[[ $mode == tools || $# -le 1 ]] || usage
 
 steps=("${fast_steps[@]}")
 [[ $mode == pre-commit ]] && steps=("${pre_commit_steps[@]}")
 [[ $mode == pre-push ]] && steps=(push_secrets)
+[[ $mode == tools ]] && steps=("${tools_steps[@]}")
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
 	# The full checks also run the shell tests that build real objects.
