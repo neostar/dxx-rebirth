@@ -50,12 +50,14 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
    window with `tools/dev/no-window.sh`.
 5. **Local**: your output is commits on your branch and the report; pushes and issue writes belong
    to the orchestrator.
-6. **Time box**: at the box, commit what is green and go to the report.
-7. **Report**, once the full `tools/dev/ci.sh`, both legs, passes on your branch merged with the
+6. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
+   pass everything) and run its test: the test must go red. Restore it before committing.
+7. **Time box**: at the box, commit what is green and go to the report.
+8. **Report**, once the full `tools/dev/ci.sh`, both legs, passes on your branch merged with the
    current `sdl-gpu-port` tip. Start `ci.sh` and other long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
-   fakes), or open, with why; anything surprising.
+   fakes), or open, with why; the plants, each with the test that went red; anything surprising.
 
 ## Pull requests as a triage surface
 
