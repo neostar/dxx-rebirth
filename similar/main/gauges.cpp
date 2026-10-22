@@ -2159,11 +2159,8 @@ static void cockpit_decode_alpha(const hud_draw_context_mr hudctx, grs_bitmap *c
 	{
 #if DXX_USE_OGL
 		// check if textures are still valid
-		const ogl_texture *gltexture;
-		if ((gltexture = WinBoxOverlay[0].get()->gltexture) &&
-			gltexture->handle &&
-			(gltexture = WinBoxOverlay[1].get()->gltexture) &&
-			gltexture->handle)
+		if (ogl_bitmap_has_texture(*WinBoxOverlay[0].get()) &&
+			ogl_bitmap_has_texture(*WinBoxOverlay[1].get()))
 			return;
 #else
 		return;

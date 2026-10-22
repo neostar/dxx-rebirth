@@ -83,6 +83,8 @@ void ogl_end_frame(void);
 void ogl_set_alpha_ref(float ref);
 /* What the GL context supports beyond the common set. */
 render::caps gr_caps();
+/* Whether bm has a GL texture that is still loaded. */
+bool ogl_bitmap_has_texture(const grs_bitmap &bm);
 void ogl_set_screen_mode(void);
 
 struct ogl_colors
