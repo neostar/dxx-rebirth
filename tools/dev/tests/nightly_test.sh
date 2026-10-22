@@ -110,11 +110,21 @@ test_thread_safety_says_when_no_fork_code_locks()
 }
 
 # Replace build.sh in fork repository $1 with a fake that records its
-# arguments, one per line, in $1/build.args and exits with status $2.
+# arguments, one per line, in $1/build.args, prints scons' list of failed
+# nodes for the test programs named by the remaining arguments, and exits
+# with status $2.
 fake_build()
 {
-	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/build.args"\nexit %s\n' "$1" "$2" \
-		> "$1/tools/dev/build.sh"
+	local r=$1 rc=$2
+	shift 2
+	{
+		printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/build.args"\n' "$r"
+		if [[ $# -gt 0 ]]; then
+			printf 'echo "Failed node list:"\n'
+			printf 'printf "\\tbuild/nightly/glibcxx-debug/common/%s.check\\n"\n' "$@"
+		fi
+		printf 'exit %s\n' "$rc"
+	} > "$r/tools/dev/build.sh"
 }
 
 # Test that the container leg builds the unit tests with libstdc++'s debug
@@ -143,6 +153,22 @@ test_glibcxx_debug_fails_with_the_tests()
 	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "nightly.sh: failed: glibcxx_debug"
+}
+
+# Test that a unit test failing for the reason tools/dev/glibcxx-debug-known
+# gives is printed with it and passes, and any other fails the step.
+test_glibcxx_debug_known_failures()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	fake_build "$r" 2 test-physfsrwops
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "test-physfsrwops fails for a known reason: reads Boost.Test's"
+	fake_build "$r" 2 test-physfsrwops test-homing
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-homing.check"
 }
 
 run_tests --parallel

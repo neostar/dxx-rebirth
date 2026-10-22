@@ -1,0 +1,3 @@
+# Unit tests that fail in the nightly _GLIBCXX_DEBUG build (nightly.sh
+# glibcxx_debug) for a known reason, one per line: "NAME -- reason".
+test-physfsrwops -- reads Boost.Test's master_test_suite().argv, whose offset differs between debug mode and the prebuilt Boost.Test (crash at 0x10000 in the fixture)

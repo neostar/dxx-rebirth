@@ -143,14 +143,34 @@ step_thread_safety()
 }
 
 # libstdc++'s debug mode: build the unit tests with _GLIBCXX_DEBUG, beside
-# the hardened flags, into build/nightly/glibcxx-debug and run them.
+# the hardened flags, into build/nightly/glibcxx-debug and run them all
+# (scons -k).  Debug mode changes the layout of the standard containers,
+# so a test that reads a class of the prebuilt Boost.Test library holding
+# one gets the library's layout wrong and crashes: a test failing for that
+# is listed in tools/dev/glibcxx-debug-known with the reason, and printed
+# rather than failing the step.  Any other failure fails it.
 step_glibcxx_debug()
 {
-	local flags
+	local flags out rc n name reason unexpected=()
 	flags="$(python3 "$dev_dir/hardening.py") -D_GLIBCXX_DEBUG"
-	"$dev_dir/build.sh" dev builddir=build/nightly/glibcxx-debug \
+	out=$("$dev_dir/build.sh" dev builddir=build/nightly/glibcxx-debug \
 		compilation_database=build/nightly/glibcxx-debug/compile_commands.json \
-		"CPPFLAGS=$flags" check
+		"CPPFLAGS=$flags" -k check 2>&1) && rc=0 || rc=$?
+	printf '%s\n' "$out"
+	[[ $rc -eq 0 ]] && return 0
+	while IFS= read -r n; do
+		name=${n##*/}
+		name=${name%.check}
+		reason=$(sed -n "s/^$name -- //p" "$dev_dir/glibcxx-debug-known")
+		if [[ -n $reason ]]; then
+			echo "glibcxx_debug: $name fails for a known reason: $reason"
+		else
+			unexpected+=("$n")
+		fi
+	done < <(awk '/^Failed node list:/ { f = 1; next } f && /^\t/ { print $1; next } { f = 0 }' \
+		<<<"$out")
+	[[ $(grep -c '^Failed node list:' <<<"$out") -gt 0 ]] || return 1
+	[[ ${#unexpected[@]} -eq 0 ]] || { echo "glibcxx_debug: failed: ${unexpected[*]}"; return 1; }
 }
 
 leg='' only='' endurance=''
