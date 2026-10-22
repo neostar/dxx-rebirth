@@ -109,6 +109,7 @@ char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPOR
 #include "dsx-ns.h"
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/harness_pilot.h"
+#include "common/debug/hidden_window.h"
 #endif
 
 #if DXX_USE_SDLIMAGE
@@ -388,7 +389,12 @@ window_event_result standard_handler(const d_event &event)
 
 				if (wind == Game_wind)
 				{
-					const auto choice = nm_messagebox_str(menu_title{nullptr}, nm_messagebox_tie(TXT_YES, TXT_NO), menu_subtitle{TXT_ABORT_GAME});
+					const auto choice =
+#if DXX_USE_DBG_HARNESS
+						/* A hidden run has no box to answer: quitting ends it. */
+						harness_hidden_requested(read_harness_hidden()) ? 0 :
+#endif
+						nm_messagebox_str(menu_title{nullptr}, nm_messagebox_tie(TXT_YES, TXT_NO), menu_subtitle{TXT_ABORT_GAME});
 					if (choice != 0)
 						return window_event_result::handled;	// aborted quitting
 					else
