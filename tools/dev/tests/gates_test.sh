@@ -34,7 +34,7 @@ cxx=g++
 # The tool each gate runs, which a test needs before running the gate.
 declare -A gate_tool=([tidy]=$(dev_llvm_tool clang-tidy) [strict]=$cxx [hardening]=$cxx
 	[asan]=$cxx [lsan]=$cxx [ubsan]=$cxx [ubsanclang]=$cxx [leaks]=$cxx [gpu]=$cxx [gpumetal]=$cxx
-	[kconfig]=$cxx)
+	[kconfig]=$cxx [tsan]=$cxx)
 
 # The pre-commit gate: stage file $1 as src/plant.cpp, or as the path its
 # `// staged as: PATH` line names (a check scoped by file name), in a fork
@@ -159,6 +159,16 @@ gate_leaks()
 	"$DEV_DIR/no-window.sh" "$DEV_DIR/leaks.sh" "$p" 2>&1
 }
 
+# The nightly tier's ThreadSanitizer (nightly.sh, ADR 5), on the Mac: run
+# file $1, built with -fsanitize=thread, under no-window.sh.  TSan exits
+# 66 on a report, without abort().
+gate_tsan()
+{
+	local p
+	p=$(build_plant "$1" -fsanitize=thread) || return
+	TSAN_OPTIONS=abort_on_error=0 "$DEV_DIR/no-window.sh" "$p" 2>&1
+}
+
 # The GPU validation gate (gpu-validate.sh): run file $1, built against the
 # pinned SDL3, under it and no-window.sh, headless (no window; offscreen
 # video in the container, as its image sets).
@@ -248,6 +258,13 @@ test_local_bounds_plant_is_past_asan_redzone()
 		"$DEV_DIR/no-window.sh" "$p" 2>&1)
 	assert_not_contains "$out" "AddressSanitizer"
 	assert_not_contains "$out" "no-window.sh:"
+}
+
+test_tsan()
+{
+	[[ $dev_os == darwin ]] ||
+		skip "ThreadSanitizer fails under Rosetta in the container; the nightly runs it on the Mac"
+	run_planted tsan
 }
 
 test_leaks()

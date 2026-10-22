@@ -1,5 +1,5 @@
 // Two threads write one int without synchronisation.
-// gate tsan (#59): ThreadSanitizer: data race
+// gate tsan: ThreadSanitizer: data race
 #include <thread>
 
 int main()
