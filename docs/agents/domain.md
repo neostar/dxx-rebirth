@@ -8,6 +8,11 @@ This repo is single-context: read **`GLOSSARY.md`** at the repo root, and the AD
 **`docs/adr/`** that touch the area you're about to work in. The `/domain-modeling` skill extends
 both when a term or decision gets resolved.
 
+Platform research, read before working in its area:
+
+- SDL_GPU adapter, its passes, uploads, pipelines, swapchain and GPU measurement:
+  `docs/agents/sdl-gpu-backends.md`.
+
 ## Before recommending a change to the plan
 
 The approved plan of the port is `~/.claude/plans/ok-i-want-the-greedy-sutton.md`; the spike's
@@ -25,8 +30,3 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
-
-## Renderer research
-
-Before designing, implementing or reviewing the SDL_GPU adapter, read
-`docs/agents/sdl-gpu-backends.md`: what SDL_GPU leaves to us per backend, with sources.
