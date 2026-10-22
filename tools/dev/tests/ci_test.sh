@@ -6,8 +6,9 @@
 # shellcheck disable=SC2016
 source "$(dirname "$0")/lib.sh"
 
-# Make a throwaway repo holding tools/dev with a fake check.sh, commit it,
-# and put a fake docker into $1 that logs its arguments to $1/docker.args
+# Make a throwaway repo holding tools/dev with a fake check.sh (its
+# --doctor prints $FAKE_DOCTOR_OUT and exits $FAKE_DOCTOR_RC, default 0),
+# commit it, and put a fake docker into $1 that logs its arguments to $1/docker.args
 # and its standard input to $1/docker.stdin.
 make_ci_repo()
 {
@@ -17,7 +18,8 @@ make_ci_repo()
 	cp "$DEV_DIR"/{ci,container,deps,env}.sh "$DEV_DIR"/{toolchain.pins,requirements.lock} \
 		"$r/tools/dev/"
 	cp -R "$DEV_DIR/container" "$r/tools/dev/"
-	printf '#!/usr/bin/env bash\necho "native check $*"\n%s\nexit "${FAKE_CHECK_RC:-0}"\n' \
+	printf '#!/usr/bin/env bash\n%s\necho "native check $*"\n%s\nexit "${FAKE_CHECK_RC:-0}"\n' \
+		'[[ ${1-} != --doctor ]] || { echo "${FAKE_DOCTOR_OUT-doctor ok}"; exit "${FAKE_DOCTOR_RC:-0}"; }' \
 		"${FAKE_CHECK_WAIT-}" > "$r/tools/dev/check.sh"
 	printf '#!/usr/bin/env bash\necho "deps $*"\n' > "$r/tools/dev/deps.sh"
 	chmod +x "$r/tools/dev/check.sh" "$r/tools/dev/deps.sh"
@@ -408,6 +410,33 @@ test_native_failure_fails()
 	assert_eq "$rc" 1
 	assert_contains "$out" "container ran"
 	assert_contains "$out" "ci.sh: failed: native"
+}
+
+# Test that ci.sh checks the toolchain (check.sh --doctor) once before the
+# legs, and that a failing doctor stops it before either leg starts: a
+# stale dependency prefix names deps.sh all, any other failure the doctor.
+test_doctor_runs_first_and_stops_the_run()
+{
+	local bin r out rc
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	out=$(run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" $'== ci: doctor (check.sh --doctor)\ndoctor ok\n'
+	[[ $(grep -c '^doctor ok$' <<<"$out") -eq 1 ]] || fail "the doctor ran more than once: $out"
+	rm "$bin/container-started" || die "the container leg did not start"
+	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT="FAIL deps: /p was built from other pins; run tools/dev/deps.sh" \
+		run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: the dependency prefix is stale or missing; run tools/dev/deps.sh all"
+	assert_not_contains "$out" "native check"
+	[[ ! -e $bin/container-started ]] || fail "the container leg started"
+	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT="FAIL cmake: found 3.1, manifest pins 4.0" \
+		run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: the toolchain differs from tools/dev/toolchain.pins (doctor above); fix it first"
+	assert_not_contains "$out" "deps.sh all"
+	assert_not_contains "$out" "native check"
 }
 
 # Test that the default container leg gets the working tree, uncommitted

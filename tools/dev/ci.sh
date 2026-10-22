@@ -16,6 +16,10 @@
 #    tree; with --clean on a fresh clone of the commit under test, with no
 #    build caches.
 # Each leg's output is printed whole when both are done, native first.
+# Before either leg, and before the merge gate's parts, ci.sh checks this
+# machine's toolchain once (check.sh --doctor, its known failures passing)
+# and stops at once when it fails: a stale or missing dependency prefix
+# names `tools/dev/deps.sh all`.  --container alone skips it.
 # The whole output also goes to build/ci/ci.log (build/ is kept out of
 # Time Machine), replaced by each run; its path is printed at the start and
 # the end.  Read that file rather than redirecting ci.sh's output.  One
@@ -397,6 +401,23 @@ gate_part()
 	say "-- ci: gate part $part: $((EPOCHSECONDS - start)) s"
 	[[ $rc -eq 0 ]] || failed+=("$part")
 }
+
+# Check the toolchain once, before any leg or part; stop on a failure.
+if [[ $native -eq 1 || $gate -eq 1 ]]; then
+	say "== ci: doctor (check.sh --doctor)"
+	doctor_out=$("$dev_dir/check.sh" --doctor 2>&1) && rc=0 || rc=$?
+	printf '%s\n' "$doctor_out" | tee -a "$log"
+	if [[ $rc -ne 0 ]]; then
+		if grep -qE '^(KNOWN )?(FAIL|SKIP) (deps|venv|libs):' <<<"$doctor_out"; then
+			say "ci.sh: the dependency prefix is stale or missing; run tools/dev/deps.sh all" >&2
+		else
+			say "ci.sh: the toolchain differs from tools/dev/toolchain.pins (doctor above); fix it first" >&2
+		fi
+		say "ci.sh: failed: doctor" >&2
+		say "ci.sh: log: $log" >&2
+		exit 1
+	fi
+fi
 
 if [[ $gate -eq 0 ]]; then
 	run_legs

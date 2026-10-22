@@ -12,7 +12,8 @@ export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
 export CHECK_SHELLCHECK=no-such-shellcheck
 
 # Make a throwaway repository holding tools/dev with a fake check.sh that
-# prints its arguments (exit $FAKE_CHECK_RC, default 0; writing the file
+# prints its arguments (its --doctor prints $FAKE_DOCTOR_OUT and exits
+# $FAKE_DOCTOR_RC, default 0; else exit $FAKE_CHECK_RC, default 0; writing the file
 # $FAKE_CHECK_TOUCH when set), a tests/ directory
 # with a_test.sh (naming run.sh) and lib.sh, committed, and the base
 # branch `base` at that commit; put a fake docker into $1 (logging its
@@ -25,7 +26,8 @@ make_gate_repo()
 	cp "$DEV_DIR"/{ci,container,deps,env,run}.sh "$DEV_DIR"/{toolchain.pins,requirements.lock} \
 		"$r/tools/dev/"
 	cp -R "$DEV_DIR/container" "$r/tools/dev/"
-	printf '#!/usr/bin/env bash\necho "native check $*"\n%s\nexit "${FAKE_CHECK_RC:-0}"\n' \
+	printf '#!/usr/bin/env bash\n%s\necho "native check $*"\n%s\nexit "${FAKE_CHECK_RC:-0}"\n' \
+		'[[ ${1-} != --doctor ]] || { echo "${FAKE_DOCTOR_OUT-doctor ok}"; exit "${FAKE_DOCTOR_RC:-0}"; }' \
 		'[[ -z ${FAKE_CHECK_TOUCH-} ]] || echo x > "$FAKE_CHECK_TOUCH"' > "$r/tools/dev/check.sh"
 	chmod +x "$r/tools/dev/check.sh"
 	printf '# runs tools/dev/run.sh\n' > "$r/tools/dev/tests/a_test.sh"
@@ -150,6 +152,25 @@ test_unmapped_path_runs_the_full_run()
 	out=$(FAKE_CHECK_RC=1 run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "ci.sh: failed: gate full"
+}
+
+# Test that the gate checks the toolchain once before its parts, and that
+# a stale dependency prefix stops it before any part, naming deps.sh all.
+test_gate_stops_on_a_stale_prefix()
+{
+	local bin r out rc
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	change "$r" contrib/planted.txt
+	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" $'== ci: doctor (check.sh --doctor)\ndoctor ok\n'
+	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT="SKIP deps: /p not built; run tools/dev/deps.sh" \
+		run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: the dependency prefix is stale or missing; run tools/dev/deps.sh all"
+	assert_not_contains "$out" "gate part"
+	assert_not_contains "$out" "native check"
 }
 
 # Test that a game change runs the gate alone, a tools change adds the

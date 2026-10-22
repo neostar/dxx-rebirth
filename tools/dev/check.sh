@@ -14,6 +14,7 @@
 #   check.sh --tools [TEST...]  shellcheck, the docs and test checks, and
 #                           the named tools/dev/tests files (ci.sh --gate's
 #                           tools part)
+#   check.sh --doctor       the doctor step alone (ci.sh runs it first)
 #
 # Later tickets add a step by writing a step_<name> function and listing it
 # in fast_steps or full_steps.  Each step prints what it runs; check.sh runs
@@ -25,7 +26,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--pre-commit|--pre-push|--fast|--gate REV|--tools [TEST...]]" >&2
+	echo "usage: $0 [--pre-commit|--pre-push|--fast|--gate REV|--tools [TEST...]|--doctor]" >&2
 	exit 2
 }
 
@@ -651,6 +652,7 @@ case "${1-}" in
 		gate_rev=$(git -C "$root" rev-parse --verify -q "$2^{commit}") ||
 			{ echo "check.sh: $2 is no commit" >&2; exit 2; } ;;
 	--tools) mode=tools; only_tests=("${@:2}") ;;
+	--doctor) mode=doctor ;;
 	'') ;;
 	*) usage ;;
 esac
@@ -661,6 +663,7 @@ steps=("${fast_steps[@]}")
 [[ $mode == pre-push ]] && steps=(push_secrets)
 [[ $mode == gate ]] && steps=("${gate_steps[@]}")
 [[ $mode == tools ]] && steps=("${tools_steps[@]}")
+[[ $mode == doctor ]] && steps=(doctor)
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
 	# The full checks also run the shell tests that build real objects.
