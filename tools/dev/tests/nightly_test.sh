@@ -367,7 +367,9 @@ test_fanalyzer_fails_on_double_free()
 # writes a crash report of itself, `idle` writes no section, `grow` takes
 # 0.5 MB more memory each time, `shutdown_crash` answers TERM with a heap
 # corruption message and status 134, `hang` ignores TERM, `drop_term`
-# ignores the first TERM (the game drops a quit while a demo loads).  The growth limit is 1000 MiB/h: bash's own
+# ignores the first TERM (the game drops a quit while a demo loads),
+# `vanish` writes two sections and becomes a process that is not the game.
+# The growth limit is 1000 MiB/h: bash's own
 # memory moves by kilobytes, which over seconds extrapolate to megabytes
 # an hour.  4 samples are enough: under amd64 emulation on a loaded
 # machine (the container leg) a sample has taken 1.4 s.
@@ -398,26 +400,64 @@ while :; do
 		exit 1 ;;
 	report) printf '{"pid" : %d, "procName" : "fake-game"}\n' \$\$ > "$d/reports/fake.ips" ;;
 	grow) s+=\$(head -c 500000 /dev/zero | tr '\\0' x) ;;
+	vanish) printf '# demo playback demos/fake.dem\n0 0\n' >> "\$DXX_DBG_FRAMEHASH"
+		exec bash -c 'trap "exit 0" TERM; while :; do sleep 0.1 & wait \$!; done' "$d/vanished" ;;
 	esac
-	sleep 0.1
+	# A trap runs only once a foreground command ends, but at once in wait.
+	sleep 0.1 & wait \$!
 done
 GAME
 	chmod +x "$d/fake-game"
 	printf '%s\n' "DXX_NIGHTLY_GAME=$d/fake-game" "DXX_D2_DATA=$d/data" \
 		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
-		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
+		"NO_WINDOW_FRONTMOST_CMD=$(slow_sampler "$d")" \
 		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 \
 		"DXX_NIGHTLY_TREND_ARGS=${TREND_ARGS:---warmup 0 --max-slope 1000 --window 2 --min-samples 4 --min-windows 3}" \
 		RUN_KILL_AFTER=2
 }
 
+# Write into directory $1 a fake frontmost-app sampler that answers
+# "1 Terminal" after SAMPLER_DELAY seconds (default none), as osascript does
+# slowly under emulation on a loaded machine, and print its path.
+slow_sampler()
+{
+	local sampler
+	sampler=$(fake_sampler "$1" "1 Terminal") || return
+	printf '#!/bin/sh\nsleep %s\nexec "%s"\n' "${SAMPLER_DELAY:-0}" "$sampler" > "$1/slow-sampler"
+	chmod +x "$1/slow-sampler"
+	printf '%s\n' "$1/slow-sampler"
+}
+
+# Wait for process $1, a child, and pass on its status; after $2 seconds
+# (default 120) send it TERM (nightly.sh then ends its run), and KILL 30 s
+# later, say so and fail with 124, so a hang fails its test instead of
+# stalling the tests.
+bounded()
+{
+	local i limit=${2:-120}
+	for ((i = 0; i < limit * 10; i++)); do
+		kill -0 "$1" 2>/dev/null || { wait "$1"; return; }
+		sleep 0.1
+	done
+	kill -TERM "$1"
+	for ((i = 0; i < 300; i++)); do
+		kill -0 "$1" 2>/dev/null || break
+		sleep 0.1
+	done
+	kill -KILL "$1" 2>/dev/null
+	wait "$1"
+	echo "nightly.sh still ran after $limit s"
+	return 124
+}
+
 # Run the native leg's step $2 with the fake game in directory $1, with
-# the remaining arguments.
+# the remaining arguments, for at most 120 s.
 game_step()
 {
 	local vars
 	mapfile -t vars < <(fake_game "$1")
-	env "${vars[@]}" "$DEV_DIR/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1
+	env "${vars[@]}" "$DEV_DIR/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1 &
+	bounded "$!"
 }
 
 # Test that the hardened demo run passes once a whole demo has played, and
@@ -497,6 +537,30 @@ test_hardened_demo_repeats_term()
 	d=$(make_scratch) || die "make_scratch failed"
 	out=$(FAKE_GAME=drop_term game_step "$d" hardened_demo)
 	assert_eq "$?" 0 "$out"
+}
+
+# Test that a game which quits on TERM passes when no-window.sh is slow to
+# see it gone: a frontmost-app sampler taking 1.5 s, as under emulation,
+# stretches run.sh's end past the 2 s grace, which is the game's alone.
+test_hardened_demo_passes_with_a_slow_sampler()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(SAMPLER_DELAY=1.5 game_step "$d" hardened_demo)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a game not found among run.sh's processes fails the run at
+# once, which then ends through run.sh.
+test_demo_steps_fail_when_the_game_is_not_found()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=vanish game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: no process of $d/fake-game found under run.sh"
+	pgrep -f "$d/vanished" >/dev/null && fail "the vanished game still runs"
+	return 0
 }
 
 # Test that a run with no whole demo before the timeout fails.

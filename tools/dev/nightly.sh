@@ -376,10 +376,14 @@ demos_played()
 # status, which must be 0: a hidden harness run quits on TERM without
 # asking (the "Abort game?" box it would show is not on screen).  TERM is
 # sent again every second: the game drops a quit that arrives while a demo
-# loads (event_flush when the game window opens).  So a
-# crash at shutdown is a non-zero status and a game still running
-# RUN_KILL_AFTER seconds (run.sh's grace, default 10) later hangs; it then
-# gets TERM through run.sh, which kills it.  The output is named on failure.
+# loads (event_flush when the game window opens).  So a crash at shutdown
+# is a non-zero status, and a game still running RUN_KILL_AFTER seconds
+# (run.sh's grace, default 10) later hangs; it then gets TERM through
+# run.sh, which kills it.  The grace watches the game, not run.sh: after
+# the game no-window.sh still takes a sample (slow under emulation) and
+# run.sh looks for crash reports, both bounded by run.sh.  A game not
+# found among run.sh's processes fails at once.  The output is named on
+# failure.
 demo_finish()
 {
 	local rc=0 status hits pid grace=${RUN_KILL_AFTER:-10} i
@@ -389,15 +393,21 @@ demo_finish()
 		rc=1
 	else
 		pid=$(game_pid "$run_pid" "$game")
-		for ((i = 0; i < grace * 10; i++)); do
-			[[ -z $pid || $((i % 10)) -ne 0 ]] || kill -TERM "$pid" 2>/dev/null
-			kill -0 "$run_pid" 2>/dev/null || break
-			sleep 0.1
-		done
-		if kill -0 "$run_pid" 2>/dev/null; then
-			echo "$1: the game still runs $grace s after TERM; ending it through run.sh"
+		if [[ -z $pid ]]; then
+			echo "$1: no process of $game found under run.sh; ending the run through run.sh"
 			kill -TERM "$run_pid" 2>/dev/null
 			rc=1
+		else
+			for ((i = 0; i < grace * 10; i++)); do
+				[[ $((i % 10)) -ne 0 ]] || kill -TERM "$pid" 2>/dev/null
+				alive "$pid" || break
+				sleep 0.1
+			done
+			if alive "$pid"; then
+				echo "$1: the game still runs $grace s after TERM; ending it through run.sh"
+				kill -TERM "$run_pid" 2>/dev/null
+				rc=1
+			fi
 		fi
 		wait "$run_pid"
 		status=$?
@@ -429,6 +439,15 @@ step_hardened_demo()
 	echo "hardened_demo: $played complete demo playbacks"
 	[[ $played -ge 1 ]] || { echo "hardened_demo: no complete demo playback in $timeout s"; rc=1; }
 	return "$rc"
+}
+
+# Succeed if process $1 runs: it exists and is not a zombie, which still
+# answers kill -0 until its parent reaps it.
+alive()
+{
+	local stat
+	stat=$(ps -o stat= -p "$1" 2>/dev/null) || return 1
+	[[ -n $stat && $stat != Z* ]]
 }
 
 # Print the pid of game $2 among the descendants of process $1: the one
