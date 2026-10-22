@@ -83,3 +83,28 @@ wayland-protocols/xdg-shell.xml https://gitlab.freedesktop.org/wayland/wayland-p
 wayland-protocols/idle-inhibit-unstable-v1.xml https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/1.49/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml c2ac9f002c6669ca6c02eb9b587b8e9108e3ce6deab4a2de58b576f4f864ca38
 sdl3/src/video/windows/SDL_windowsmodes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsmodes.c 9b9ac4717f328e5448170ea4e101d4299e87aa4bb41dd3b8a9c49a6a1b642654
 sdl3/src/video/x11/SDL_x11modes.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11modes.c c116ce1eb966d0c4c0927221d1e65dab8843778038341b1a8d3eebf94905343a
+# Audio research (#72): SDL3 3.4.18 and SDL3_mixer 3.2.4 audio sources, SDL2_mixer
+# 2.8.2 (the SDL2 baseline), FluidSynth at the toolchain pin, PipeWire 1.6.10
+# (latest on 2026-10-22). Cited by docs/agents/sdl-audio.md.
+sdl3/SDL_audio.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_audio.h 244fa8da51ac74d9c01414de18e35ce4371c2e15250c8e450ffe4d67d62d16f3
+sdl3/src/audio/SDL_audio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_audio.c f53b727691e3eec7f74c05098fd7f8e74ac0324384fda23741dbe76f9da080b4
+sdl3/src/audio/SDL_sysaudio.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_sysaudio.h 68780b3bb878fbb7815be9a034d2b7bdd7d19c15ae8de73a0a207b19048a07fd
+sdl3/src/audio/SDL_audioresample.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/SDL_audioresample.c 3d21cb5aaafaa5e9795a83bc163b4df2048309620ce7a2953b6aa3f46030951d
+sdl3/src/audio/coreaudio/SDL_coreaudio.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/coreaudio/SDL_coreaudio.m c1ed4d18205056f615ae3f7098b53cd69ccbb939e1e8f212f029c0e8c1cc44af
+sdl3/src/audio/wasapi/SDL_wasapi.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/wasapi/SDL_wasapi.c 4e1364566baf310f84558d613d3d90b60a3e426df122d75d83d967fe357fba80
+sdl3/src/core/windows/SDL_immdevice.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/core/windows/SDL_immdevice.c 108be83858e7e9d13183c72715362551114fde75f1c9c1f6ac3348d4bce63461
+sdl3/src/audio/pipewire/SDL_pipewire.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/pipewire/SDL_pipewire.c 378df0dd2ffa5e008cfb06b6d2e9cf4a4daaf0748016e6e439477c3e17a8159d
+sdl3/src/audio/pulseaudio/SDL_pulseaudio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/pulseaudio/SDL_pulseaudio.c 65cab525597e6f99fb208723b2362419dec1fd52e6a33b8c63b2fccfb614bdee
+sdl3/src/audio/alsa/SDL_alsa_audio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/alsa/SDL_alsa_audio.c 54e52ccb027f73c8f5a39a9beca6aa6233960c72a211e11ac13aa4e9e23e7cc5
+sdl3/src/audio/dummy/SDL_dummyaudio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/dummy/SDL_dummyaudio.c c3fb2f456698f09f799c68cd2ed7c9f64ebee9c5fe000b3d3d372271e914049e
+sdl3/src/audio/disk/SDL_diskaudio.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/audio/disk/SDL_diskaudio.c 4cd58da832b47dcbcc55ebe8c85a6b7b55e173f80d718fec8e0f5f03e45600c7
+sdl3/src/SDL_hints.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/SDL_hints.c 93860cc3cdf85bc47ded500ba68f6dd8c7587ebee1a085164577d54393304e89
+sdl3_mixer/src/SDL_mixer.c https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/src/SDL_mixer.c 009464763c6b704c6ae6d2d2db3c56eb2af287919705fc43a77953c071adbc26
+sdl3_mixer/src/SDL_mixer_internal.h https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/src/SDL_mixer_internal.h 021263f52e7754f15162d7721adddec502fe81b6e20ad58261e8868cbb58f7ef
+sdl3_mixer/src/SDL_mixer_spatialization.c https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/src/SDL_mixer_spatialization.c 580cb1fd7318cafdc270ec6cd9b78b45fe4b773518daf804bb33650eaa74bd6d
+sdl3_mixer/src/decoder_fluidsynth.c https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-3.2.4/src/decoder_fluidsynth.c 3c05e20908581e90a52f8cc0ada4eaee79667271b754fcdc067549bec1bfcd7c
+sdl2_mixer/src/effect_position.c https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-2.8.2/src/effect_position.c 9a4f9d5ca836ef268545d4b78a2bd96cc78f86adc41b77be2881c2b54a6e58b9
+sdl2_mixer/src/codecs/music_fluidsynth.c https://raw.githubusercontent.com/libsdl-org/SDL_mixer/release-2.8.2/src/codecs/music_fluidsynth.c 5a130694ddad3ab85cd7e8bdae661ec021a2c532d33bcc31b88883bf4831b11f
+fluidsynth/doc/fluidsettings.xml https://raw.githubusercontent.com/FluidSynth/fluidsynth/71e85b2ca6bf48641ba7e2261d8f2640ae473773/doc/fluidsettings.xml 974dc36f901deed43b56b8b47dfc6e7f30edb6d99a7f72c1e602b96726d6dc10
+pipewire/src/pipewire/keys.h https://gitlab.freedesktop.org/pipewire/pipewire/-/raw/1.6.10/src/pipewire/keys.h f322fbb208e43c8ee9d5118d286eb39f2cc07e3667f0eef477632f8175cb8afe
+pipewire/src/daemon/pipewire.conf.in https://gitlab.freedesktop.org/pipewire/pipewire/-/raw/1.6.10/src/daemon/pipewire.conf.in ad8d088fc02f4e8669e1731861c5839acf498eb5621913d4fdfeefd5dd40586e
