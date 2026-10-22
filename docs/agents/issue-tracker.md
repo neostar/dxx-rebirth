@@ -22,9 +22,13 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 
 - **Claim**: assign yourself, comment `started <ISO time>`, and on the board
   (https://github.com/users/neostar/projects/2) set Status to In Progress and Started to today.
-- **Time box**: 120 minutes per ticket, until story points are calibrated in minutes; no mapping
-  from points to minutes exists yet. At the box, comment on the ticket what is done, what is
-  open, and why it took longer. The overrun is data for the estimates, not a failure.
+- **Agents at once**: at most two implementer agents (fix rounds included); reviewers may run
+  beside them.
+- **Time box**: 60 + 15 × story points minutes, wait time included. Calibrated on 17 tickets
+  (2026-10-22): 1 pt took about 72 min, 3 pt 82, 5 pt 135, 8 pt 172; about an hour is fixed per
+  ticket (worktree, prefix build, CI, review, merge). At the box, comment on the ticket what is
+  done, what is open, and why it took longer. The overrun is data for the estimates, not a
+  failure.
 - **Review prompts** tell reviewers that the artefacts ADR 5 requires for a new fork directory
   (its `fork-dirs` line, its `.clang-tidy` copy, the `unittest/` copies) belong to the ticket and
   are not scope creep.
@@ -37,10 +41,12 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
   merged tree is one a passing gate checked (signing changes commits, not trees). Push.
 - **Finish**: close with a comment giving review rounds and anything that surprised you, and on
   the board set Status to Done, Done to today, and Review rounds; check Agent minutes and Agent
-  tokens against the metrics log.
+  tokens against the metrics log. Remove the ticket's worktree (`git worktree remove`; the branch
+  stays).
 - **Measurement**: wall-clock time comes from the system, never from an agent's own estimate. The
   orchestrating session records each agent run's system-reported duration, tokens and tool calls,
-  per ticket, in the metrics log, and adds it to that ticket's Agent minutes and Agent tokens on
+  per ticket, in the metrics log (`~/Developer/dxx-rebirth-spike/notes/agent-runs.csv`, outside
+  the repository), and adds it to that ticket's Agent minutes and Agent tokens on
   the board as the run lands, also for work on a ticket that stays open (a spike, a split part);
   GitHub timestamps (claim, PR ready, first review, merge, close) give review wait and cycle time.
 
@@ -49,6 +55,8 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - Git: never `git stash` (one list for all worktrees); commit unsigned
   (`git -c commit.gpgsign=false commit`); no pushes, no issue or PR writes.
 - Processes: kill only your own pids, never `pkill -f` with a broad pattern.
+- Background runs: wait for one through `tools/dev/wait-for.sh FILE STRING DEADLINE`, on its log
+  or output; end all your background work before you report.
 - Crash reports: create, change or delete nothing in `~/Library/Logs/DiagnosticReports`; on a
   new crash report, stop and report it.
 - Windowless: launch binaries with `tools/dev/run.sh` and any other command that may open a window

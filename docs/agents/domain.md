@@ -8,6 +8,12 @@ This repo is single-context: read **`GLOSSARY.md`** at the repo root, and the AD
 **`docs/adr/`** that touch the area you're about to work in. The `/domain-modeling` skill extends
 both when a term or decision gets resolved.
 
+## Before recommending a change to the plan
+
+The approved plan of the port is `~/.claude/plans/ok-i-want-the-greedy-sutton.md`; the spike's
+measured findings are `~/Developer/dxx-rebirth-spike/FINDINGS.md`. Read the findings before
+recommending a change to the plan: our measurements win over general advice.
+
 ## Use the glossary's vocabulary
 
 When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
