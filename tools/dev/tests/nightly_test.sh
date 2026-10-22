@@ -407,7 +407,7 @@ GAME
 		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
 		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
 		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 \
-		"DXX_NIGHTLY_TREND_ARGS=${TREND_ARGS:---warmup 0 --max-slope 1000 --window 2 --min-samples 4}" \
+		"DXX_NIGHTLY_TREND_ARGS=${TREND_ARGS:---warmup 0 --max-slope 1000 --window 2 --min-samples 4 --min-windows 3}" \
 		RUN_KILL_AFTER=2
 }
 
@@ -545,6 +545,21 @@ test_endurance_fails_growing_memory()
 	out=$(FAKE_GAME=grow game_step "$d" endurance --endurance 10) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" ": growing"
+	assert_contains "$out" "nightly.sh: failed: endurance"
+}
+
+# Test that an endurance run too short for the trend (fewer windows than
+# rss_trend.py's default 30) fails as too short to judge, with no slope.
+test_endurance_too_short_fails()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(TREND_ARGS="--warmup 0 --window 2 --min-samples 4" game_step "$d" endurance --endurance 10) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rss_trend: too short to judge: "
+	assert_contains "$out" "windows of 2 s after the 0 s warm-up, need 30"
+	assert_not_contains "$out" "slope"
 	assert_contains "$out" "nightly.sh: failed: endurance"
 }
 

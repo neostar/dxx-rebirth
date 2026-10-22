@@ -59,7 +59,7 @@ test_warmup_is_left_out()
 	d=$(make_scratch) || die "make_scratch failed"
 	samples "$d/rss" 600 0 0
 	awk '$1 < 60 { $2 = 50000 } { print }' "$d/rss" > "$d/rss2"
-	out=$("${TREND[@]}" --warmup 60 "$d/rss2" 2>&1)
+	out=$("${TREND[@]}" --warmup 60 --min-windows 3 "$d/rss2" 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
@@ -82,7 +82,8 @@ test_too_few_samples_fail()
 	samples "$d/rss" 200 0 0
 	out=$("${TREND[@]}" "$d/rss" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "too few samples"
+	assert_contains "$out" "too short to judge: 0 samples after the 300 s warm-up, need 10"
+	assert_not_contains "$out" "slope"
 }
 
 # Test that --min-samples sets how many samples are enough.
@@ -91,7 +92,7 @@ test_min_samples_option()
 	local d out
 	d=$(make_scratch) || die "make_scratch failed"
 	samples "$d/rss" 200 0 0
-	out=$("${TREND[@]}" --warmup 120 --window 20 --min-samples 5 "$d/rss" 2>&1)
+	out=$("${TREND[@]}" --warmup 120 --window 20 --min-samples 5 --min-windows 3 "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
@@ -116,9 +117,9 @@ test_sawtooth_is_flat()
 	d=$(make_scratch) || die "make_scratch failed"
 	awk 'BEGIN { for (t = 0; t <= 290; t += 5) printf "%d %d\n", t, 163840 + 10240 * ((t % 50) / 45) }' \
 		> "$d/rss"
-	out=$("${TREND[@]}" --warmup 0 --window 50 "$d/rss" 2>&1)
+	out=$("${TREND[@]}" --warmup 0 --window 50 --min-windows 3 "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
-	out=$("${TREND[@]}" --warmup 0 --window 50 --max-slope 1 "$d/rss" 2>&1)
+	out=$("${TREND[@]}" --warmup 0 --window 50 --min-windows 3 --max-slope 1 "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
@@ -168,10 +169,57 @@ test_default_warmup()
 	d=$(make_scratch) || die "make_scratch failed"
 	awk 'BEGIN { for (t = 0; t <= 600; t += 10)
 		printf "%d %d\n", t, 200000 + (t < 300 ? 100 * t : 30000) }' > "$d/rss"
+	out=$("${TREND[@]}" --min-windows 3 "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$("${TREND[@]}" --warmup 0 --min-windows 3 "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+}
+
+# Test that a run too short for the trend fails as too short to judge,
+# never as flat or growing: the 600 s run that gave 5 windows after the
+# warm-up, with and without a leak.
+test_short_run_is_too_short_to_judge()
+{
+	local d out rc g
+	d=$(make_scratch) || die "make_scratch failed"
+	for g in 0 65536; do
+		game_samples "$d/rss" 600 "$g"
+		out=$("${TREND[@]}" "$d/rss" 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$out"
+		assert_contains "$out" "rss_trend: too short to judge: 5 windows of 60 s after the 300 s warm-up, need 30"
+		assert_not_contains "$out" "slope"
+		assert_not_contains "$out" "flat"
+		assert_not_contains "$out" "growing"
+	done
+}
+
+# Test that the default run (1 h, nightly.sh) clears the window minimum
+# with room: 55 windows of the 30 needed.
+test_default_run_clears_min_windows()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	game_samples "$d/rss" 3600 0
 	out=$("${TREND[@]}" "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
-	out=$("${TREND[@]}" --warmup 0 "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_contains "$out" "over 55 windows of 60 s"
+}
+
+# Test that --min-windows sets the minimum and refuses one too small for a
+# trend.
+test_min_windows_option()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	game_samples "$d/rss" 600 0
+	out=$("${TREND[@]}" --min-windows 5 "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$("${TREND[@]}" --min-windows 6 "$d/rss" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "need 6"
+	out=$("${TREND[@]}" --min-windows 2 "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "--min-windows"
 }
 
 # Test that the real game's sawtooth (104 to 124 MiB through each demo

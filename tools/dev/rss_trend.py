@@ -2,7 +2,8 @@
 # Check that a process's memory stays flat: the endurance run of
 # tools/dev/nightly.sh (ADR 5, nightly tier).
 #
-#   rss_trend.py [--warmup S] [--window S] [--max-slope MIB_PER_HOUR] [--min-samples N] SAMPLES
+#   rss_trend.py [--warmup S] [--window S] [--max-slope MIB_PER_HOUR]
+#                [--min-samples N] [--min-windows N] SAMPLES
 #
 # SAMPLES holds one "SECONDS KIB" line per sample (seconds since the start,
 # the process's memory in KiB: its physical footprint on macOS, which
@@ -18,18 +19,22 @@
 # unlike a least-squares line, is not turned by one step: a 22 MiB drop a
 # third of the way through an hour hides no 16 MiB/h leak.  A step near
 # the middle of the run still can, since half the pairs then straddle it.
-# Fewer than 10 samples (--min-samples) or 3 windows after the warm-up
-# fail: too few to call it flat.
+# Fewer than 10 samples (--min-samples) or 30 whole windows
+# (--min-windows) after the warm-up fail as "too short to judge", with no
+# slope: a 600 s run's 5 windows read the same flat game as -37 or +27
+# MiB/h.  30 windows are half an hour, where one demo loop's 20 MiB swing
+# moves the slope by a few MiB/h, not tens; Theil-Sen's 29 % breakdown
+# point then lets 8 windows (a demo loading, a step) be wild without
+# turning it; the default hour of nightly.sh gives 55, clearing it twice.
 # Each verdict prints its numbers so the scheduled runs can calibrate the
 # limit, which is provisional until they do: the windows, the slope with
 # its 95 % confidence range (Sen's, from Kendall's tau), and the lowest
 # and highest window minima, whose spread is the noise the slope fights.
-# Exit status 0 flat, 1 growing or too few samples, 2 unreadable input.
+# Exit status 0 flat, 1 growing or too short to judge, 2 unreadable input
+# or a usage error.
 import argparse
 import math
 import sys
-
-MIN_WINDOWS = 3
 
 
 def read_samples(path):
@@ -71,8 +76,15 @@ def main():
 	p.add_argument('--window', type=float, default=60)
 	p.add_argument('--max-slope', type=float, default=8, help='MiB per hour')
 	p.add_argument('--min-samples', type=int, default=10)
+	p.add_argument('--min-windows', type=int, default=30)
 	p.add_argument('samples')
 	args = p.parse_args()
+	if args.min_windows < 3:
+		p.error('--min-windows must be at least 3: two points always fit a line')
+	if args.min_samples < 1:
+		p.error('--min-samples must be at least 1')
+	if args.window <= 0:
+		p.error('--window must be above 0')
 	try:
 		samples = read_samples(args.samples)
 	except OSError as e:
@@ -80,8 +92,8 @@ def main():
 		return 2
 	kept = [s for s in samples if s[0] >= args.warmup]
 	if len(kept) < args.min_samples:
-		print(f'rss_trend: too few samples after the {args.warmup:g} s warm-up: '
-			f'{len(kept)}, need {args.min_samples}')
+		print(f'rss_trend: too short to judge: {len(kept)} samples after the '
+			f'{args.warmup:g} s warm-up, need {args.min_samples}')
 		return 1
 	minima = {}
 	full = int((kept[-1][0] - args.warmup) // args.window)
@@ -94,9 +106,9 @@ def main():
 	lows = [r / 1024 for _, r in minima.values()]
 	noise = f'window minima {min(lows):.1f} to {max(lows):.1f} MiB (spread {max(lows) - min(lows):.1f} MiB)'
 	span = f'{len(kept)} samples over {kept[-1][0] - kept[0][0]:g} s after the {args.warmup:g} s warm-up'
-	if len(minima) < MIN_WINDOWS:
-		print(f'rss_trend: too few {args.window:g} s windows after the warm-up: '
-			f'{len(minima)}, need {MIN_WINDOWS}; {noise}; {span}')
+	if len(minima) < args.min_windows:
+		print(f'rss_trend: too short to judge: {len(minima)} windows of {args.window:g} s after the '
+			f'{args.warmup:g} s warm-up, need {args.min_windows}; {noise}; {span}')
 		return 1
 	mib_h, low, high = (v * 3600 / 1024 for v in slope(list(minima.values())))
 	verdict = 'growing' if mib_h > args.max_slope else 'flat'
