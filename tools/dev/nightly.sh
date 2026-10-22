@@ -46,6 +46,8 @@
 # DXX_NIGHTLY_SAMPLE_INTERVAL the endurance run's sampling interval (10 s)
 # and DXX_NIGHTLY_TREND_ARGS rss_trend.py's options.
 # Exit status 1 names the failed steps (or legs), 2 is a usage error.
+# TERM, INT or HUP ends the run (the demo run through run.sh, both legs)
+# leaving none of it running, with status 128 + the signal's number.
 # Build the image first with `container.sh build`; the container leg tests
 # the commit (HEAD), not uncommitted changes.
 set -u
@@ -413,6 +415,7 @@ demo_finish()
 		status=$?
 		[[ $status -eq 0 ]] || { echo "$1: the game ended with status $status after TERM, not 0"; rc=1; }
 	fi
+	run_pid=''
 	hits=$(grep -E 'crash report|no-window\.sh:|still runs .*; killing it|Hardening assertion|_GLIBCXX|Assertion .* failed|runtime error:|Sanitizer' "$out")
 	[[ -z $hits ]] || { printf '%s\n' "$hits"; rc=1; }
 	[[ $rc -eq 0 ]] || echo "$1: output in $out"
@@ -432,7 +435,7 @@ step_hardened_demo()
 		played=$(demos_played)
 		[[ $played -ge 1 ]] && break
 		kill -0 "$run_pid" 2>/dev/null || { early=1; break; }
-		sleep 0.5
+		sleep 0.5 & wait $!
 	done
 	demo_finish hardened_demo "$early" || rc=1
 	played=$(demos_played)
@@ -448,6 +451,40 @@ alive()
 	local stat
 	stat=$(ps -o stat= -p "$1" 2>/dev/null) || return 1
 	[[ -n $stat && $stat != Z* ]]
+}
+
+# Print the pids of process $1 and its descendants.
+tree_pids()
+{
+	ps -A -o pid=,ppid= | awk -v top="$1" '
+		{ parent[$1] = $2 }
+		END { for (p in parent) for (q = p; q > 1; q = parent[q]) if (q == top) { print p; break } }'
+}
+
+# On signal $1 (exit status $2), end the demo run, if one runs, through
+# run.sh's own TERM handling (TERM to the game, KILL after its grace, its
+# crash report check), and exit.  What still runs once that teardown
+# could be over (the grace and 15 s) is killed.
+end_demo_run()
+{
+	local pids i
+	trap '' TERM INT HUP
+	echo "nightly.sh: $1; ending the run"
+	if [[ -n $run_pid ]] && kill -0 "$run_pid" 2>/dev/null; then
+		pids=$(tree_pids "$run_pid")
+		kill -TERM "$run_pid" 2>/dev/null
+		for ((i = 0; i < (${RUN_KILL_AFTER:-10} + 15) * 10; i++)); do
+			kill -0 "$run_pid" 2>/dev/null || break
+			sleep 0.1
+		done
+		if kill -0 "$run_pid" 2>/dev/null; then
+			echo "nightly.sh: run.sh still runs; killing the run"
+			# shellcheck disable=SC2046,SC2086  # one pid per word
+			kill -KILL $(tree_pids "$run_pid") $pids 2>/dev/null
+		fi
+		wait "$run_pid"
+	fi
+	exit "$2"
 }
 
 # Print the pid of game $2 among the descendants of process $1: the one
@@ -500,7 +537,7 @@ step_endurance()
 		kib=${pid:+$(python3 "$dev_dir/footprint.py" "$pid" 2>/dev/null)}
 		[[ -z $kib ]] || printf '%d.%06d %s\n' $((el / 1000000)) $((el % 1000000)) "$kib" >> "$samples"
 		[[ $el -ge $((endurance * 1000000)) ]] && break
-		sleep "$interval"
+		sleep "$interval" & wait $!
 	done
 	demo_finish endurance "$early" || rc=1
 	echo "endurance: $(demos_played) complete demo playbacks"
@@ -547,7 +584,13 @@ run_leg()
 	echo "nightly.sh: $1 leg passed"
 }
 
+# A signal to nightly.sh ends the run with it: nothing of it is left
+# running.  The demo runs' sleeps are waited for, so the trap runs at once.
+run_pid=''
 if [[ -n $leg ]]; then
+	trap 'end_demo_run TERM 143' TERM
+	trap 'end_demo_run INT 130' INT
+	trap 'end_demo_run HUP 129' HUP
 	run_leg "$leg"
 	exit
 fi
@@ -562,6 +605,27 @@ if ! mkdir -p "${log%/*}" || ! : > "$log"; then
 fi
 legs=$(mktemp -d "${TMPDIR:-/tmp}/nightly.XXXXXX") || exit 1
 trap 'rm -rf "$legs"' EXIT
+native='' container=''
+# On signal $1 (exit status $2), pass TERM to both legs, wait for them to
+# end (each bounds its own end), print their output so far, and exit.
+end_legs()
+{
+	local p
+	trap '' TERM INT HUP
+	echo "nightly.sh: $1; ending the run" | tee -a "$log"
+	for p in $native $container; do
+		kill -TERM "$p" 2>/dev/null
+	done
+	for p in $native $container; do
+		wait "$p"
+	done
+	{ echo "== nightly: native leg"; cat "$legs/native"; } 2>/dev/null | tee -a "$log"
+	{ echo "== nightly: container leg"; cat "$legs/container"; } 2>/dev/null | tee -a "$log"
+	exit "$2"
+}
+trap 'end_legs TERM 143' TERM
+trap 'end_legs INT 130' INT
+trap 'end_legs HUP 129' HUP
 args=(--endurance "$endurance")
 [[ -z $only ]] || args+=(--steps "$only")
 echo "nightly.sh: log: $log" | tee -a "$log"

@@ -646,6 +646,65 @@ test_endurance_numbers_reach_log()
 	assert_contains "$out" "MiB (spread "
 }
 
+# Start nightly.sh in fork repository $1 (with a container.sh that runs
+# until TERM) in the background, with the fake game in directory $2, the
+# game idle (no demo ends the run), and the remaining arguments; set
+# nightly_pid and wait for the game to start (at most 30 s).
+start_idle_nightly()
+{
+	local r=$1 d=$2 vars i
+	printf '#!/usr/bin/env bash\ntrap "exit 0" TERM\nwhile :; do sleep 0.1 & wait $!; done\n' \
+		> "$r/tools/dev/container.sh"
+	mapfile -t vars < <(DEMO_TIMEOUT=600 fake_game "$d")
+	env "${vars[@]}" FAKE_GAME=idle "$r/tools/dev/nightly.sh" "${@:3}" > "$d/nightly.out" 2>&1 &
+	nightly_pid=$!
+	for ((i = 0; i < 300; i++)); do
+		[[ -s $d/game.args ]] && return
+		sleep 0.1
+	done
+	kill -TERM "$nightly_pid"
+	die "the fake game did not start: $(cat "$d/nightly.out")"
+}
+
+# Test that TERM to nightly.sh, one leg or both, ends the run's every
+# process (run.sh, no-window.sh, the hidden game, the container leg) and
+# fails the run with 143.
+test_term_leaves_no_process_of_the_run()
+{
+	local r d args rc
+	for args in "--leg native --steps hardened_demo" "--steps hardened_demo"; do
+		r=$(fork_repo) || die "fork_repo failed"
+		d=$(make_scratch) || die "make_scratch failed"
+		# shellcheck disable=SC2086  # the options are words
+		start_idle_nightly "$r" "$d" $args
+		kill -TERM "$nightly_pid"
+		bounded "$nightly_pid" 60 && rc=0 || rc=$?
+		assert_eq "$rc" 143 "$args: $(cat "$d/nightly.out")"
+		assert_contains "$(cat "$d/nightly.out")" "nightly.sh: TERM; ending the run"
+		pgrep -f "$d/" >/dev/null && fail "$args: a process of the run still runs: $(pgrep -lf "$d/")"
+		pgrep -f "$r/tools/dev/container.sh" >/dev/null && fail "$args: the container leg still runs"
+	done
+	return 0
+}
+
+# Test that TERM to nightly.sh kills the run once run.sh's teardown could
+# be over (its 2 s grace and 15 s) when run.sh does not end: none of it is
+# left running.
+test_term_kills_a_run_that_does_not_end()
+{
+	local r d rc
+	r=$(fork_repo) || die "fork_repo failed"
+	d=$(make_scratch) || die "make_scratch failed"
+	printf '#!/usr/bin/env bash\ntrap "" TERM\n"$@" &\nwait\n' > "$r/tools/dev/run.sh"
+	start_idle_nightly "$r" "$d" --leg native --steps hardened_demo
+	kill -TERM "$nightly_pid"
+	bounded "$nightly_pid" 60 && rc=0 || rc=$?
+	assert_eq "$rc" 143 "$(cat "$d/nightly.out")"
+	assert_contains "$(cat "$d/nightly.out")" "nightly.sh: run.sh still runs; killing the run"
+	pgrep -f "$d/" >/dev/null && fail "a process of the run still runs: $(pgrep -lf "$d/")"
+	return 0
+}
+
 # Test that the TSan step, which has no tests to run until #45, is a SKIP
 # naming that ticket.
 test_tsan_skips_visibly()
