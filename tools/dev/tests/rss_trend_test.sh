@@ -73,6 +73,16 @@ test_too_few_samples_fail()
 	assert_contains "$out" "too few samples"
 }
 
+# Test that --min-samples sets how many samples are enough.
+test_min_samples_option()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	samples "$d/rss" 200 0 0
+	out=$("${TREND[@]}" --window 20 --min-samples 5 "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 # Test that a malformed line is an error naming it.
 test_malformed_line_fails()
 {

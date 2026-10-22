@@ -323,7 +323,8 @@ game_pid()
 # seconds (default 10) into endurance.rss; rss_trend.py then fails growth
 # over DXX_NIGHTLY_MAX_SLOPE MiB/h (default 8) after DXX_NIGHTLY_WARMUP
 # seconds (default 120), fitted to the minima of DXX_NIGHTLY_WINDOW-second
-# windows (default 60).
+# windows (default 60), from at least DXX_NIGHTLY_MIN_SAMPLES samples
+# (default 10).
 step_endurance()
 {
 	local bin early='' rc=0 start now el pid rss samples=$work/endurance.rss
@@ -356,7 +357,8 @@ step_endurance()
 	echo "endurance: $(demos_played) complete demo playbacks"
 	[[ $(demos_played) -ge 1 ]] || { echo "endurance: no complete demo playback"; rc=1; }
 	python3 "$dev_dir/rss_trend.py" --warmup "${DXX_NIGHTLY_WARMUP:-120}" \
-		--window "${DXX_NIGHTLY_WINDOW:-60}" --max-slope "${DXX_NIGHTLY_MAX_SLOPE:-8}" "$samples" || rc=1
+		--window "${DXX_NIGHTLY_WINDOW:-60}" --min-samples "${DXX_NIGHTLY_MIN_SAMPLES:-10}" \
+		--max-slope "${DXX_NIGHTLY_MAX_SLOPE:-8}" "$samples" || rc=1
 	return "$rc"
 }
 

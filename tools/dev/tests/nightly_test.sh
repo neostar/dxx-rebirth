@@ -181,8 +181,9 @@ test_glibcxx_debug_known_failures()
 # libc++ hardening message and exits 1 after one section, `report` writes
 # a crash report of itself, `idle` writes no section, `grow` takes 0.5 MB
 # more memory each time.  The growth limit is 1000 MiB/h: bash's own
-# memory moves by kilobytes, which over 3 s extrapolate to megabytes an
-# hour.
+# memory moves by kilobytes, which over seconds extrapolate to megabytes
+# an hour.  4 samples are enough: under amd64 emulation on a loaded
+# machine (the container leg) a sample has taken 1.4 s.
 fake_game()
 {
 	local d=$1
@@ -214,7 +215,8 @@ GAME
 		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
 		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
 		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 DXX_NIGHTLY_WARMUP=0 \
-		DXX_NIGHTLY_MAX_SLOPE=1000 DXX_NIGHTLY_WINDOW=0.5 RUN_KILL_AFTER=2
+		DXX_NIGHTLY_MAX_SLOPE=1000 DXX_NIGHTLY_WINDOW=2 DXX_NIGHTLY_MIN_SAMPLES=4 \
+		RUN_KILL_AFTER=2
 }
 
 # Run the native leg's step $2 with the fake game in directory $1, with

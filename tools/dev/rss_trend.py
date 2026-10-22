@@ -2,7 +2,7 @@
 # Check that a process's memory stays flat: the endurance run of
 # tools/dev/nightly.sh (ADR 5, nightly tier).
 #
-#   rss_trend.py [--warmup SECONDS] [--window SECONDS] [--max-slope MIB_PER_HOUR] SAMPLES
+#   rss_trend.py [--warmup S] [--window S] [--max-slope MIB_PER_HOUR] [--min-samples N] SAMPLES
 #
 # SAMPLES holds one "SECONDS RSS_KIB" line per sample (seconds since the
 # start, resident set size in KiB, as `ps -o rss=` prints it).  Samples in
@@ -12,13 +12,13 @@
 # sample gives the growth rate, which fails above the limit (default 8 MiB
 # per hour).  Demo playback loops: RSS rises through each demo and falls at the
 # next by about 10 MiB, so the minima, not every sample, show a leak, and
-# where a run ends in the loop does not decide.  Fewer than 10 samples or 3
-# windows after the warm-up fail: too few to call it flat.
+# where a run ends in the loop does not decide.  Fewer than 10 samples
+# (--min-samples) or 3 windows after the warm-up fail: too few to call it
+# flat.
 # Exit status 0 flat, 1 growing or too few samples, 2 unreadable input.
 import argparse
 import sys
 
-MIN_SAMPLES = 10
 MIN_WINDOWS = 3
 
 
@@ -53,6 +53,7 @@ def main():
 	p.add_argument('--warmup', type=float, default=120)
 	p.add_argument('--window', type=float, default=60)
 	p.add_argument('--max-slope', type=float, default=8, help='MiB per hour')
+	p.add_argument('--min-samples', type=int, default=10)
 	p.add_argument('samples')
 	args = p.parse_args()
 	try:
@@ -61,9 +62,9 @@ def main():
 		print(f'rss_trend: {e}', file=sys.stderr)
 		return 2
 	kept = [s for s in samples if s[0] >= args.warmup]
-	if len(kept) < MIN_SAMPLES:
+	if len(kept) < args.min_samples:
 		print(f'rss_trend: too few samples after the {args.warmup:g} s warm-up: '
-			f'{len(kept)}, need {MIN_SAMPLES}')
+			f'{len(kept)}, need {args.min_samples}')
 		return 1
 	minima = {}
 	full = int((kept[-1][0] - args.warmup) // args.window)
