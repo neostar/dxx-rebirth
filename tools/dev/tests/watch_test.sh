@@ -60,17 +60,28 @@ test_blind_window_lister_fails()
 }
 
 # Test that a crash report directory that is missing (a typo in
-# NO_WINDOW_REPORTS_DIR) or unreadable ends the watch with status 1, naming
-# it: a watch that cannot read it would report no crash ever.
-test_unreadable_reports_dir_fails()
+# NO_WINDOW_REPORTS_DIR) ends the watch with status 1, naming it: a watch
+# that cannot read it would report no crash ever.
+test_missing_reports_dir_fails()
 {
 	local d out rc
-	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	d=$(make_scratch) || die "make_scratch failed"
 	printf '%s\n' '1 Finder' > "$d/windows"
 	out=$(WATCH_WINDOWS_CMD=$(fake_lister "$d") NO_WINDOW_REPORTS_DIR="$d/typo" \
 		"$WATCH" --rounds 1 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "watch.sh: cannot read the crash report directory $d/typo"
+}
+
+# Test that an unreadable crash report directory ends the watch with
+# status 1, naming it.  Root reads a directory of mode 000, as in the
+# reference container, so there the case is a SKIP.
+test_unreadable_reports_dir_fails()
+{
+	local d out rc
+	[[ $(id -u) -ne 0 ]] || skip "root reads a directory of mode 000"
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	printf '%s\n' '1 Finder' > "$d/windows"
 	chmod 000 "$d/reports"
 	out=$(WATCH_WINDOWS_CMD=$(fake_lister "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
 		"$WATCH" --rounds 1 2>&1) && rc=0 || rc=$?
