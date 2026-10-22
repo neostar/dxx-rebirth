@@ -109,43 +109,6 @@ sdl2_mixer/src/codecs/music_fluidsynth.c https://raw.githubusercontent.com/libsd
 fluidsynth/doc/fluidsettings.xml https://raw.githubusercontent.com/FluidSynth/fluidsynth/71e85b2ca6bf48641ba7e2261d8f2640ae473773/doc/fluidsettings.xml 974dc36f901deed43b56b8b47dfc6e7f30edb6d99a7f72c1e602b96726d6dc10
 pipewire/src/pipewire/keys.h https://gitlab.freedesktop.org/pipewire/pipewire/-/raw/1.6.10/src/pipewire/keys.h f322fbb208e43c8ee9d5118d286eb39f2cc07e3667f0eef477632f8175cb8afe
 pipewire/src/daemon/pipewire.conf.in https://gitlab.freedesktop.org/pipewire/pipewire/-/raw/1.6.10/src/daemon/pipewire.conf.in ad8d088fc02f4e8669e1731861c5839acf498eb5621913d4fdfeefd5dd40586e
-# Input research (#73): SDL3 3.4.18 input headers and sources, one cocoa
-# fix on release-3.4.x after 3.4.18, the SDL2 2.30.0 gamepad header and
-# SDL_GameControllerDB at its 2026-10-19 head; read by docs/agents/sdl-input.md.
-sdl3/input/SDL_keyboard.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_keyboard.h b7664fb34abcf86f669edf4fd5fdef2d58fa025f49d91b4743888f192c519d8d
-sdl3/input/SDL_events.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_events.h df509bcdb9fb84ad82ebfbd3d77eb8176e0c34ed5dc54044f8e20e97e72214f7
-sdl3/input/SDL_mouse.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_mouse.h 6caff19a4841afc5cab4254e94a73de874a331a6539f87d2d2c61a7c5e5d7e5b
-sdl3/input/SDL_gamepad.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_gamepad.h 93beab034992a9ff3392dfbfb461862fca22301ea5eb9f7d96c2dc37457fb487
-sdl3/input/SDL_joystick.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_joystick.h de936f3314f39bb02aaf3afc758aa3af7cf5cd2152c2265369d7dc5abca1f1bb
-sdl3/input/SDL_oldnames.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_oldnames.h 59cb5dde7a441d0b208c52f12f73a949dd747ce6b053f31b356cb64cef20e6dc
-sdl3/input/SDL_timer.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_timer.h 60a809df30e0c549a91b986f517ff94515ab80a529db95d97655a2c417f0f927
-sdl3/input/SDL_video.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_video.h e4a25b506dfb5b0657edc264b7130cfea3bad0abc0265e280e046f9ec4dcaeaf
-sdl3/input/SDL_filesystem.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/include/SDL3/SDL_filesystem.h 594df8cacd921611186fe9251c4771bb5a9733d36bdd3e821c2fd9382857097a
-sdl3/input/src/events/SDL_keyboard.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/events/SDL_keyboard.c 4086cf93f5b4019e90b674450d889b585ea8bbd9b596716288034770b45af0dd
-sdl3/input/src/events/SDL_mouse.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/events/SDL_mouse.c 29b8bc37daf766170aeef707116d752aa0edcd2bc9c3f687e66389c74c333f25
-sdl3/input/src/events/SDL_events.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/events/SDL_events.c ef6301f9416c6960c5f37fc9d8ed38a5624fbd246fa4da0ac02a8351bcb172d7
-sdl3/input/src/joystick/SDL_joystick.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/SDL_joystick.c af57721c6d07cf177c41dd0f3c889ce3c85d52b926a1733228417d5217002e72
-sdl3/input/src/joystick/SDL_gamepad.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/SDL_gamepad.c a01cc5bbf573a1124a0ff023af78d841eea80bc6889d57e98cf37e7a56f9eaf4
-sdl3/input/src/joystick/hidapi/SDL_hidapijoystick_c.h https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/hidapi/SDL_hidapijoystick_c.h 9304306da22217642ff2390c5fc8fa7d996e965313f7139bc757b61ccdc4bc2e
-sdl3/input/src/joystick/gdk/SDL_gameinputjoystick.cpp https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/gdk/SDL_gameinputjoystick.cpp 91da1dc32a2dd513f263d2f35d52381483092875d7d8c0c008bb51611662e9e7
-sdl3/input/src/joystick/windows/SDL_rawinputjoystick.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/windows/SDL_rawinputjoystick.c 1dcd76a4f6c91e70051bcffa515186701d48fc263f306200332dbe6d9ab3d64b
-sdl3/input/src/joystick/windows/SDL_windows_gaming_input.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/windows/SDL_windows_gaming_input.c 0c9c9e713c01c349f9a7e899a689328cf794c5307898c48073dc0b1302b7e4e9
-sdl3/input/src/joystick/windows/SDL_xinputjoystick.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/windows/SDL_xinputjoystick.c c4a25f3a80483b6ee5d32a66560f25c673bfd3152b66d48fe349ebc2744e029c
-sdl3/input/src/video/cocoa/SDL_cocoamouse.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoamouse.m ae75c94ddb34401eb3f070de0040c9c6d7f591ca4a6341f1d8a931f913282b4e
-sdl3/input/src/video/cocoa/SDL_cocoaevents.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoaevents.m 50c4c32bc348b4d02774550ef7e095443b6f5f0aaee8b02a8642b814bb6fdc3d
-sdl3/input/src/video/cocoa/SDL_cocoavideo.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoavideo.m b762dac20510ecd6e7c934f187d5af74d3378ab265e52e506e9813fc88c5b8c4
-sdl3/input/src/video/windows/SDL_windowsrawinput.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsrawinput.c 1799232457e166a4c0749a4d2db246190ccfff2b5bd4938ebbd294f4e74e0dc8
-sdl3/input/src/video/windows/SDL_windowsmouse.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/windows/SDL_windowsmouse.c de91d98ab35beea6ffdba57f9e0ba8cabe6fba6e2072341031d35b550ae1f8c2
-sdl3/input/src/video/x11/SDL_x11xinput2.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11xinput2.c 3051e03b702a25380deb709fc7a1dfab56dcd2611e840d0ab6e6ffea83a4e851
-sdl3/input/src/video/x11/SDL_x11mouse.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/x11/SDL_x11mouse.c d97554dc7e0770eed237453753f5292f993a818f2b3690c6de01db75a142a392
-sdl3/input/src/video/wayland/SDL_waylandevents.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/wayland/SDL_waylandevents.c 468f5651b680a34492249f40f9ec1627af57f0f62bd3b392638a604d1961f2be
-sdl3/input/src/video/wayland/SDL_waylandmouse.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/wayland/SDL_waylandmouse.c 556838c125831b0e4ef3e133d04fc437642ea9afd4551a17ae231a71e10d217a
-sdl3/input/wayland-protocols/relative-pointer-unstable-v1.xml https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/wayland-protocols/relative-pointer-unstable-v1.xml ab4930dd3084f732b6fdd12ee6dbd0a112a758ed8a57b170366391dbeb1a22ff
-sdl3/input/wayland-protocols/wayland.xml https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/wayland-protocols/wayland.xml cc860987e54f8d85c940e97fa1270c69b6e4ad31fbcf5a7f00107ce1157f5e07
-sdl3/input/test/testautomation_joystick.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/test/testautomation_joystick.c d7fa171fe613d2523ef29dfb391186f521bfb229a76056627f56dd032d1f253a
-sdl3/input/WhatsNew.txt https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/WhatsNew.txt ece7a7b11f3e97ff3bd5b91e4184d2b57fcfb04795917962b6ab585807ef2397
-sdl3/input/3.4.x-6c2bedd5/SDL_cocoaevents.m https://raw.githubusercontent.com/libsdl-org/SDL/6c2bedd5cb0194b0258d2ec13466fbc5f631ad8c/src/video/cocoa/SDL_cocoaevents.m 5924df1f36d69e96cfdf58cb60c172002b4168a5c0a694b1134661f08e11377f
-sdl2/input/SDL_gamecontroller.h https://raw.githubusercontent.com/libsdl-org/SDL/release-2.30.0/include/SDL_gamecontroller.h 7d057864e80b54650b0942661e7b32f44b84766c0b5a66af751a52a1c37433b9
 # Input research (#73): SDL3 3.4.18 input headers and sources (SDL_events.h,
 # SDL_timer.h and SDL_video.h are pinned by the window research, #74), one
 # cocoa fix on release-3.4.x after 3.4.18, SDL2 2.30.0 and 2.32.10 headers,
