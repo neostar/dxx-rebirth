@@ -90,12 +90,15 @@ test_plan_maps_paths_to_steps()
 		[README.md]='full'
 		[docs/adr/0009-x.md]='full'
 	)
+	# One repository, one commit per path, each planned against its parent.
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 	for p in "${!want[@]}"; do
-		r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 		change "$r" "$p"
-		out=$(run_gate "$r" "$bin" --gate --plan --base base)
+		out=$(run_gate "$r" "$bin" --gate --plan --base HEAD~1)
 		assert_eq "$?" 0 "$p: $out"
 		assert_contains "$out" "gate: $p: ${want[$p]}"
+		assert_eq "$(grep -vc -e '^gate: base ' -e '^gate: parts: ' -e '^gate: shell tests: ' <<<"$out")" \
+			1 "$p: $out"
 	done
 }
 
@@ -112,10 +115,10 @@ test_plan_picks_shell_tests()
 		[tools/dev/tests/b_test.sh]='b_test.sh'
 		[docs/agents/x.md]='none'
 	)
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 	for p in "${!want[@]}"; do
-		r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 		change "$r" "$p"
-		out=$(run_gate "$r" "$bin" --gate --plan --base base)
+		out=$(run_gate "$r" "$bin" --gate --plan --base HEAD~1)
 		assert_eq "$?" 0 "$p: $out"
 		assert_contains "$out" "gate: parts: gate tools"$'\n'"gate: shell tests: ${want[$p]}"
 	done
