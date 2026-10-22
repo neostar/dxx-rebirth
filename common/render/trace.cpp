@@ -66,6 +66,28 @@ class sink
 /* The bytes of one vertex: position, colour and texture coordinates. */
 constexpr std::size_t vertex_size{9 * sizeof(float)};
 
+/* The encoders, the decoders and draw::call() name each field of these
+ * types one by one: a field added to one of them fails here until they,
+ * the layout in trace.h and the version change with it.
+ */
+template <typename T, std::size_t n>
+constexpr bool has_fields{render::detail::aggregate_size<T>() == n};
+static_assert(has_fields<draw_call, 6> && has_fields<trace::draw, 6> && has_fields<draw_state, 6>);
+static_assert(has_fields<render::viewport, 3> && has_fields<extent, 2> &&
+              has_fields<render::transforms, 2> && has_fields<vertex, 3>);
+static_assert(has_fields<perspective, 5> && has_fields<ortho, 6> &&
+              has_fields<translate_scale, 2> && has_fields<texture_desc, 5>);
+static_assert(std::variant_size_v<projection> == 2 && std::variant_size_v<modelview> == 2);
+
+/* A visitor of one overload per alternative: std::visit fails to compile
+ * when an alternative has none.
+ */
+template <typename... F>
+struct overloads : F...
+{
+	using F::operator()...;
+};
+
 /* A draw's payload without its vertices is under 128 bytes, so one of
  * max_draw_vertices fits its u32 length, and its byte count a 32-bit size_t.
  */
@@ -412,17 +434,16 @@ void writer::draw(const draw_call &call)
 
 void writer::write(const record &r)
 {
-	if (const auto *const c{std::get_if<trace::clear>(&r)})
-		clear(*c);
-	else if (std::holds_alternative<trace::present>(r))
-		present();
-	else if (const auto *const t{std::get_if<trace::texture>(&r)})
-	{
-		const auto image{t->image()};
-		texture(t->slot, image ? &image.value() : nullptr);
-	}
-	else if (const auto *const d{std::get_if<trace::draw>(&r)})
-		draw(d->call());
+	std::visit(overloads{
+	               [this](const trace::clear &c) { clear(c); },
+	               [this](const trace::present &) { present(); },
+	               [this](const trace::texture &t) {
+		               const auto image{t.image()};
+		               texture(t.slot, image ? &image.value() : nullptr);
+	               },
+	               [this](const trace::draw &d) { draw(d.call()); },
+	           },
+	           r);
 }
 
 draw_call draw::call() const
