@@ -2,6 +2,8 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
+- Testing a renderer and platform port: `docs/agents/testing-games.md`.
+
 ## Before exploring, read these
 
 This repo is single-context: read **`GLOSSARY.md`** at the repo root, and the ADRs in
