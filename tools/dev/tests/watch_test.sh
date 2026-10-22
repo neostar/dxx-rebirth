@@ -59,6 +59,26 @@ test_blind_window_lister_fails()
 	assert_eq "$rc" 1 "$out"
 }
 
+# Test that a crash report directory that is missing (a typo in
+# NO_WINDOW_REPORTS_DIR) or unreadable ends the watch with status 1, naming
+# it: a watch that cannot read it would report no crash ever.
+test_unreadable_reports_dir_fails()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	printf '%s\n' '1 Finder' > "$d/windows"
+	out=$(WATCH_WINDOWS_CMD=$(fake_lister "$d") NO_WINDOW_REPORTS_DIR="$d/typo" \
+		"$WATCH" --rounds 1 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "watch.sh: cannot read the crash report directory $d/typo"
+	chmod 000 "$d/reports"
+	out=$(WATCH_WINDOWS_CMD=$(fake_lister "$d") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$WATCH" --rounds 1 2>&1) && rc=0 || rc=$?
+	chmod 755 "$d/reports"
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "watch.sh: cannot read the crash report directory $d/reports"
+}
+
 # Test that a missing or non-numeric round count is a usage error.
 test_bad_rounds_is_usage_error()
 {

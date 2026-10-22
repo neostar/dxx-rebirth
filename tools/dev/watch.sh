@@ -10,7 +10,7 @@
 # - each crash report (.ips) written since the start prints
 #   "<UTC time> crash report: <process name> <file>", once.  The directory
 #   is ~/Library/Logs/DiagnosticReports, or NO_WINDOW_REPORTS_DIR; it is
-#   only read.
+#   only read.  One that cannot be read ends the watch with status 1.
 # - each on-screen window (CGWindowList) whose owner's name matches
 #   WATCH_NAMES, an extended regex (default: the games, the unit tests,
 #   probes, Problem Reporter), prints "<UTC time> window: <owner> (pid N)",
@@ -50,17 +50,22 @@ windows()
 }
 
 marker=$(mktemp "${TMPDIR:-/tmp}/watch.XXXXXX") || exit 1
-trap 'rm -f "$marker"' EXIT
+found=$(mktemp "${TMPDIR:-/tmp}/watch.XXXXXX") || { rm -f "$marker"; exit 1; }
+trap 'rm -f "$marker" "$found"' EXIT
 seen=$'\n'
 round=0
 while :; do
+	if ! find "$reports" -maxdepth 1 -name '*.ips' -newer "$marker" -print0 >"$found" 2>/dev/null; then
+		echo "watch.sh: cannot read the crash report directory $reports" >&2
+		exit 1
+	fi
 	while IFS= read -r -d '' f; do
 		[[ $seen == *$'\n'"report $f"$'\n'* ]] && continue
 		seen+="report $f"$'\n'
 		name=$(grep -oE '"(procName|app_name)" *: *"[^"]*"' "$f" | head -n 1 |
 			sed -E 's/^.*: *"(.*)"$/\1/')
 		echo "$(date -u +%FT%TZ) crash report: ${name:-unknown} $f"
-	done < <(find "$reports" -maxdepth 1 -name '*.ips' -newer "$marker" -print0 2>/dev/null)
+	done <"$found"
 	if ! list=$(windows) || [[ -z $list ]]; then
 		echo "watch.sh: cannot list the on-screen windows" >&2
 		exit 1
