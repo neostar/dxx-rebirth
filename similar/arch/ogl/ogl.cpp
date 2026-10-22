@@ -58,6 +58,7 @@
 #include "gamefont.h"
 #include "byteutil.h"
 #include "internal.h"
+#include "common/render/gl_device.h"
 #include "gauges.h"
 #include "object.h"
 #include "args.h"
@@ -585,6 +586,7 @@ void g3_draw_line(const g3_draw_line_context &context, const g3_draw_line_point 
 	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY> cs;
 	OGL_DISABLE(TEXTURE_2D);
 	glDisable(GL_CULL_FACE);
+	ogl_ambient().cull = render::cull::none;
 	std::array<GLfloat, 6> vertices = {{
 		f2glf(p0.p3_vec.x), f2glf(p0.p3_vec.y), -f2glf(p0.p3_vec.z),
 		f2glf(p1.p3_vec.x), f2glf(p1.p3_vec.y), -f2glf(p1.p3_vec.z)
@@ -684,6 +686,7 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 	glLineWidth(linedotscale*2);
 	OGL_DISABLE(TEXTURE_2D);
 	glDisable(GL_CULL_FACE);
+	ogl_ambient().cull = render::cull::none;
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 	
@@ -825,6 +828,7 @@ void g3_draw_sphere(grs_canvas &canvas, const g3_draw_sphere_point &pnt, fix rad
 	}
 	OGL_DISABLE(TEXTURE_2D);
 	glDisable(GL_CULL_FACE);
+	ogl_ambient().cull = render::cull::none;
 	glPushMatrix();
 	glTranslatef(f2glf(pnt.p3_vec.x),f2glf(pnt.p3_vec.y),-f2glf(pnt.p3_vec.z));
 	GLfloat gl1, gl2;
@@ -893,12 +897,9 @@ void _g3_draw_poly(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 {
 	if (pointlist.size() > MAX_POINTS_PER_POLY)
 		return;
-	flatten_array<GLfloat, 4, MAX_POINTS_PER_POLY> color_array;
-	flatten_array<GLfloat, 3, MAX_POINTS_PER_POLY> vertices;
+	std::array<render::vertex, MAX_POINTS_PER_POLY> vertices;
 
 	r_polyc++;
-	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY> cs;
-	OGL_DISABLE(TEXTURE_2D);
 	auto &&rgb{PAL2T(palette_color_index)};
 	const auto color_r{rgb.r / 63.0f};
 	const auto color_g{rgb.g / 63.0f};
@@ -908,26 +909,12 @@ void _g3_draw_poly(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 		? 1.0
 		: 1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0);
 
-	for (auto &&[p, v, c] : zip(
-			pointlist,
-			unchecked_partial_range(vertices.nested, pointlist.size()),
-			unchecked_partial_range(color_array.nested, pointlist.size())
-		)
-	)
+	for (auto &&[p, v] : zip(pointlist, unchecked_partial_range(vertices, pointlist.size())))
 	{
-		c[0] = color_r;
-		c[1] = color_g;
-		c[2] = color_b;
-		c[3] = color_a;
 		auto &pv = p->p3_vec;
-		v[0] = f2glf(pv.x);
-		v[1] = f2glf(pv.y);
-		v[2] = -f2glf(pv.z);
+		v = {{{f2glf(pv.x), f2glf(pv.y), -f2glf(pv.z)}}, {{color_r, color_g, color_b, color_a}}, {}};
 	}
-
-	glVertexPointer(3, GL_FLOAT, 0, vertices.flat.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.flat.data());
-	glDrawArrays(GL_TRIANGLE_FAN, 0, pointlist.size());
+	ogl_device().draw(ogl_ambient().fan(std::span(vertices).first(pointlist.size()), render::texture_slot::none));
 }
 
 /*
@@ -1266,6 +1253,7 @@ void ogl_toggle_depth_test(int enable)
 		glEnable(GL_DEPTH_TEST);
 	else
 		glDisable(GL_DEPTH_TEST);
+	ogl_ambient().depth = enable ? render::depth::test_and_write : render::depth::off;
 }
 
 /* 
@@ -1274,23 +1262,28 @@ void ogl_toggle_depth_test(int enable)
 void ogl_set_blending(const gr_blend cv_blend_func)
 {
 	GLenum s, d;
+	render::blend b;
 	switch (cv_blend_func)
 	{
 		case gr_blend::additive_a:
 			s = GL_SRC_ALPHA;
 			d = GL_ONE;
+			b = render::blend::additive_a;
 			break;
 		case gr_blend::additive_c:
 			s = GL_ONE;
 			d = GL_ONE;
+			b = render::blend::additive_c;
 			break;
 		case gr_blend::normal:
 		default:
 			s = GL_SRC_ALPHA;
 			d = GL_ONE_MINUS_SRC_ALPHA;
+			b = render::blend::normal;
 			break;
 	}
 	glBlendFunc(s, d);
+	ogl_ambient().blend_function = b;
 }
 
 void ogl_start_frame(grs_canvas &canvas)
@@ -1309,7 +1302,7 @@ void ogl_start_frame(grs_canvas &canvas)
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 
-	glClear(GL_DEPTH_BUFFER_BIT);
+	ogl_device().clear({.color = false, .depth = true});
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_FRONT);
 
@@ -1323,6 +1316,13 @@ void ogl_start_frame(grs_canvas &canvas)
 #endif
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();//clear matrix
+	auto &ambient{ogl_ambient()};
+	ambient.blend_function = render::blend::normal;
+	ambient.blending = true;
+	ambient.alpha_ref = render::default_alpha_ref;
+	ambient.depth = render::depth::test_and_write;
+	ambient.cull = render::cull::front;
+	ambient.transforms = {render::view_perspective, render::identity{}};
 }
 
 #if DXX_USE_STEREOSCOPIC_RENDER
@@ -1364,6 +1364,7 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 						}
 				}
 				glViewport(ogl_stereo_viewport[0], ogl_stereo_viewport[1], ogl_stereo_viewport[2], ogl_stereo_viewport[3]);
+				ogl_ambient().viewport = {ogl_stereo_viewport[0], ogl_stereo_viewport[1], {static_cast<uint32_t>(ogl_stereo_viewport[2]), static_cast<uint32_t>(ogl_stereo_viewport[3])}};
 			}();
 		}
 		// rightward image shift adjustment for left eye offset
@@ -1399,6 +1400,7 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 					break;
 			}
 			glViewport(ogl_stereo_viewport[0], ogl_stereo_viewport[1], ogl_stereo_viewport[2], ogl_stereo_viewport[3]);
+			ogl_ambient().viewport = {ogl_stereo_viewport[0], ogl_stereo_viewport[1], {static_cast<uint32_t>(ogl_stereo_viewport[2]), static_cast<uint32_t>(ogl_stereo_viewport[3])}};
 		}
 		// leftward image shift adjustment for right eye offset
 		stereo_transform_dxoff = dxoff;		// xoff < 0
@@ -1416,12 +1418,15 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 	ogl_stereo_transform[8] += stereo_transform_dxoff;
 	glLoadMatrixf(ogl_stereo_transform.data());
 	glMatrixMode(GL_MODELVIEW);
+	if (const auto p{std::get_if<render::perspective>(&ogl_ambient().transforms.projection)})
+		p->stereo_dx += stereo_transform_dxoff;
 }
 #endif
 
 void ogl_set_alpha_ref(const float ref)
 {
 	glAlphaFunc(GL_GEQUAL, ref);
+	ogl_ambient().alpha_ref = ref;
 }
 
 void ogl_enable_blending(const bool enable)
@@ -1430,11 +1435,51 @@ void ogl_enable_blending(const bool enable)
 		glEnable(GL_BLEND);
 	else
 		glDisable(GL_BLEND);
+	ogl_ambient().blending = enable;
+}
+
+render::ambient &ogl_ambient()
+{
+	static render::ambient ambient;
+	return ambient;
+}
+
+static std::unique_ptr<render::gl_device> ogl_device_instance;
+
+render::device &ogl_device()
+{
+	if (!ogl_device_instance) [[unlikely]]
+		throw std::logic_error("ogl_device: no render device before gr_set_mode");
+	return *ogl_device_instance;
+}
+
+void ogl_create_device()
+{
+	ogl_device_instance = std::make_unique<render::gl_device>(render::gl_caps(ogl_maxanisotropy), render::gl_front_end{
+		.swap = ogl_swap_buffers_internal,
+		.target_height = []() -> uint32_t { return SHEIGHT; },
+		.untextured = []() { OGL_DISABLE(TEXTURE_2D); },
+		.build_perspective = [](const render::perspective &p) {
+#if DXX_USE_OGLES
+			perspective(p.fovy, p.aspect, p.z_near, p.z_far);
+#else
+			gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
+#endif
+		},
+	});
+}
+
+void ogl_record_2d_state()
+{
+	auto &ambient{ogl_ambient()};
+	ambient.transforms = {render::screen_ortho, render::identity{}};
+	ambient.blend_function = render::blend::normal;
+	ambient.blending = true;
 }
 
 render::caps gr_caps()
 {
-	return render::gl_caps(ogl_maxanisotropy);
+	return ogl_device().caps();
 }
 
 bool ogl_bitmap_has_texture(const grs_bitmap &bm)
@@ -1456,6 +1501,10 @@ void ogl_end_frame(void){
 	glLoadIdentity();//clear matrix
 	glDisable(GL_CULL_FACE);
 	glDisable(GL_DEPTH_TEST);
+	auto &ambient{ogl_ambient()};
+	ambient.cull = render::cull::none;
+	ambient.depth = render::depth::off;
+	ambient.transforms = {render::screen_ortho, render::identity{}};
 }
 
 #if DXX_USE_DBG_HARNESS
@@ -1536,8 +1585,9 @@ void gr_flip(void)
 #if DXX_USE_DBG_HARNESS
 	harness_log_frame_hash();
 #endif
-	ogl_swap_buffers_internal();
-	glClear(GL_COLOR_BUFFER_BIT);
+	auto &device{ogl_device()};
+	device.present();
+	device.clear({.color = true, .depth = false});
 }
 
 // Allocate the pixel buffers 'pixels' and 'texbuf' based on current screen resolution

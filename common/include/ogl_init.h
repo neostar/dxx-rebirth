@@ -79,11 +79,16 @@ void ogl_start_frame(grs_canvas &);
 void ogl_stereo_frame(bool left_eye, int xoff);
 #endif
 void ogl_end_frame(void);
-/* Draw only pixels whose alpha is at least ref (the alpha test ogl_start_frame enables). */
+/* Draw only pixels whose alpha is at least ref, until the next call or
+ * ogl_start_frame, which resets it to render::default_alpha_ref.  Each draw
+ * through the render device carries the reference current when it is made.
+ */
 void ogl_set_alpha_ref(float ref);
 /* Blend what is drawn next with the target (the default), or overwrite it. */
 void ogl_enable_blending(bool enable);
-/* What the GL context supports beyond the common set. */
+/* What the renderer supports beyond the common set: the render device's
+ * caps.
+ */
 render::caps gr_caps();
 /* Whether bm has a GL texture that is still loaded. */
 bool ogl_bitmap_has_texture(const grs_bitmap &bm);

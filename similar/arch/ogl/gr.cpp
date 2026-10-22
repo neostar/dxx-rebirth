@@ -562,6 +562,8 @@ void gr_toggle_fullscreen()
 		glLoadIdentity();//clear matrix
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		ogl_record_2d_state();
+		ogl_create_device();
 		ogl_smash_texture_list_internal();//if we are or were fullscreen, changing vid mode will invalidate current textures
 	}
 	CGameCfg.WindowMode = !(local_sdl_video_flags & SDL_FULLSCREEN);
@@ -599,6 +601,7 @@ static void ogl_init_state(void)
 	glLoadIdentity();//clear matrix
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ogl_record_2d_state();
 	gr_palette_step_up(0,0,0);//in case its left over from in game
 
 	ogl_init_pixel_buffers(grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height());
@@ -731,6 +734,7 @@ int gr_set_mode(screen_mode mode)
 
 	ogl_init_window(w,h);//platform specific code
 	ogl_extensions_init();
+	ogl_create_device();
 	ogl_tune_for_current();
 	sync_helper.init(CGameArg.OglSyncMethod, CGameArg.OglSyncWait);
 
@@ -1142,6 +1146,9 @@ void ogl_do_palfx(void)
 	glDisableClientState(GL_COLOR_ARRAY);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	auto &ambient{ogl_ambient()};
+	ambient.blend_function = render::blend::normal;
+	ambient.blending = true;
 }
 
 static int ogl_brightness_ok;
@@ -1189,29 +1196,7 @@ void gr_palette_load(const palette_array_t &pal)
 
 void gr_read_pixels(const render::read_source source, const render::read_rect &rect, const render::pixel_format format, const std::span<uint8_t> pixels)
 {
-	if (pixels.size() != render::image_bytes(rect.size, format))
-		throw std::length_error("gr_read_pixels: buffer size does not match the rectangle");
-	if (pixels.empty())
-		return;
-	GLint pack_alignment;
-	glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
-#if !DXX_USE_OGLES
-	GLint read_buffer;
-	glGetIntegerv(GL_READ_BUFFER, &read_buffer);
-	GLint buffer = GL_FRONT;
-	if (source == render::read_source::drawing)
-		glGetIntegerv(GL_DRAW_BUFFER, &buffer);
-	glReadBuffer(buffer);
-#else
-	(void)source;
-#endif
-	glReadPixels(rect.x, render::bottom_up_y(SHEIGHT, rect), rect.size.width, rect.size.height, format == render::pixel_format::rgba8 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-#if !DXX_USE_OGLES
-	glReadBuffer(read_buffer);
-#endif
-	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
-	render::flip_rows(pixels, render::image_bytes({rect.size.width, 1}, format));
+	ogl_device().read_pixels(source, rect, format, pixels);
 }
 
 //writes out an uncompressed RGB .tga file

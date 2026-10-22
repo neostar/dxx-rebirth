@@ -13,6 +13,8 @@
 #include "ogl_init.h" // interface to OpenGL module
 #include "ogl_extensions.h"
 #include "gr.h"
+#include "common/render/ambient.h"
+#include "common/render/device.h"
 
 namespace dcx {
 void ogl_init_texture_list_internal(void);
@@ -21,6 +23,23 @@ void ogl_smash_texture_list_internal(void);
 extern int linedotscale;
 
 extern int GL_TEXTURE_2D_enabled;
+
+/* The blend, alpha reference, depth test, culling, viewport and transforms
+ * the GL state holds, which draws through the render device are built from
+ * (ADR 2).  Every change of that GL state outside the device records itself
+ * here.
+ */
+render::ambient &ogl_ambient();
+/* The render device of the current GL context, made by gr_set_mode. */
+render::device &ogl_device();
+/* Makes a render device for the GL context gr_set_mode just made or the GL
+ * state gr_toggle_fullscreen just set up.
+ */
+void ogl_create_device();
+/* Records what the GL setup for menus sets: the 2D projection, an identity
+ * modelview and normal blending.
+ */
+void ogl_record_2d_state();
 
 static constexpr const rgb_t &CPAL2T(const color_palette_index c)
 {
@@ -62,7 +81,9 @@ static inline void OGL_VIEWPORT(const unsigned x, const unsigned y, const unsign
 	{
 		last_width = w;
 		last_height = h;
-		glViewport(x,grd_curscreen->sc_canvas.cv_bitmap.bm_h-y-h,w,h);
+		const GLint gl_y = grd_curscreen->sc_canvas.cv_bitmap.bm_h-y-h;
+		glViewport(x,gl_y,w,h);
+		ogl_ambient().viewport = {static_cast<int32_t>(x), gl_y, {w, h}};
 	}
 }
 
