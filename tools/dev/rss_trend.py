@@ -2,20 +2,24 @@
 # Check that a process's memory stays flat: the endurance run of
 # tools/dev/nightly.sh (ADR 5, nightly tier).
 #
-#   rss_trend.py [--warmup SECONDS] [--max-slope MIB_PER_HOUR] SAMPLES
+#   rss_trend.py [--warmup SECONDS] [--window SECONDS] [--max-slope MIB_PER_HOUR] SAMPLES
 #
 # SAMPLES holds one "SECONDS RSS_KIB" line per sample (seconds since the
 # start, resident set size in KiB, as `ps -o rss=` prints it).  Samples in
 # the warm-up (default 120 s: levels, sounds and textures loading) are left
-# out; a least-squares line through the rest gives the growth rate, which
-# fails above the limit (default 8 MiB per hour).  A line rather than first
-# against last, so that one allocation peak at either end does not decide.
-# Fewer than 10 samples after the warm-up fail: too few to call it flat.
+# out.  The rest are cut into windows (default 60 s) from the end of the
+# warm-up, and a least-squares line through each whole window's lowest
+# sample gives the growth rate, which fails above the limit (default 8 MiB
+# per hour).  Demo playback loops: RSS rises through each demo and falls at the
+# next by about 10 MiB, so the minima, not every sample, show a leak, and
+# where a run ends in the loop does not decide.  Fewer than 10 samples or 3
+# windows after the warm-up fail: too few to call it flat.
 # Exit status 0 flat, 1 growing or too few samples, 2 unreadable input.
 import argparse
 import sys
 
 MIN_SAMPLES = 10
+MIN_WINDOWS = 3
 
 
 def read_samples(path):
@@ -47,6 +51,7 @@ def slope(samples):
 def main():
 	p = argparse.ArgumentParser(description='Fail when RSS grows over time.')
 	p.add_argument('--warmup', type=float, default=120)
+	p.add_argument('--window', type=float, default=60)
 	p.add_argument('--max-slope', type=float, default=8, help='MiB per hour')
 	p.add_argument('samples')
 	args = p.parse_args()
@@ -60,12 +65,24 @@ def main():
 		print(f'rss_trend: too few samples after the {args.warmup:g} s warm-up: '
 			f'{len(kept)}, need {MIN_SAMPLES}')
 		return 1
-	mib_h = slope(kept) * 3600 / 1024
+	minima = {}
+	full = int((kept[-1][0] - args.warmup) // args.window)
+	for t, r in kept:
+		w = int((t - args.warmup) // args.window)
+		if w >= full and full > 0:
+			continue  # the last window is cut short by the end of the run
+		if w not in minima or r < minima[w][1]:
+			minima[w] = (t, r)
+	if len(minima) < MIN_WINDOWS:
+		print(f'rss_trend: too few {args.window:g} s windows after the warm-up: '
+			f'{len(minima)}, need {MIN_WINDOWS}')
+		return 1
+	mib_h = slope(list(minima.values())) * 3600 / 1024
 	first, last = kept[0][1] / 1024, kept[-1][1] / 1024
 	verdict = 'growing' if mib_h > args.max_slope else 'flat'
 	print(f'rss_trend: {len(kept)} samples over {kept[-1][0] - kept[0][0]:g} s after the '
 		f'{args.warmup:g} s warm-up, {first:.1f} MiB to {last:.1f} MiB, slope '
-		f'{mib_h:.1f} MiB/h, limit {args.max_slope:g} MiB/h: {verdict}')
+		f'{mib_h:.1f} MiB/h over {len(minima)} window minima, limit {args.max_slope:g} MiB/h: {verdict}')
 	return 1 if verdict == 'growing' else 0
 
 

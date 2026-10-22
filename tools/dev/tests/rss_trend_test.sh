@@ -85,4 +85,19 @@ test_malformed_line_fails()
 	assert_contains "$out" "oops"
 }
 
+# Test that a sawtooth (RSS rising through each demo loop and falling at
+# the next) is flat: the trend is fitted to each window's minimum, so
+# where a short run ends in the loop does not decide.
+test_sawtooth_is_flat()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	awk 'BEGIN { for (t = 0; t <= 290; t += 5) printf "%d %d\n", t, 163840 + 10240 * ((t % 50) / 45) }' \
+		> "$d/rss"
+	out=$("${TREND[@]}" --warmup 0 --window 50 "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$("${TREND[@]}" --warmup 0 --window 50 --max-slope 1 "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
 run_tests
