@@ -155,8 +155,18 @@ if [[ $gate -eq 1 ]]; then
 		printf '%s\n' "${plan_lines[@]}"
 		exit 0
 	fi
-	echo "ci.sh: --gate plans only, with --plan, until it runs its parts" >&2
-	exit 2
+	if [[ -z ${DXX_D2_DATA-} || ! -f ${DXX_D2_DATA-}/DESCENT2.HOG ]]; then
+		echo "ci.sh: the merge gate needs DXX_D2_DATA, the directory holding DESCENT2.HOG," \
+			"for R1 (docs/agents/game-data.md); it is '${DXX_D2_DATA-}'" >&2
+		exit 1
+	fi
+	dirty=$(git -C "$root" status --porcelain --untracked-files=normal) ||
+		{ echo "ci.sh: cannot read the working tree's status" >&2; exit 1; }
+	if [[ -n $dirty ]]; then
+		echo "ci.sh: the merge gate checks commits; commit or remove these first:" >&2
+		printf '%s\n' "$dirty" >&2
+		exit 1
+	fi
 fi
 
 log=$root/build/ci/ci.log
@@ -298,28 +308,68 @@ while :; do
 done
 
 logs=$(mktemp -d "${TMPDIR:-/tmp}/ci.XXXXXX")
-legs=()
-declare -A pid
-if [[ $native -eq 1 ]]; then
-	legs+=(native)
-	{
-		echo "== ci: native check.sh ${fast[*]-}"
-		"$dev_dir/check.sh" "${fast[@]+"${fast[@]}"}"
-	} > "$logs/native" 2>&1 &
-	pid[native]=$!
-fi
-legs+=(container)
-{
-	echo "== ci: container check.sh ${clean[*]-} ${fast[*]-}"
-	"$dev_dir/container.sh" check "${clean[@]+"${clean[@]}"}" "${fast[@]+"${fast[@]}"}"
-} > "$logs/container" 2>&1 &
-pid[container]=$!
-
 failed=()
-for leg in "${legs[@]}"; do
-	wait "${pid[$leg]}" || failed+=("$leg")
-	tee -a "$log" < "$logs/$leg"
-done
+# Run the legs: native (unless --container) and container, at once, each
+# one's output printed whole when both are done, native first; add each
+# failed one to failed.
+run_legs()
+{
+	local leg legs=()
+	declare -A pid
+	if [[ $native -eq 1 ]]; then
+		legs+=(native)
+		{
+			echo "== ci: native check.sh ${fast[*]-}"
+			"$dev_dir/check.sh" "${fast[@]+"${fast[@]}"}"
+		} > "$logs/native" 2>&1 &
+		pid[native]=$!
+	fi
+	legs+=(container)
+	{
+		echo "== ci: container check.sh ${clean[*]-} ${fast[*]-}"
+		"$dev_dir/container.sh" check "${clean[@]+"${clean[@]}"}" "${fast[@]+"${fast[@]}"}"
+	} > "$logs/container" 2>&1 &
+	pid[container]=$!
+	for leg in "${legs[@]}"; do
+		wait "${pid[$leg]}" || failed+=("$leg")
+		tee -a "$log" < "$logs/$leg"
+	done
+}
+
+# Run part $1 of the merge gate, the command "${@:2}", its output also
+# into the log; add $1 to failed when it fails.
+gate_part()
+{
+	local part=$1 start=$EPOCHSECONDS rc
+	shift
+	say "== ci: gate part $part: $*"
+	"$@" 2>&1 | tee -a "$log"
+	rc=${PIPESTATUS[0]}
+	say "-- ci: gate part $part: $((EPOCHSECONDS - start)) s"
+	[[ $rc -eq 0 ]] || failed+=("$part")
+}
+
+if [[ $gate -eq 0 ]]; then
+	run_legs
+else
+	for line in "${plan_lines[@]}"; do
+		say "$line"
+	done
+	for part in "${gate_parts[@]}"; do
+		case $part in
+		gate) gate_part gate "$dev_dir/check.sh" --gate "$gate_rev" ;;
+		tools) gate_part tools "$dev_dir/check.sh" --tools "${gate_tests[@]+"${gate_tests[@]}"}" ;;
+		container) gate_part container "$dev_dir/container.sh" check --clean ;;
+		full)
+			clean=(--clean)
+			say "== ci: gate part full: ci.sh --clean"
+			run_legs
+			[[ " ${failed[*]-} " != *" native "* && " ${failed[*]-} " != *" container "* ]] ||
+				failed=("${failed[@]/native}") failed=("${failed[@]/container}") failed+=(full)
+			read -r -a failed <<<"${failed[*]}" ;;
+		esac
+	done
+fi
 
 if [[ ${#failed[@]} -ne 0 ]]; then
 	say "ci.sh: failed: ${failed[*]}" >&2

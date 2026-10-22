@@ -121,6 +121,84 @@ test_plan_picks_shell_tests()
 	done
 }
 
+# Test that a planted unmapped path runs the gate and then the full run,
+# both legs, the container leg on a clean clone; and that a failed gate
+# fails ci.sh, naming it.
+test_unmapped_path_runs_the_full_run()
+{
+	local bin r out rc sha
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	sha=$(tgit -C "$r" rev-parse base)
+	change "$r" contrib/planted.txt
+	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "gate: contrib/planted.txt: full"
+	assert_contains "$out" "native check --gate $sha"
+	assert_contains "$out" $'== ci: native check.sh \nnative check \n'
+	assert_contains "$out" "container ran"
+	assert_contains "$(cat "$bin/docker.args")" "CI_COMMIT=$(tgit -C "$r" rev-parse HEAD)"
+	assert_not_contains "$out" "native check --tools"
+	out=$(FAKE_CHECK_RC=1 run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: failed: gate full"
+}
+
+# Test that a game change runs the gate alone, a tools change adds the
+# shell tests, and an image input adds the container leg, not the full run.
+test_parts_follow_the_changed_paths()
+{
+	local bin r out
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	change "$r" common/main/game.cpp
+	out=$(run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "native check --gate"
+	assert_not_contains "$out" "native check --tools"
+	assert_not_contains "$out" "container ran"
+	assert_contains "$out" "ci.sh: passed"
+	change "$r" tools/dev/run.sh
+	out=$(run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "native check --tools a_test.sh"
+	assert_not_contains "$out" "container ran"
+	change "$r" tools/dev/toolchain.pins
+	out=$(run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "container ran"
+	assert_contains "$(cat "$bin/docker.args")" "CI_COMMIT="
+	assert_not_contains "$out" $'native check \n'
+}
+
+# Test that the gate fails before running anything when DXX_D2_DATA is
+# unset or names no game data, or the tree has uncommitted or untracked
+# files, and that a bad --base or option mix is a usage error.
+test_gate_refuses_before_running()
+{
+	local bin r out rc d
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	change "$r" common/main/game.cpp
+	for d in '' "$bin"; do
+		out=$(DATA=$d run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "data '$d': $out"
+		assert_contains "$out" "the merge gate needs DXX_D2_DATA"
+		assert_not_contains "$out" "native check"
+	done
+	echo draft > "$r/untracked.txt"
+	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "commit or remove"
+	assert_not_contains "$out" "native check"
+	rm "$r/untracked.txt"
+	for a in '--gate --base no-such-rev' '--gate --fast' '--plan' '--base base' '--gate --base'; do
+		# shellcheck disable=SC2086  # split the arguments on purpose
+		out=$(run_gate "$r" "$bin" $a) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "$a: $out"
+	done
+}
+
 # Make a throwaway repository holding a copy of tools/dev (no tests, so
 # check.sh does not recurse into this file; lib.sh and a_test.sh, which
 # passes, and b_test.sh, which fails), with fakes that log each call to
