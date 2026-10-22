@@ -171,6 +171,122 @@ test_glibcxx_debug_known_failures()
 	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-homing.check"
 }
 
+# Write into directory $1 (DEMO_TIMEOUT: the demo timeout, default 60 s)
+# a fake game for the demo steps, a fake D2 data
+# directory, an empty crash report directory and a fake frontmost-app
+# sampler, and print the environment assignments that make nightly.sh use
+# them, one per line.  The game records its arguments and the harness
+# variables in $1/game.args, then every 0.1 s writes a demo section to the
+# frame hash log until TERM ends it, and per FAKE_GAME: `trap` prints a
+# libc++ hardening message and exits 1 after one section, `report` writes
+# a crash report of itself, `idle` writes no section, `grow` takes 2 MB
+# more memory each time.  The growth limit is 1000 MiB/h: bash's own
+# memory moves by kilobytes, which over 3 s extrapolate to megabytes an
+# hour.
+fake_game()
+{
+	local d=$1
+	mkdir -p "$d/data" "$d/reports" "$d/work"
+	touch "$d/data/DESCENT2.HOG"
+	cat > "$d/fake-game" <<GAME
+#!/usr/bin/env bash
+trap 'exit 0' TERM
+echo "\$* hidden=\$DXX_DBG_HIDDEN frametime=\$DXX_DBG_FIXED_FRAMETIME home=\$D2X_REBIRTH_HOME" \
+	"asan=\$ASAN_OPTIONS ubsan=\$UBSAN_OPTIONS" > "$d/game.args"
+ls -A "\$D2X_REBIRTH_HOME" >> "$d/game.args"
+s=
+while :; do
+	case \${FAKE_GAME-} in
+	idle) ;;
+	*) printf '# demo playback demos/fake.dem\n0 0\n' >> "\$DXX_DBG_FRAMEHASH" ;;
+	esac
+	case \${FAKE_GAME-} in
+	trap) echo 'x.h:1: libc++ Hardening assertion n < size() failed: out of range' >&2
+		exit 1 ;;
+	report) printf '{"pid" : %d, "procName" : "fake-game"}\n' \$\$ > "$d/reports/fake.ips" ;;
+	grow) s+=\$(head -c 2000000 /dev/zero | tr '\\0' x) ;;
+	esac
+	sleep 0.1
+done
+GAME
+	chmod +x "$d/fake-game"
+	printf '%s\n' "DXX_NIGHTLY_GAME=$d/fake-game" "DXX_D2_DATA=$d/data" \
+		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
+		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
+		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 DXX_NIGHTLY_WARMUP=0 \
+		DXX_NIGHTLY_MAX_SLOPE=1000 RUN_KILL_AFTER=2
+}
+
+# Run the native leg's step $2 with the fake game in directory $1, with
+# the remaining arguments.
+game_step()
+{
+	local vars
+	mapfile -t vars < <(fake_game "$1")
+	env "${vars[@]}" "$DEV_DIR/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1
+}
+
+# Test that the hardened demo run passes once a whole demo has played, and
+# runs the game windowless as docs/agents/game-data.md says: hidden, fixed
+# frame time, a fresh home, the harness pilot, no movies, the sanitizer
+# options that never abort.
+test_hardened_demo_passes_a_played_demo()
+{
+	local d out args
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$d/work/hardened_demo-home" && touch "$d/work/hardened_demo-home/stale"
+	out=$(game_step "$d" hardened_demo)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "complete demo playback"
+	args=$(cat "$d/game.args")
+	assert_contains "$args" "-hogdir $d/data -window -pilot harness -nomovies -autodemo"
+	assert_contains "$args" "hidden=1 frametime=30 home=$d/work/hardened_demo-home"
+	assert_contains "$args" "asan=abort_on_error=0 ubsan=halt_on_error=1:abort_on_error=0"
+	assert_not_contains "$args" "stale"
+}
+
+# Test that a hardening trap fails the run, quoting the trap.
+test_hardened_demo_fails_on_trap()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME='trap' game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "libc++ Hardening assertion"
+	assert_contains "$out" "ended by itself"
+}
+
+# Test that a crash report of the game fails the run.
+test_hardened_demo_fails_on_crash_report()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=report game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "crash report"
+}
+
+# Test that a run with no whole demo before the timeout fails.
+test_hardened_demo_fails_without_a_demo()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(FAKE_GAME=idle DEMO_TIMEOUT=3 game_step "$d" hardened_demo) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no complete demo playback in 3 s"
+}
+
+# Test that the demo steps are a SKIP naming DXX_D2_DATA without the data.
+test_demo_steps_skip_without_data()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	out=$(env DXX_D2_DATA="$d/none" "$DEV_DIR/nightly.sh" --leg native \
+		--steps hardened_demo 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP hardened_demo: DXX_D2_DATA"
+}
+
 # Test that the steps without a runner yet are SKIPs naming why: TSan the
 # ticket that adds audio-thread tests, cppcheck and CodeQL the owner's
 # install decision.

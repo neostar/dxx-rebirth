@@ -20,6 +20,9 @@
 #                   compilation database
 #   thread_safety   clang's -Wthread-safety on the same files
 #   tsan            ThreadSanitizer on the audio-thread tests (none yet)
+#   hardened_demo   D2 demo playback in the hardened debug-harness build,
+#                   windowless through run.sh; a hardening trap, a
+#                   sanitizer report or a crash report fails it
 #   cppcheck,       SKIPs until toolchain.pins pins them (the owner's
 #   codeql          decision)
 #   container leg:
@@ -40,7 +43,7 @@ usage()
 	exit 2
 }
 
-native_steps=(analyzer thread_safety tsan cppcheck codeql)
+native_steps=(analyzer thread_safety tsan hardened_demo cppcheck codeql)
 container_steps=(glibcxx_debug)
 
 harness_dir=build/nightly/harness
@@ -198,6 +201,100 @@ not_pinned()
 }
 step_cppcheck() { not_pinned cppcheck cppcheck; }
 step_codeql() { not_pinned codeql codeql; }
+
+# The demo runs: the debug-harness game (DXX_NIGHTLY_GAME, else built),
+# the D2 data (DXX_D2_DATA), and a work directory for the frame hash logs,
+# homes and outputs, derived from the licensed data (DXX_NIGHTLY_WORK,
+# default traces/local/nightly, which git ignores).
+work=${DXX_NIGHTLY_WORK:-$root/traces/local/nightly}
+
+# Succeed if DXX_D2_DATA holds the D2 data; else print step $1's SKIP
+# and fail.
+need_data()
+{
+	[[ -n ${DXX_D2_DATA-} && -f $DXX_D2_DATA/DESCENT2.HOG ]] && return 0
+	echo "SKIP $1: DXX_D2_DATA names no directory holding DESCENT2.HOG (docs/agents/game-data.md)"
+	return 1
+}
+
+# Print the game to run, building it unless DXX_NIGHTLY_GAME names one.
+game_binary()
+{
+	if [[ -n ${DXX_NIGHTLY_GAME-} ]]; then
+		printf '%s\n' "$DXX_NIGHTLY_GAME"
+		return
+	fi
+	build_harness >&2 || return
+	printf '%s\n' "$root/$harness_dir/d2x-rebirth/d2x-rebirth"
+}
+
+# Start demo run $1 of game $2 in the background, windowless as
+# docs/agents/game-data.md says, from a fresh home; set run_pid (run.sh's),
+# frames (the frame hash log) and out (its output).
+demo_start()
+{
+	local home=$work/$1-home
+	rm -rf "$home" && mkdir -p "$home" || return
+	frames=$work/$1.frames out=$work/$1.out
+	rm -f "$frames"
+	ASAN_OPTIONS=abort_on_error=0 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=0 \
+		DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$frames \
+		D2X_REBIRTH_HOME=$home "$dev_dir/run.sh" "$2" -hogdir "$DXX_D2_DATA" \
+		-window -pilot harness -nomovies -autodemo > "$out" 2>&1 &
+	run_pid=$!
+}
+
+# Print how many demo playbacks the frame hash log holds whole: each
+# section but the last, which the run's end may cut.
+demos_played()
+{
+	local n
+	n=$(grep -c '^# demo playback' "$frames" 2>/dev/null)
+	echo $(( ${n:-0} > 0 ? n - 1 : 0 ))
+}
+
+# End demo run $1 (TERM to run.sh, unless $2 says the game ended by
+# itself) and fail on what makes it red: the game ending by itself, a
+# crash report, focus taken, or a hardening, sanitizer or assertion
+# message in its output, which is printed whole in that case.
+demo_finish()
+{
+	local rc=0 hits
+	if [[ -n $2 ]]; then
+		wait "$run_pid"
+		echo "$1: the game ended by itself, status $?, before the run was over"
+		rc=1
+	else
+		kill -TERM "$run_pid" 2>/dev/null
+		wait "$run_pid"
+	fi
+	hits=$(grep -E 'crash report|no-window\.sh:|Hardening assertion|_GLIBCXX|Assertion .* failed|runtime error:|Sanitizer' "$out")
+	[[ -z $hits ]] || { printf '%s\n' "$hits"; rc=1; }
+	[[ $rc -eq 0 ]] || echo "$1: output in $out"
+	return "$rc"
+}
+
+# D2 demo playback in the hardened build: at least one whole demo within
+# DXX_NIGHTLY_DEMO_TIMEOUT seconds (default 600).
+step_hardened_demo()
+{
+	local bin early='' played=0 rc=0 timeout=${DXX_NIGHTLY_DEMO_TIMEOUT:-600} deadline
+	need_data hardened_demo || return 0
+	bin=$(game_binary) || { echo "hardened_demo: building the harness failed"; return 1; }
+	demo_start hardened_demo "$bin" || return 1
+	deadline=$((EPOCHSECONDS + timeout))
+	while [[ $EPOCHSECONDS -lt $deadline ]]; do
+		played=$(demos_played)
+		[[ $played -ge 1 ]] && break
+		kill -0 "$run_pid" 2>/dev/null || { early=1; break; }
+		sleep 0.5
+	done
+	demo_finish hardened_demo "$early" || rc=1
+	played=$(demos_played)
+	echo "hardened_demo: $played complete demo playbacks"
+	[[ $played -ge 1 ]] || { echo "hardened_demo: no complete demo playback in $timeout s"; rc=1; }
+	return "$rc"
+}
 
 leg='' only='' endurance=''
 while [[ $# -gt 0 ]]; do
