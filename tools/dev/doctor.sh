@@ -179,14 +179,14 @@ macho_loads()
 
 # macOS: each Mach-O library (*.dylib, *.so) under $1/lib loads only
 # through @rpath, @loader_path or @executable_path, from /usr/lib or
-# /System (the dyld shared cache), or from $1 itself, and each library it
-# names exists: @rpath ones next to it or in its LC_RPATH directories,
-# @loader_path ones from its directory.  @executable_path names the
-# program's directory, unknown here, so only its form is checked.  A
-# library naming another place works only while that place exists (a
-# library built in a removed worktree); so does its own install name,
-# which whatever links it records.  Prints a FAIL per reference, else
-# counts the libraries into libs_checked.
+# /System (the dyld shared cache), and each library it names exists:
+# @rpath ones next to it or in its LC_RPATH directories, @loader_path ones
+# from its directory.  @executable_path names the program's directory,
+# unknown here, so only its form is checked.  A library naming an absolute
+# path works only while that path exists: not once the prefix moves, nor
+# once the worktree it was built in is removed; so does its own install
+# name, which whatever links it records.  Prints a FAIL per reference,
+# else counts the libraries into libs_checked.
 check_macho_refs()
 {
 	local root=$1 f rel dir lib rp found rpaths logical physical
@@ -200,7 +200,9 @@ check_macho_refs()
 		done < <(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2 }')
 		lib=$(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_ID_DYLIB" { getline; getline; print $2 }')
 		case $lib in
-		''|@*|"$root"/*|"$logical"/*|"$physical"/*) ;;
+		''|@*) ;;
+		"$root"/*|"$logical"/*|"$physical"/*)
+			echo "FAIL libs $rel: install name $lib is absolute; name it by @rpath" ;;
 		*) echo "FAIL libs $rel: install name $lib lies outside $root" ;;
 		esac
 		while read -r lib; do
@@ -215,7 +217,7 @@ check_macho_refs()
 			@loader_path/*)
 				[[ -e ${lib/@loader_path/$dir} ]] || echo "FAIL libs $rel: $lib does not exist" ;;
 			"$root"/*|"$logical"/*|"$physical"/*)
-				[[ -e $lib ]] || echo "FAIL libs $rel: $lib does not exist" ;;
+				echo "FAIL libs $rel: $lib is absolute; name it by @rpath" ;;
 			*) echo "FAIL libs $rel: $lib lies outside $root, /usr/lib and /System" ;;
 			esac
 		done < <(macho_loads "$f")

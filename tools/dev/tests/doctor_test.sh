@@ -263,8 +263,9 @@ make_dylib()
 # pass when they load only through @rpath and from /usr/lib and /System,
 # and fail, one line per reference, when one names a library outside the
 # prefix (also an existing one), an @rpath library that does not resolve,
-# or a library in the prefix that does not exist, and when its own install
-# name lies outside (whatever links it would record that place).
+# or a library in the prefix by its absolute path, and when its own install
+# name lies outside or is absolute (whatever links it would record that
+# place): an absolute path breaks once the prefix moves.
 test_prefix_libraries_reference_only_allowed_places()
 {
 	local d p out rc
@@ -278,26 +279,27 @@ test_prefix_libraries_reference_only_allowed_places()
 	"$DEV_DIR/deps.sh" --manifest "$d/manifest" stamp > "$p/deps.stamp"
 	make_dylib "$d" "$p/lib/libgood.dylib" @rpath/libgood.dylib
 	make_dylib "$d" "$p/lib/libuser.dylib" @rpath/libuser.dylib "$p/lib/libgood.dylib"
-	make_dylib "$d" "$p/lib/sub/libabs.dylib" @rpath/libabs.dylib "$p/lib/libgood.dylib"
-	install_name_tool -change @rpath/libgood.dylib "$p/lib/libgood.dylib" "$p/lib/sub/libabs.dylib"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$p" --venv "$d/venv") &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
-	assert_contains "$out" "ok   libs: 3 Mach-O libraries"
+	assert_contains "$out" "ok   libs: 2 Mach-O libraries"
 	make_dylib "$d" "$d/elsewhere/libout.dylib" "$d/elsewhere/libout.dylib"
 	make_dylib "$d" "$p/lib/libgone.dylib" @rpath/libgone.dylib
-	make_dylib "$d" "$p/lib/libprefixgone.dylib" "$p/lib/libprefixgone.dylib"
+	make_dylib "$d" "$p/lib/libprefixabs.dylib" "$p/lib/libprefixabs.dylib"
 	make_dylib "$d" "$p/lib/libbad.dylib" @rpath/libbad.dylib "$d/elsewhere/libout.dylib" \
-		"$p/lib/libgone.dylib" "$p/lib/libprefixgone.dylib"
+		"$p/lib/libgone.dylib"
+	make_dylib "$d" "$p/lib/sub/libabs.dylib" @rpath/libabs.dylib "$p/lib/libgood.dylib"
+	install_name_tool -change @rpath/libgood.dylib "$p/lib/libgood.dylib" "$p/lib/sub/libabs.dylib"
 	make_dylib "$d" "$d/venv/lib/site/ext.so" @rpath/ext.so "$d/elsewhere/libout.dylib"
 	make_dylib "$d" "$p/lib/libid.dylib" "$d/elsewhere/libid.dylib"
-	rm "$p/lib/libgone.dylib" "$p/lib/libprefixgone.dylib"
+	rm "$p/lib/libgone.dylib"
 	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$p" --venv "$d/venv") &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "FAIL libs lib/libbad.dylib: $d/elsewhere/libout.dylib lies outside $p"
 	assert_contains "$out" "FAIL libs lib/libbad.dylib: @rpath/libgone.dylib does not resolve"
-	assert_contains "$out" "FAIL libs lib/libbad.dylib: $p/lib/libprefixgone.dylib does not exist"
+	assert_contains "$out" "FAIL libs lib/sub/libabs.dylib: $p/lib/libgood.dylib is absolute; name it by @rpath"
+	assert_contains "$out" "FAIL libs lib/libprefixabs.dylib: install name $p/lib/libprefixabs.dylib is absolute; name it by @rpath"
 	assert_contains "$out" "FAIL libs lib/site/ext.so: $d/elsewhere/libout.dylib lies outside $d/venv"
 	assert_contains "$out" "FAIL libs lib/libid.dylib: install name $d/elsewhere/libid.dylib lies outside $p"
 	assert_not_contains "$out" "libuser"
