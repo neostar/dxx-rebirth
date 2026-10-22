@@ -5143,6 +5143,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-caps', (
 			'common/render/unittest/caps.cpp',
 			)),
+		RuntimeTest('test-render-ambient', (
+			'common/render/unittest/ambient.cpp',
+			)),
 		RuntimeTest('test-trace', (
 			'common/render/unittest/trace.cpp',
 			'common/render/trace.cpp',
