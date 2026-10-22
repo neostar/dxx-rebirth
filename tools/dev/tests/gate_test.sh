@@ -12,7 +12,8 @@ export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
 export CHECK_SHELLCHECK=no-such-shellcheck
 
 # Make a throwaway repository holding tools/dev with a fake check.sh that
-# prints its arguments (exit $FAKE_CHECK_RC, default 0), a tests/ directory
+# prints its arguments (exit $FAKE_CHECK_RC, default 0; writing the file
+# $FAKE_CHECK_TOUCH when set), a tests/ directory
 # with a_test.sh (naming run.sh) and lib.sh, committed, and the base
 # branch `base` at that commit; put a fake docker into $1 (logging its
 # arguments to $1/docker.args).  Print the repository's path.
@@ -24,8 +25,8 @@ make_gate_repo()
 	cp "$DEV_DIR"/{ci,container,deps,env,run}.sh "$DEV_DIR"/{toolchain.pins,requirements.lock} \
 		"$r/tools/dev/"
 	cp -R "$DEV_DIR/container" "$r/tools/dev/"
-	printf '#!/usr/bin/env bash\necho "native check $*"\nexit "${FAKE_CHECK_RC:-0}"\n' \
-		> "$r/tools/dev/check.sh"
+	printf '#!/usr/bin/env bash\necho "native check $*"\n%s\nexit "${FAKE_CHECK_RC:-0}"\n' \
+		'[[ -z ${FAKE_CHECK_TOUCH-} ]] || echo x > "$FAKE_CHECK_TOUCH"' > "$r/tools/dev/check.sh"
 	chmod +x "$r/tools/dev/check.sh"
 	printf '# runs tools/dev/run.sh\n' > "$r/tools/dev/tests/a_test.sh"
 	printf '# helpers\n' > "$r/tools/dev/tests/lib.sh"
@@ -97,7 +98,7 @@ test_plan_maps_paths_to_steps()
 		out=$(run_gate "$r" "$bin" --gate --plan --base HEAD~1)
 		assert_eq "$?" 0 "$p: $out"
 		assert_contains "$out" "gate: $p: ${want[$p]}"
-		assert_eq "$(grep -vc -e '^gate: base ' -e '^gate: parts: ' -e '^gate: shell tests: ' <<<"$out")" \
+		assert_eq "$(grep -vc -e '^gate: head ' -e '^gate: base ' -e '^gate: parts: ' -e '^gate: shell tests: ' <<<"$out")" \
 			1 "$p: $out"
 	done
 }
@@ -199,11 +200,75 @@ test_gate_refuses_before_running()
 	assert_contains "$out" "commit or remove"
 	assert_not_contains "$out" "native check"
 	rm "$r/untracked.txt"
-	for a in '--gate --base no-such-rev' '--gate --fast' '--plan' '--base base' '--gate --base'; do
+	for a in '--gate --base no-such-rev' '--gate --fast' '--plan' '--base base' '--gate --base' \
+		'--tested' '--tested HEAD --gate' '--gate --tested HEAD' '--tested no-such-rev'; do
 		# shellcheck disable=SC2086  # split the arguments on purpose
 		out=$(run_gate "$r" "$bin" $a) && rc=0 || rc=$?
 		assert_eq "$rc" 2 "$a: $out"
 	done
+}
+
+# Test that the gate refuses an empty base..HEAD (HEAD is the base, or
+# already merged into it), which would check nothing, with --plan too.
+test_gate_refuses_an_empty_range()
+{
+	local bin r out rc a
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	tgit -C "$r" branch sdl-gpu-port
+	for a in '--gate --base HEAD' '--gate --base HEAD --plan' '--gate'; do
+		# shellcheck disable=SC2086  # split the arguments on purpose
+		out=$(run_gate "$r" "$bin" $a) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$a: $out"
+		assert_contains "$out" "no commits in"
+		assert_not_contains "$out" "native check"
+	done
+	change "$r" common/main/game.cpp
+	tgit -C "$r" branch -f sdl-gpu-port HEAD
+	out=$(run_gate "$r" "$bin" --gate) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "a merged tip: $out"
+	assert_contains "$out" "no commits in"
+}
+
+# Test that the gate logs HEAD and its tree first, and that --tested REV
+# passes only on a tree a passing gate checked, in any worktree, whatever
+# the commit (signing at merge rewrites the commit, not the tree).
+test_tested_names_the_trees_the_gate_passed()
+{
+	local bin r out rc head tree wt
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	change "$r" common/main/game.cpp
+	head=$(tgit -C "$r" rev-parse HEAD) tree=$(tgit -C "$r" rev-parse 'HEAD^{tree}')
+	out=$(run_gate "$r" "$bin" --gate --base base --plan)
+	assert_contains "$(sed -n 1p <<<"$out")" "gate: head $head tree $tree"
+	out=$(run_gate "$r" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "untested: $out"
+	assert_contains "$out" "the merge gate has not passed on tree $tree"
+	out=$(FAKE_CHECK_RC=1 run_gate "$r" "$bin" --gate --base base)
+	out=$(run_gate "$r" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "a failed gate: $out"
+	out=$(FAKE_CHECK_TOUCH=$r/new.txt run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "a tree changed while the gate ran: $out"
+	assert_contains "$out" "ci.sh: failed: head"
+	out=$(run_gate "$r" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "a gate on a changing tree: $out"
+	rm "$r/new.txt"
+	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$(grep -m1 '^gate: ' "$r/build/ci/ci.log")" "gate: head $head tree $tree"
+	out=$(run_gate "$r" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ci.sh: the merge gate passed on tree $tree"
+	# A rewritten commit with the same tree, checked from another worktree.
+	tgit -C "$r" commit -q --amend --no-verify -m signed
+	wt=$bin/wt
+	tgit -C "$r" worktree add -q "$wt" HEAD
+	out=$(run_gate "$wt" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "same tree: $out"
+	change "$r" common/main/game.cpp
+	out=$(run_gate "$r" "$bin" --tested HEAD) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "a changed tree: $out"
 }
 
 # Make a throwaway repository holding a copy of tools/dev (no tests, so

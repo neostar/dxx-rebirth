@@ -3,6 +3,7 @@
 #
 #   ci.sh [--fast] [--clean] [--container]
 #   ci.sh --gate [--base REV] [--plan]
+#   ci.sh --tested REV
 #
 # ci.sh --clean is the full run (ADR 6): the nightly runs it, and it is the
 # gate before an upstream offer or a release tag.  ci.sh --gate is the
@@ -41,9 +42,18 @@
 # tools and container parts.  Each part runs,
 # in that order, after the one before; exit 1 names the failed ones.  It
 # fails before running anything when DXX_D2_DATA names no directory
-# holding DESCENT2.HOG (R1 needs the game data, game-data.md).  --plan
-# prints the changed paths, what each adds and the parts that would run,
-# and runs nothing.
+# holding DESCENT2.HOG (R1 needs the game data, game-data.md), and on an
+# empty base..HEAD (HEAD is the base, or merged into it), which would
+# check nothing.  It logs HEAD and its tree first; HEAD must not move
+# while it runs.  --plan prints that, the changed paths, what each adds
+# and the parts that would run, and runs nothing.  A passing gate records
+# the tree it checked in the clone's git directory (dxx-gate/passed/,
+# shared by its worktrees).
+#
+# --tested REV: succeed when the merge gate passed on REV's tree, in any
+# worktree of this clone, else fail.  The orchestrator runs it on the
+# merged sdl-gpu-port before pushing (issue-tracker.md): signing rewrites
+# the commits, not their tree.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
@@ -53,10 +63,11 @@ usage()
 {
 	echo "usage: $0 [--fast] [--clean] [--container]" >&2
 	echo "       $0 --gate [--base REV] [--plan]" >&2
+	echo "       $0 --tested REV" >&2
 	exit 2
 }
 
-fast=() clean=() native=1 gate=0 plan=0 base=
+fast=() clean=() native=1 gate=0 plan=0 base='' tested=''
 while [[ $# -gt 0 ]]; do
 	case $1 in
 	--fast) fast=(--fast) ;;
@@ -65,11 +76,15 @@ while [[ $# -gt 0 ]]; do
 	--gate) gate=1 ;;
 	--plan) plan=1 ;;
 	--base) [[ $# -ge 2 && -n $2 ]] || usage; base=$2; shift ;;
+	--tested) [[ $# -eq 2 && -n $2 ]] || usage; tested=$2; shift ;;
 	*) usage ;;
 	esac
 	shift
 done
-if [[ $gate -eq 1 ]]; then
+if [[ -n $tested ]]; then
+	[[ ${#fast[@]} -eq 0 && ${#clean[@]} -eq 0 && $native -eq 1 && $gate -eq 0 && $plan -eq 0 &&
+		-z $base ]] || usage
+elif [[ $gate -eq 1 ]]; then
 	[[ ${#fast[@]} -eq 0 && ${#clean[@]} -eq 0 && $native -eq 1 ]] || usage
 elif [[ $plan -eq 1 || -n $base ]]; then
 	usage
@@ -111,6 +126,28 @@ path_tests()
 	printf '%s\n' "${hits//.\//}"
 }
 
+# Print the directory of the trees passing gates checked: in the clone's
+# git directory, shared by its worktrees, never committed.
+passed_dir()
+{
+	local common
+	common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir) ||
+		{ echo "ci.sh: cannot find the clone's git directory" >&2; return 1; }
+	printf '%s\n' "$common/dxx-gate/passed"
+}
+
+if [[ -n $tested ]]; then
+	tree=$(git -C "$root" rev-parse --verify -q "$tested^{tree}") ||
+		{ echo "ci.sh: --tested $tested is no commit" >&2; exit 2; }
+	dir=$(passed_dir) || exit 1
+	if [[ ! -f $dir/$tree ]]; then
+		echo "ci.sh: the merge gate has not passed on tree $tree ($tested); run ci.sh --gate on it" >&2
+		exit 1
+	fi
+	echo "ci.sh: the merge gate passed on tree $tree ($tested): $(cat "$dir/$tree")"
+	exit 0
+fi
+
 # --gate: set gate_rev, gate_parts (the parts to run, in order),
 # gate_tests (the shell tests of the tools part) and plan (lines naming
 # each changed path with what it adds) from the paths changed between the
@@ -124,9 +161,20 @@ gate_plan()
 	fi
 	gate_rev=$(git -C "$root" rev-parse --verify -q "$base^{commit}") ||
 		{ echo "ci.sh: --base $base is no commit" >&2; return 2; }
+	if ! gate_head=$(git -C "$root" rev-parse --verify HEAD) ||
+		! gate_tree=$(git -C "$root" rev-parse --verify "HEAD^{tree}") ||
+		! c=$(git -C "$root" rev-list --count "$gate_rev..HEAD"); then
+		echo "ci.sh: cannot read HEAD or the commits since $gate_rev" >&2
+		return 1
+	fi
+	if [[ $c -eq 0 ]]; then
+		echo "ci.sh: no commits in ${gate_rev:0:12}..HEAD (${gate_head:0:12}): HEAD is the base" \
+			"or merged into it, and the gate would check nothing" >&2
+		return 1
+	fi
 	paths=$(git -C "$root" diff --no-renames --name-only "$gate_rev" HEAD) ||
 		{ echo "ci.sh: cannot list the paths changed since $gate_rev" >&2; return 1; }
-	plan_lines=("gate: base $gate_rev")
+	plan_lines=("gate: head $gate_head tree $gate_tree" "gate: base $gate_rev")
 	while IFS= read -r p; do
 		[[ -n $p ]] || continue
 		c=$(path_classes "$p")
@@ -372,6 +420,19 @@ else
 	done
 fi
 
+# The gate checked the tree it named only if HEAD stayed there, clean.
+if [[ $gate -eq 1 && ${#failed[@]} -eq 0 ]]; then
+	if ! now=$(git -C "$root" rev-parse HEAD) ||
+		! dirty=$(git -C "$root" status --porcelain --untracked-files=normal) ||
+		[[ $now != "$gate_head" || -n $dirty ]]; then
+		say "ci.sh: HEAD moved from ${gate_head:0:12} or the tree changed while the gate ran" >&2
+		failed+=(head)
+	elif ! dir=$(passed_dir) || ! mkdir -p "$dir" ||
+		! echo "head $gate_head base $gate_rev $(date -u +%FT%TZ)" > "$dir/$gate_tree"; then
+		say "ci.sh: cannot record the tested tree $gate_tree" >&2
+		failed+=(record)
+	fi
+fi
 if [[ ${#failed[@]} -ne 0 ]]; then
 	say "ci.sh: failed: ${failed[*]}" >&2
 	say "ci.sh: log: $log" >&2

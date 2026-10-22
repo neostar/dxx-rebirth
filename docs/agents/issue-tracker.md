@@ -31,8 +31,10 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - **Merge**: first check that the last nightly (`build/nightly/nightly.log`, whose full run is
   `ci.sh --clean`) is green, or that a follow-up issue names each red step: a red nightly holds
   every merge until then. Then run the merge gate, `tools/dev/ci.sh --gate` (ADR 6), on the
-  branch merged with the current `sdl-gpu-port` tip, with `DXX_D2_DATA` set; it must pass. Sign
-  the implementer's commits, merge them into `sdl-gpu-port`, push.
+  branch merged with the current `sdl-gpu-port` tip, with `DXX_D2_DATA` set; it must pass, and it
+  refuses an empty range (a branch already merged). Sign the implementer's commits, merge them
+  into `sdl-gpu-port`, then run `tools/dev/ci.sh --tested sdl-gpu-port`: it passes only when the
+  merged tree is one a passing gate checked (signing changes commits, not trees). Push.
 - **Finish**: close with a comment giving review rounds and anything that surprised you, and on
   the board set Status to Done, Done to today, and Review rounds; check Agent minutes and Agent
   tokens against the metrics log.
