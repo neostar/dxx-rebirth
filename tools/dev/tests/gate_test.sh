@@ -154,8 +154,9 @@ test_unmapped_path_runs_the_full_run()
 	assert_contains "$out" "ci.sh: failed: gate full"
 }
 
-# Test that the gate checks the toolchain once before its parts, and that
-# a stale dependency prefix stops it before any part, naming deps.sh all.
+# Test that the gate checks the toolchain first, before its parts, and that
+# a missing dependency prefix (doctor.sh: a SKIP, and the tools it holds
+# failing) stops it before any part, naming deps.sh all.
 test_gate_stops_on_a_stale_prefix()
 {
 	local bin r out rc
@@ -165,7 +166,7 @@ test_gate_stops_on_a_stale_prefix()
 	out=$(run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 	assert_contains "$out" $'== ci: doctor (check.sh --doctor)\ndoctor ok\n'
-	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT="SKIP deps: /p not built; run tools/dev/deps.sh" \
+	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT=$'SKIP deps: /p not built; run tools/dev/deps.sh\nFAIL llvm: found (clangd missing), manifest pins 23.1.3' \
 		run_gate "$r" "$bin" --gate --base base) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "ci.sh: the dependency prefix is stale or missing; run tools/dev/deps.sh all"

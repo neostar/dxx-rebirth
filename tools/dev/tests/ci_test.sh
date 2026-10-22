@@ -412,9 +412,10 @@ test_native_failure_fails()
 	assert_contains "$out" "ci.sh: failed: native"
 }
 
-# Test that ci.sh checks the toolchain (check.sh --doctor) once before the
-# legs, and that a failing doctor stops it before either leg starts: a
-# stale dependency prefix names deps.sh all, any other failure the doctor.
+# Test that ci.sh checks the toolchain (check.sh --doctor) first, once, and
+# that a failing doctor stops it before either leg starts: a stale
+# dependency prefix names deps.sh all; any other failure, a known one
+# beside it included, names the doctor.
 test_doctor_runs_first_and_stops_the_run()
 {
 	local bin r out rc
@@ -431,12 +432,30 @@ test_doctor_runs_first_and_stops_the_run()
 	assert_contains "$out" "ci.sh: the dependency prefix is stale or missing; run tools/dev/deps.sh all"
 	assert_not_contains "$out" "native check"
 	[[ ! -e $bin/container-started ]] || fail "the container leg started"
-	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT="FAIL cmake: found 3.1, manifest pins 4.0" \
+	out=$(FAKE_DOCTOR_RC=1 FAKE_DOCTOR_OUT=$'KNOWN FAIL deps: x (#1)\nFAIL cmake: found 3.1, manifest pins 4.0' \
 		run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "ci.sh: the toolchain differs from tools/dev/toolchain.pins (doctor above); fix it first"
+	assert_contains "$out" "ci.sh: the doctor failed (its FAIL lines above); fix them first"
 	assert_not_contains "$out" "deps.sh all"
 	assert_not_contains "$out" "native check"
+}
+
+# Test that the doctor runs before ci.sh waits for the machine lock: a
+# failing one stops the run at once, while another ci.sh holds the lock.
+test_doctor_runs_before_the_machine_lock_wait()
+{
+	local bin r out rc
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	mkdir "$bin/machine.lock" || die "cannot hold the machine lock"
+	echo $$ > "$bin/machine.lock/pid"
+	echo elsewhere > "$bin/machine.lock/worktree"
+	out=$(DXX_CI_MAX_WAIT=60 DXX_CI_POLL=0.2 FAKE_DOCTOR_RC=1 \
+		FAKE_DOCTOR_OUT="FAIL deps: /p was built from other pins; run tools/dev/deps.sh" \
+		run_ci "$r" "$bin" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "run tools/dev/deps.sh all"
+	assert_not_contains "$out" "waiting for ci.sh"
 }
 
 # Test that the default container leg gets the working tree, uncommitted
