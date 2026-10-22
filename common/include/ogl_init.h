@@ -31,6 +31,8 @@
 #include "pstypes.h"
 #include "3d.h"
 #include <array>
+#include <span>
+#include "common/render/readback.h"
 
 namespace dcx {
 
@@ -113,6 +115,8 @@ bool ogl_ubitblt_i(unsigned dw, unsigned dh, unsigned dx, unsigned dy, unsigned 
 bool ogl_ubitblt(unsigned w, unsigned h, unsigned dx, unsigned dy, unsigned sx, unsigned sy, const grs_bitmap &src, grs_bitmap &dest);
 void ogl_upixelc(const grs_bitmap &, unsigned x, unsigned y, color_palette_index c);
 color_palette_index ogl_ugpixel(const grs_bitmap &bitmap, unsigned x, unsigned y);
+/* Reads rect of the screen into pixels, its top row first (common/render/readback.h). */
+void gr_read_pixels(render::read_source source, const render::read_rect &rect, render::pixel_format format, std::span<uint8_t> pixels);
 void ogl_ulinec(grs_canvas &, int left, int top, int right, int bot, int c);
 void _g3_draw_tmap_2(grs_canvas &, std::span<g3_draw_tmap_point *const> pointlist, std::span<const g3s_uvl, 4> uvl_list, std::span<const g3s_lrgb, 4> light_rgb, grs_bitmap &bmbot, grs_bitmap &bm, texture2_rotation_low orient, tmap_drawer_type tmap_drawer_ptr);
 

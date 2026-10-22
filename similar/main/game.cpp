@@ -905,7 +905,8 @@ unsigned write_screenshot_png(PHYSFS_File *const file, const struct tm *const tm
 	const unsigned bufsize = bm_w * bm_h * 3;
 	const auto buf = std::make_unique<uint8_t[]>(bufsize);
 	const auto begin_byte_buffer = buf.get();
-	glReadPixels(0, 0, bm_w, bm_h, GL_RGB, GL_UNSIGNED_BYTE, begin_byte_buffer);
+	/* Anchored at the bottom: bm_h, rounded up, may reach past the top. */
+	gr_read_pixels(render::read_source::presented, {0, static_cast<int>(bitmap.bm_h) - static_cast<int>(bm_h), {bm_w, bm_h}}, render::pixel_format::rgb8, {begin_byte_buffer, bufsize});
 #else
 	const unsigned bufsize = bitmap.bm_rowsize * bm_h;
 	const auto begin_byte_buffer = bitmap.bm_mdata;
@@ -947,13 +948,12 @@ unsigned write_screenshot_png(PHYSFS_File *const file, const struct tm *const tm
 		auto o = rpb;
 		const auto end_byte_buffer = begin_byte_buffer + bufsize;
 #if DXX_USE_OGL
-		/* OpenGL glReadPixels returns an image with origin in bottom
-		 * left.  Write rows from end back to beginning, since PNG
-		 * expects origin in top left.  If rows were written in memory
-		 * order, the image would be vertically flipped.
+		/* gr_read_pixels returns an image with origin in top left.
+		 * Write rows in memory order, since this matches the PNG
+		 * layout.
 		 */
 		const uint_fast32_t stride = bm_w * 3;	/* Without palette, written data is 3-byte-sized RGB tuples of color */
-		for (auto p = end_byte_buffer; p != begin_byte_buffer;)
+		for (auto p = begin_byte_buffer; p != end_byte_buffer; p += stride)
 #else
 		const uint_fast32_t stride = bm_w;	/* With palette, written data is byte-sized indices into a color table */
 		/* SDL canvas uses an image with origin in top left.  Write rows
@@ -962,9 +962,7 @@ unsigned write_screenshot_png(PHYSFS_File *const file, const struct tm *const tm
 		for (auto p = begin_byte_buffer; p != end_byte_buffer;)
 #endif
 		{
-#if DXX_USE_OGL
-			p -= stride;
-#else
+#if !DXX_USE_OGL
 			p += stride;
 #endif
 			*o++ = p;
@@ -1065,9 +1063,6 @@ void save_screen_shot(int automap_flag)
 		HUD_init_message(HM_DEFAULT, "%s '%s'", TXT_DUMPING_SCREEN, &savename[sizeof(SCRNS_DIR) - 1]);
 
 #if DXX_USE_OGL
-#if !DXX_USE_OGLES
-	glReadBuffer(GL_FRONT);
-#endif
 #if DXX_USE_SCREENSHOT_FORMAT_PNG
 	auto write_error = write_screenshot_png(file, tm, grd_curscreen->sc_canvas.cv_bitmap, void /* unused */);
 #elif DXX_USE_SCREENSHOT_FORMAT_LEGACY

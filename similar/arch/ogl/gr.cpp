@@ -1187,6 +1187,33 @@ void gr_palette_load(const palette_array_t &pal)
 	reset_computed_colors();
 }
 
+void gr_read_pixels(const render::read_source source, const render::read_rect &rect, const render::pixel_format format, const std::span<uint8_t> pixels)
+{
+	if (pixels.size() != render::image_bytes(rect.size, format))
+		throw std::length_error("gr_read_pixels: buffer size does not match the rectangle");
+	if (pixels.empty())
+		return;
+	GLint pack_alignment;
+	glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+#if !DXX_USE_OGLES
+	GLint read_buffer;
+	glGetIntegerv(GL_READ_BUFFER, &read_buffer);
+	GLint buffer = GL_FRONT;
+	if (source == render::read_source::drawing)
+		glGetIntegerv(GL_DRAW_BUFFER, &buffer);
+	glReadBuffer(buffer);
+#else
+	(void)source;
+#endif
+	glReadPixels(rect.x, render::bottom_up_y(SHEIGHT, rect), rect.size.width, rect.size.height, format == render::pixel_format::rgba8 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+#if !DXX_USE_OGLES
+	glReadBuffer(read_buffer);
+#endif
+	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
+	render::flip_rows(pixels, render::image_bytes({rect.size.width, 1}, format));
+}
+
 //writes out an uncompressed RGB .tga file
 //if we got really spiffy, we could optionally link in libpng or something, and use that.
 #if DXX_USE_SCREENSHOT_FORMAT_LEGACY
@@ -1202,7 +1229,9 @@ void write_bmp(PHYSFS_File *const TGAFile, const unsigned w, const unsigned h)
 	const unsigned buffer_size_TGA = w * h * 3;
 	const auto buf = std::make_unique<uint8_t[]>(buffer_size_TGA);
 
-	glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf.get());
+	gr_read_pixels(render::read_source::presented, {0, 0, {w, h}}, render::pixel_format::rgb8, {buf.get(), buffer_size_TGA});
+	/* TGA stores the bottom row first. */
+	render::flip_rows({buf.get(), buffer_size_TGA}, w * 3);
 	for (const auto pixel : xrange(w * h))
 		std::swap(buf[pixel * 3], buf[pixel * 3 + 2]);
 

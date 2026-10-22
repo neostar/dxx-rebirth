@@ -5134,6 +5134,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-device', (
 			'common/render/unittest/render_device.cpp',
 			)),
+		RuntimeTest('test-readback', (
+			'common/render/unittest/readback.cpp',
+			)),
 		RuntimeTest('test-trace', (
 			'common/render/unittest/trace.cpp',
 			'common/render/trace.cpp',
