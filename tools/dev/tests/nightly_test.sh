@@ -629,20 +629,41 @@ test_endurance_too_short_fails()
 
 # Test that the endurance verdict's numbers (windows, slope with its
 # range, the minima's spread) reach the nightly log, where the scheduled
-# runs calibrate the limit from them.
+# runs calibrate the limit from them.  How many samples a 10 s run takes
+# depends on the machine's load (2 under emulation while others built,
+# too few to judge), so the run's memory sampler is made slow here and
+# the real rss_trend.py, given the run's options, judges a fixed flat
+# series instead, once the run has taken a sample.
 test_endurance_numbers_reach_log()
 {
-	local r d vars out
+	local r d vars out i
 	r=$(fork_repo) || die "fork_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
+	# A memory sample taking 6 s, as under emulation on a loaded machine.
+	mv "$r/tools/dev/footprint.py" "$r/tools/dev/real-footprint.py"
+	printf 'import runpy, time\ntime.sleep(6)\nrunpy.run_path("%s", run_name="__main__")\n' \
+		"$r/tools/dev/real-footprint.py" > "$r/tools/dev/footprint.py"
+	# 20 flat samples over 10 s: 4 whole windows of 2 s.
+	for ((i = 0; i < 20; i++)); do
+		printf '%d.%d 1000\n' $((i / 2)) $((i % 2 * 5))
+	done > "$d/flat.mem"
+	mv "$r/tools/dev/rss_trend.py" "$r/tools/dev/real-rss_trend.py"
+	cat > "$r/tools/dev/rss_trend.py" <<STANDIN
+import runpy, sys
+with open(sys.argv[-1]) as f:
+	if not f.read().strip():
+		sys.exit('rss_trend stand-in: the run took no memory sample')
+sys.argv[-1] = '$d/flat.mem'
+runpy.run_path('$r/tools/dev/real-rss_trend.py', run_name='__main__')
+STANDIN
 	mapfile -t vars < <(fake_game "$d")
 	out=$(env "${vars[@]}" "$r/tools/dev/nightly.sh" --steps endurance --endurance 10 2>&1)
 	assert_eq "$?" 0 "$out"
 	out=$(cat "$r/build/nightly/nightly.log")
 	assert_contains "$out" "rss_trend: flat: slope "
 	assert_contains "$out" "MiB/h (95% range "
-	assert_contains "$out" "windows of 2 s"
+	assert_contains "$out" "over 4 windows of 2 s"
 	assert_contains "$out" "MiB (spread "
 }
 
