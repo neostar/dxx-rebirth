@@ -18,7 +18,8 @@
 #                   pinned LLVM, deeper limits than the check tier's) on
 #                   every fork C++ file in the debug-harness build's
 #                   compilation database
-#   thread_safety   clang's -Wthread-safety on the same files
+#   thread_safety   clang's -Wthread-safety on the same files, with SDL's
+#                   lock annotations on, proven on each kind of lock taken
 #   tsan            ThreadSanitizer on the audio-thread tests (none yet)
 #   hardened_demo   D2 demo playback in the hardened debug-harness build,
 #                   windowless through run.sh; a hardening trap, a
@@ -93,14 +94,14 @@ fork_dirs()
 }
 
 # Print, NUL-separated, every C++ source file of database $1 that lies in
-# a fork directory, as an absolute path, each once.
+# a fork directory (fork_dirs), as an absolute path, each once.
 fork_sources()
 {
-	python3 - "$1" "$root" <<'PY'
+	local dirs
+	mapfile -t dirs < <(fork_dirs)
+	python3 - "$1" "$root" "${dirs[@]}" <<'PY'
 import json, os, sys
-db, root = sys.argv[1], sys.argv[2]
-dirs = [d.strip() for d in open(os.path.join(root, 'tools/dev/fork-dirs'))
-	if d.strip() and not d.startswith('#')]
+db, root, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
 seen = set()
 for e in json.load(open(db)):
 	f = os.path.normpath(os.path.join(e['directory'], e['file']))
@@ -113,24 +114,35 @@ for e in json.load(open(db)):
 PY
 }
 
-# Run the pinned clang-tidy with config $1 on every fork C++ file of the
-# database, reporting findings in fork files only; print how many files
-# step $2 checked.  The remaining arguments go to clang-tidy.
-tidy_fork()
+# Set db to the compilation database and files to its fork C++ files, for
+# step $1; fail, saying why, without the pinned clang-tidy, the database
+# or a fork file in it.  A missing tool fails: a scheduled run must not
+# stay green on a step that checked nothing.
+fork_files()
 {
-	local config=$1 step=$2 db files=() filter
-	shift 2
 	if [[ ! -x $clang_tidy ]]; then
-		echo "SKIP $step: $clang_tidy not found; run tools/dev/deps.sh build"
-		return 0
+		echo "$1: $clang_tidy not found; run tools/dev/deps.sh build"
+		return 1
 	fi
-	db=$(database) || { echo "$step: building the harness failed"; return 1; }
+	db=$(database) || { echo "$1: building the harness failed"; return 1; }
 	mapfile -d '' -t files < <(fork_sources "$db")
-	echo "$step: ${#files[@]} fork files in $db"
-	[[ ${#files[@]} -gt 0 ]] || { echo "$step: no fork file to check"; return 1; }
+	echo "$1: ${#files[@]} fork files in $db"
+	[[ ${#files[@]} -gt 0 ]] || { echo "$1: no fork file to check"; return 1; }
+}
+
+# Run the pinned clang-tidy with config $1 on files $3... of database $2,
+# reporting findings in fork files only.  Arguments after -- go to
+# clang-tidy.
+tidy()
+{
+	local config=$1 dbfile=$2 filter args=() srcs=()
+	shift 2
+	while [[ $# -gt 0 && $1 != -- ]]; do srcs+=("$1"); shift; done
+	[[ $# -gt 0 ]] && shift
+	args=("$@")
 	filter="^$root/($(fork_dirs | paste -sd '|' -))/"
-	"$clang_tidy" -p "$(dirname "$db")" --quiet --config="$config" \
-		--header-filter="$filter" "$@" "${files[@]}" 2>&1 |
+	"$clang_tidy" -p "$(dirname "$dbfile")" --quiet --config="$config" \
+		--header-filter="$filter" "${args[@]+"${args[@]}"}" "${srcs[@]}" 2>&1 |
 		grep -v -e '^[0-9]* warnings\? generated\.$' -e '^Suppressed [0-9]* warnings'
 	return "${PIPESTATUS[0]}"
 }
@@ -140,25 +152,82 @@ tidy_fork()
 # twice the loop unrolling.
 step_analyzer()
 {
-	tidy_fork "{Checks: '-*,clang-analyzer-*', WarningsAsErrors: '*'}" analyzer \
+	local db files=()
+	fork_files analyzer || return
+	tidy "{Checks: '-*,clang-analyzer-*', WarningsAsErrors: '*'}" "$db" "${files[@]}" -- \
 		--extra-arg=-Xclang --extra-arg=-analyzer-config \
 		--extra-arg=-Xclang --extra-arg=max-nodes=900000 \
 		--extra-arg=-Xclang --extra-arg=-analyzer-max-loop --extra-arg=-Xclang --extra-arg=8
 }
 
-# clang's thread-safety analysis on every fork file (libc++'s std::mutex
-# carries the annotations); says so when no fork file takes a lock.
+# clang's thread-safety analysis on every fork file, with the annotations
+# on: libc++'s std::mutex carries them, SDL's mutex functions only with
+# SDL_THREAD_SAFETY_ANALYSIS.  For each kind of lock a fork file takes, a
+# probe compiled with that file's flags writes a guarded member unlocked,
+# and the step fails when the analysis misses it: a lock whose annotations
+# are off would pass unchecked.  Says so when no fork file takes a lock.
+thread_safety_config="{Checks: '-*,clang-diagnostic-thread-safety*', WarningsAsErrors: '*'}"
+thread_safety_args=(--allow-no-checks --extra-arg=-Wthread-safety
+	--extra-arg=-DSDL_THREAD_SAFETY_ANALYSIS)
 step_thread_safety()
 {
-	local d n=0
-	tidy_fork "{Checks: '-*,clang-diagnostic-thread-safety*', WarningsAsErrors: '*'}" \
-		thread_safety --allow-no-checks --extra-arg=-Wthread-safety || return
-	while IFS= read -r d; do
-		n=$((n + $(grep -rlE --include='*.[ch]' --include='*.[ch]pp' --include='*.mm' \
-			'std::(mutex|shared_mutex|lock_guard|unique_lock|scoped_lock)|SDL_LockMutex' \
-			"$root/$d" 2>/dev/null | wc -l)))
-	done < <(fork_dirs)
-	[[ $n -gt 0 ]] || echo "thread_safety: no fork file takes a lock yet; all compile cleanly with -Wthread-safety"
+	local db files=() kind pattern user probes rc=0 locks=()
+	fork_files thread_safety || return
+	tidy "$thread_safety_config" "$db" "${files[@]}" -- "${thread_safety_args[@]}" || rc=1
+	probes=$(mktemp -d "${TMPDIR:-/tmp}/thread_safety.XXXXXX") || return 1
+	for kind in std SDL; do
+		case $kind in
+		std) pattern='std::(mutex|shared_mutex|recursive_mutex|timed_mutex)' ;;
+		SDL) pattern='SDL_(LockMutex|LockRWLockFor|CreateMutex|CreateRWLock)' ;;
+		esac
+		user=$(grep -lE "$pattern" "${files[@]}" | head -n 1)
+		[[ -n $user ]] || continue
+		locks+=("$kind (${user#"$root"/})")
+		lock_probe "$kind" "$user" "$probes" || rc=1
+	done
+	rm -rf "$probes"
+	if [[ ${#locks[@]} -eq 0 ]]; then
+		echo "thread_safety: no fork file takes a lock yet; all compile cleanly with -Wthread-safety"
+	else
+		echo "thread_safety: locks checked, the analysis proven on each: ${locks[*]}"
+	fi
+	return "$rc"
+}
+
+# Succeed if the thread-safety analysis reports an unlocked write to a
+# member guarded by a lock of kind $1 (std or SDL), compiled in directory
+# $3 with the flags and the SDL includes of fork file $2.
+lock_probe()
+{
+	local kind=$1 user=$2 dir=$3 out
+	{
+		[[ $kind == SDL ]] && grep -E '^#[[:space:]]*include[[:space:]]*[<"]SDL' "$user"
+		[[ $kind == std ]] && echo '#include <mutex>'
+		echo 'struct thread_safety_probe'
+		echo '{'
+		case $kind in
+		std) printf '\tstd::mutex lock;\n\tint value __attribute__((guarded_by(lock))){0};\n' ;;
+		SDL) printf '\tdecltype(SDL_CreateMutex()) lock{nullptr};\n\tint value SDL_GUARDED_BY(lock){0};\n' ;;
+		esac
+		printf '\tvoid bump() { ++value; }\n};\n'
+	} > "$dir/$kind.cpp"
+	python3 - "$db" "$user" "$dir/$kind.cpp" "$dir/compile_commands.json" <<'PY' || return 1
+import json, os, shlex, sys
+db, user, probe, out = sys.argv[1:]
+for e in json.load(open(db)):
+	if os.path.normpath(os.path.join(e['directory'], e['file'])) == user:
+		args = e.get('arguments') or shlex.split(e['command'])
+		args = [probe if a == e['file'] or a == user else a for a in args]
+		json.dump([dict(directory=e['directory'], file=probe, arguments=args)], open(out, 'w'))
+		break
+PY
+	out=$(tidy "$thread_safety_config" "$dir/compile_commands.json" "$dir/$kind.cpp" -- \
+		"${thread_safety_args[@]}")
+	if [[ $out == *"requires holding mutex 'lock'"* ]]; then
+		return 0
+	fi
+	echo "thread_safety: the annotations of $kind locks are off: an unlocked write to a guarded member passed with the flags of $user"
+	return 1
 }
 
 # libstdc++'s debug mode: build the unit tests with _GLIBCXX_DEBUG, beside
@@ -221,12 +290,11 @@ step_codeql() { not_pinned codeql codeql; }
 # default traces/local/nightly, which git ignores).
 work=${DXX_NIGHTLY_WORK:-$root/traces/local/nightly}
 
-# Succeed if DXX_D2_DATA holds the D2 data; else print step $1's SKIP
-# and fail.
+# Succeed if DXX_D2_DATA holds the D2 data; else fail step $1, saying so.
 need_data()
 {
 	[[ -n ${DXX_D2_DATA-} && -f $DXX_D2_DATA/DESCENT2.HOG ]] && return 0
-	echo "SKIP $1: DXX_D2_DATA names no directory holding DESCENT2.HOG (docs/agents/game-data.md)"
+	echo "$1: DXX_D2_DATA names no directory holding DESCENT2.HOG (docs/agents/game-data.md)"
 	return 1
 }
 
@@ -312,7 +380,7 @@ demo_finish()
 step_hardened_demo()
 {
 	local bin early='' played=0 rc=0 timeout=${DXX_NIGHTLY_DEMO_TIMEOUT:-600} deadline
-	need_data hardened_demo || return 0
+	need_data hardened_demo || return
 	bin=$(game_binary) || { echo "hardened_demo: building the harness failed"; return 1; }
 	demo_start hardened_demo "$bin" || return 1
 	deadline=$((EPOCHSECONDS + timeout))

@@ -60,6 +60,20 @@ test_analyzer_fails_on_leak()
 	assert_contains "$out" "nightly.sh: failed: analyzer"
 }
 
+# Test that the analyzer and thread-safety steps fail, not skip, without
+# the pinned clang-tidy.
+test_analyzers_fail_without_clang_tidy()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	mkdir -p "$r/third_party/none"
+	out=$(DXX_DEPS_PREFIX=$r/third_party/none native_step "$r" analyzer,thread_safety) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "analyzer: $r/third_party/none/opt/llvm/bin/clang-tidy not found"
+	assert_contains "$out" "nightly.sh: failed: analyzer thread_safety"
+	assert_not_contains "$out" "SKIP"
+}
+
 # Test that the analyzer step passes the representative fork file, naming
 # how many fork files it analysed.
 test_analyzer_passes_clean_file()
@@ -95,6 +109,71 @@ CPP
 	out=$(native_step "$r" thread_safety) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "requires holding mutex 'lock'"
+}
+
+# Test that the thread-safety step checks SDL's mutexes: their annotations
+# are on, so a member written without its SDL mutex held fails.
+test_thread_safety_fails_on_unguarded_sdl_write()
+{
+	need_native_tidy
+	local r d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	cat > "$d/race.cpp" <<'CPP'
+#include <SDL3/SDL_mutex.h>
+
+class counter
+{
+	SDL_Mutex *lock{SDL_CreateMutex()};
+	int value SDL_GUARDED_BY(lock){0};
+
+public:
+	void bump() { ++value; }
+};
+CPP
+	r=$(plant_repo "$d/race.cpp") || die "plant_repo failed"
+	out=$(native_step "$r" thread_safety) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "requires holding mutex 'lock'"
+}
+
+# Test that the thread-safety step names the kinds of lock fork code takes
+# once it has proven the analysis on each, and fails when a kind's
+# annotations are off (an SDL whose mutex.h has none, here).
+test_thread_safety_proves_each_lock_kind()
+{
+	need_native_tidy
+	local r d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	cat > "$d/locked.cpp" <<'CPP'
+#include <SDL3/SDL_mutex.h>
+
+class counter
+{
+	SDL_Mutex *lock{SDL_CreateMutex()};
+	int value SDL_GUARDED_BY(lock){0};
+
+public:
+	void bump()
+	{
+		SDL_LockMutex(lock);
+		++value;
+		SDL_UnlockMutex(lock);
+	}
+};
+CPP
+	r=$(plant_repo "$d/locked.cpp") || die "plant_repo failed"
+	out=$(native_step "$r" thread_safety)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "locks checked, the analysis proven on each: SDL (src/plant.cpp)"
+	mkdir -p "$r/fake/SDL3"
+	printf '#pragma once\ntypedef struct SDL_Mutex SDL_Mutex;\n#define SDL_GUARDED_BY(x)\n%s\n' \
+		'SDL_Mutex *SDL_CreateMutex(); void SDL_LockMutex(SDL_Mutex *); void SDL_UnlockMutex(SDL_Mutex *);' \
+		> "$r/fake/SDL3/SDL_mutex.h"
+	sed -i.bak "s|\"-isystem\", |\"-isystem\", \"$r/fake\", \"-isystem\", |g" \
+		"$r/build/dev/compile_commands.json"
+	out=$(native_step "$r" thread_safety) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "the annotations of SDL locks are off"
 }
 
 # Test that the thread-safety step passes fork code that takes no lock,
@@ -324,16 +403,18 @@ test_hardened_demo_fails_without_a_demo()
 	assert_contains "$out" "no complete demo playback in 3 s"
 }
 
-# Test that the demo steps are a SKIP naming DXX_D2_DATA without the data.
-test_demo_steps_skip_without_data()
+# Test that the demo steps fail, naming DXX_D2_DATA, without the data: a
+# scheduled run must not stay green on them.
+test_demo_steps_fail_without_data()
 {
-	local d out
+	local d out rc
 	d=$(make_scratch) || die "make_scratch failed"
 	out=$(env DXX_D2_DATA="$d/none" "$DEV_DIR/nightly.sh" --leg native \
-		--steps hardened_demo,endurance 2>&1)
-	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "SKIP hardened_demo: DXX_D2_DATA"
-	assert_contains "$out" "SKIP endurance: DXX_D2_DATA"
+		--steps hardened_demo,endurance 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "hardened_demo: DXX_D2_DATA names no directory"
+	assert_contains "$out" "nightly.sh: failed: hardened_demo endurance"
+	assert_not_contains "$out" "SKIP"
 }
 
 # Test that the endurance run passes a game whose memory stays flat,
