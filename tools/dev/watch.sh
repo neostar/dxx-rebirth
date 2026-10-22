@@ -6,7 +6,8 @@
 #
 #   watch.sh [--rounds N]
 #
-# Every WATCH_INTERVAL seconds (default 2):
+# Every WATCH_INTERVAL seconds (default 2; anything but a positive number
+# is a usage error):
 # - each crash report (.ips) written since the start prints
 #   "<UTC time> crash report: <process name> <file>", once.  The directory
 #   is ~/Library/Logs/DiagnosticReports, or NO_WINDOW_REPORTS_DIR; it is
@@ -28,11 +29,15 @@ usage()
 }
 rounds=0
 case "${1-}" in
---rounds) [[ ${2-} =~ ^[1-9][0-9]*$ ]] || usage; rounds=$2 ;;
-'') ;;
+--rounds) [[ $# -eq 2 && $2 =~ ^[1-9][0-9]*$ ]] || usage; rounds=$2 ;;
+'') [[ $# -eq 0 ]] || usage ;;
 *) usage ;;
 esac
-interval=${WATCH_INTERVAL:-2}
+interval=${WATCH_INTERVAL-2}
+if ! [[ $interval =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)$ && $interval =~ [1-9] ]]; then
+	echo "watch.sh: WATCH_INTERVAL is '$interval', not a positive number of seconds" >&2
+	exit 2
+fi
 names=${WATCH_NAMES:-'^(d[12]x-rebirth|test-.+|.*probe.*|Problem Reporter)$'}
 reports=${NO_WINDOW_REPORTS_DIR:-$HOME/Library/Logs/DiagnosticReports}
 

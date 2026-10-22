@@ -89,4 +89,32 @@ test_bad_rounds_is_usage_error()
 	assert_eq "$rc" 2
 }
 
+# Test that an argument after the round count is a usage error, and so is
+# a WATCH_INTERVAL that is not a positive number of seconds: sleep would
+# fail at once and the watch would spin.
+test_extra_argument_or_bad_interval_is_usage_error()
+{
+	local d out rc i
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	printf '%s\n' '1 Finder' > "$d/windows"
+	# A blind lister ends, with status 1, a watch that took the arguments,
+	# also one left without a round count.
+	out=$(WATCH_WINDOWS_CMD=false NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$WATCH" --rounds 1 extra 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "usage:"
+	out=$(WATCH_WINDOWS_CMD=false NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$WATCH" '' --rounds 1 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	for i in x 0 0.0 -1 1x 1.2.3 ''; do
+		out=$(WATCH_INTERVAL=$i WATCH_WINDOWS_CMD=$(fake_lister "$d") \
+			NO_WINDOW_REPORTS_DIR="$d/reports" "$WATCH" --rounds 2 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "WATCH_INTERVAL='$i': $out"
+		assert_contains "$out" "watch.sh: WATCH_INTERVAL is '$i', not a positive number of seconds"
+	done
+	out=$(WATCH_INTERVAL=0.05 WATCH_WINDOWS_CMD=$(fake_lister "$d") \
+		NO_WINDOW_REPORTS_DIR="$d/reports" "$WATCH" --rounds 2 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+}
+
 run_tests
