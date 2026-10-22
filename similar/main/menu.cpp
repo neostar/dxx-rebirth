@@ -82,7 +82,6 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #endif
 #if DXX_USE_OGL
 #include "ogl_init.h"
-#include "ogl_extensions.h"
 #endif
 #include "physfs_list.h"
 
@@ -2159,7 +2158,7 @@ window_event_result graphics_config_menu::event_handler(const d_event &event)
 				gr_palette_set_gamma(GammaLevel);
 			}
 #if DXX_USE_OGL
-			else if (citem == opt_filter_anisotropy && ogl_maxanisotropy <= 1.0 && m[opt_filter_anisotropy].value)
+			else if (citem == opt_filter_anisotropy && !gr_caps().anisotropy && m[opt_filter_anisotropy].value)
 			{
 				m[opt_filter_anisotropy].value = 0;
 				window_create<passive_messagebox>(menu_title{TXT_ERROR}, menu_subtitle{"Anisotropic Filtering not\nsupported by your hardware/driver."}, TXT_OK, grd_curscreen->sc_canvas);

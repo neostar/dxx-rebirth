@@ -5137,6 +5137,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-readback', (
 			'common/render/unittest/readback.cpp',
 			)),
+		RuntimeTest('test-render-caps', (
+			'common/render/unittest/caps.cpp',
+			)),
 		RuntimeTest('test-trace', (
 			'common/render/unittest/trace.cpp',
 			'common/render/trace.cpp',

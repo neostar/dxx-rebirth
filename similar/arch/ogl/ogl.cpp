@@ -1424,6 +1424,11 @@ void ogl_set_alpha_ref(const float ref)
 	glAlphaFunc(GL_GEQUAL, ref);
 }
 
+render::caps gr_caps()
+{
+	return render::gl_caps(ogl_maxanisotropy);
+}
+
 void ogl_end_frame(void){
 	OGL_VIEWPORT(0, 0, grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height());
 	glMatrixMode(GL_PROJECTION);

@@ -30,6 +30,7 @@
 #include "palette.h"
 #include "pstypes.h"
 #include "3d.h"
+#include "common/render/caps.h"
 #include <array>
 #include <span>
 #include "common/render/readback.h"
@@ -80,6 +81,8 @@ void ogl_stereo_frame(bool left_eye, int xoff);
 void ogl_end_frame(void);
 /* Draw only pixels whose alpha is at least ref (the alpha test ogl_start_frame enables). */
 void ogl_set_alpha_ref(float ref);
+/* What the GL context supports beyond the common set. */
+render::caps gr_caps();
 void ogl_set_screen_mode(void);
 
 struct ogl_colors
