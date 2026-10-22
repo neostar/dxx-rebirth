@@ -386,9 +386,10 @@ relocatable_install_names()
 			break
 		done
 		[[ ${#changes[@]} -eq 0 ]] && continue
-		install_name_tool "${changes[@]}" "$f" &&
-			codesign --force --sign - "$f" ||
-			{ echo "cannot rename the install names of $f"; return 1; }
+		if ! install_name_tool "${changes[@]}" "$f" || ! codesign --force --sign - "$f"; then
+			echo "cannot rename the install names of $f"
+			return 1
+		fi
 	done < <(find "$prefix/bin" "$prefix/lib" -type f -print0 2>/dev/null)
 }
 
