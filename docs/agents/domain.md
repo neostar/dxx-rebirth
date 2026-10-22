@@ -12,6 +12,8 @@ Platform research, read before working in its area:
 
 - SDL_GPU adapter, its passes, uploads, pipelines, swapchain and GPU measurement:
   `docs/agents/sdl-gpu-backends.md`.
+- SDL3 windows, displays, fullscreen, HiDPI, frame pacing, hidden test windows:
+  `docs/agents/sdl-window.md`.
 
 ## Before recommending a change to the plan
 
