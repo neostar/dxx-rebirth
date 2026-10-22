@@ -242,3 +242,103 @@ BOOST_AUTO_TEST_CASE(sizes_are_checked)
 	BOOST_CHECK_THROW(fill({.width = 2, .height = 1}, {.width = 2, .height = 1}),
 	                  std::out_of_range);
 }
+
+namespace {
+
+/* The image of pixels as bytes, and back. */
+std::vector<std::uint8_t> bytes(const std::vector<pixel> &pixels)
+{
+	std::vector<std::uint8_t> b;
+	for (const auto &p : pixels)
+		b.insert(b.end(), {p.r, p.g, p.b, p.a});
+	return b;
+}
+
+std::vector<pixel> pixels_of(const std::vector<std::uint8_t> &b)
+{
+	std::vector<pixel> p;
+	for (std::size_t i{0}; i < b.size(); i += 4)
+		p.push_back({b.at(i), b.at(i + 1), b.at(i + 2), b.at(i + 3)});
+	return p;
+}
+
+std::vector<pixel> bleed(const std::vector<pixel> &image, const std::uint32_t width)
+{
+	auto b{bytes(image)};
+	render::bleed_edges(b, width);
+	return pixels_of(b);
+}
+
+constexpr pixel clear{0, 0, 0, 0};
+constexpr pixel red{255, 0, 0, 255};
+constexpr pixel green{0, 255, 0, 255};
+constexpr pixel blue{0, 0, 255, 255};
+
+}
+
+/* Test that a transparent pixel takes the colour of an opaque neighbour,
+ * diagonal ones too, and stays transparent; one with no opaque neighbour
+ * keeps black.
+ */
+BOOST_AUTO_TEST_CASE(bleed_takes_neighbour_colour)
+{
+	const std::vector<pixel> image{red, clear, clear, clear, clear, clear, clear, clear, clear};
+	const std::vector<pixel> expected{red,   {255, 0, 0, 0}, clear, clear, {255, 0, 0, 0},
+	                                  clear, clear,          clear, clear};
+	BOOST_TEST(bleed(image, 3) == expected, boost::test_tools::per_element());
+}
+
+/* Test the order of the neighbours: left before right before above before
+ * below, then the diagonals below before those above.
+ */
+BOOST_AUTO_TEST_CASE(bleed_prefers_left_right_above_below)
+{
+	/* The centre of a 3x3 image, with opaque neighbours on the given sides. */
+	const auto centre{[](const std::vector<pixel> &image) { return bleed(image, 3).at(4); }};
+	BOOST_TEST(centre({clear, blue, clear, red, clear, green, clear, blue, clear}) ==
+	           (pixel{255, 0, 0, 0}));
+	BOOST_TEST(centre({clear, blue, clear, clear, clear, green, clear, red, clear}) ==
+	           (pixel{0, 255, 0, 0}));
+	BOOST_TEST(centre({clear, clear, clear, clear, clear, clear, red, green, blue}) ==
+	           (pixel{0, 255, 0, 0}));
+	BOOST_TEST(centre({clear, clear, clear, clear, clear, clear, red, clear, blue}) ==
+	           (pixel{255, 0, 0, 0}));
+	BOOST_TEST(centre({clear, blue, clear, clear, clear, clear, clear, red, clear}) ==
+	           (pixel{0, 0, 255, 0}));
+	BOOST_TEST(centre({green, clear, blue, clear, clear, clear, clear, red, clear}) ==
+	           (pixel{255, 0, 0, 0}));
+	BOOST_TEST(centre({green, clear, blue, clear, clear, clear, red, clear, clear}) ==
+	           (pixel{255, 0, 0, 0}));
+	BOOST_TEST(centre({green, clear, blue, clear, clear, clear, clear, clear, red}) ==
+	           (pixel{255, 0, 0, 0}));
+	BOOST_TEST(centre({green, clear, blue, clear, clear, clear, clear, clear, clear}) ==
+	           (pixel{0, 255, 0, 0}));
+	BOOST_TEST(centre({clear, clear, blue, clear, clear, clear, clear, clear, clear}) ==
+	           (pixel{0, 0, 255, 0}));
+}
+
+/* Test that the image is walked as one row, as the game did: the last
+ * pixel of a row takes the colour of the first of the next, the first
+ * pixel of the second row does not look above, and the first and last
+ * pixels of the image are left alone.
+ */
+BOOST_AUTO_TEST_CASE(bleed_walks_rows_as_one)
+{
+	const std::vector<pixel> image{clear, clear, clear, green, clear, clear, clear, red, clear};
+	const std::vector<pixel> expected{clear,          {0, 255, 0, 0}, {0, 255, 0, 0}, green,
+	                                  {0, 255, 0, 0}, {0, 255, 0, 0}, {255, 0, 0, 0}, red,
+	                                  clear};
+	BOOST_TEST(bleed(image, 3) == expected, boost::test_tools::per_element());
+	const std::vector<pixel> ends{clear, red, red, clear};
+	BOOST_TEST(bleed(ends, 4) == ends, boost::test_tools::per_element());
+}
+
+/* Test that an image has transparency when any pixel's alpha is below
+ * 255, a super-transparent one included, and not when all are opaque.
+ */
+BOOST_AUTO_TEST_CASE(transparency_is_any_alpha_below_opaque)
+{
+	BOOST_TEST(!render::has_transparency(bytes({red, green, blue})));
+	BOOST_TEST(render::has_transparency(bytes({red, {255, 255, 255, 0}})));
+	BOOST_TEST(render::has_transparency(bytes({{1, 2, 3, 254}, blue})));
+}

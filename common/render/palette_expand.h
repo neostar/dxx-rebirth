@@ -156,4 +156,59 @@ void expand_palette(const Palette &pal, const indexed_bitmap &bitmap, const text
 		}
 }
 
+/* Bleeds colour into the transparent pixels of rgba, an image width pixels
+ * wide, against the dark edges filtering draws around transparency: each
+ * transparent pixel takes the colour, not the alpha, of its first opaque
+ * neighbour, looking left, right, above, below, below left, below right,
+ * above left and above right.  As the game always did, the image is walked
+ * as one row of pixels: left and right of an edge pixel are in the rows
+ * beside it; the first and last pixels are skipped; a pixel looks above
+ * only from index width + 1 on and below only up to index n - width - 2,
+ * for n pixels.  Throws std::length_error when rgba is not whole pixels.
+ */
+inline void bleed_edges(const std::span<std::uint8_t> rgba, const std::uint32_t width)
+{
+	if (rgba.size() % 4 != 0)
+		throw std::length_error("bleed_edges: not whole pixels");
+	const std::size_t n{rgba.size() / 4};
+	if (n < 2)
+		return;
+	const auto opaque{[rgba](const std::size_t i) { return rgba[i * 4 + 3] != 0; }};
+	/* Copies the colour of pixel from to pixel to, if from is opaque. */
+	const auto take{[rgba, opaque](const std::size_t to, const std::size_t from) {
+		if (!opaque(from))
+			return false;
+		rgba[to * 4] = rgba[from * 4];
+		rgba[to * 4 + 1] = rgba[from * 4 + 1];
+		rgba[to * 4 + 2] = rgba[from * 4 + 2];
+		return true;
+	}};
+	const std::size_t w{width};
+	for (std::size_t i{1}; i + 1 < n; ++i)
+	{
+		if (opaque(i))
+			continue;
+		const bool has_above{i >= w + 1};
+		const bool has_below{i + w + 1 < n};
+		if (take(i, i - 1) || take(i, i + 1))
+			continue;
+		if (has_above && take(i, i - w))
+			continue;
+		if (has_below && (take(i, i + w) || take(i, i + w - 1) || take(i, i + w + 1)))
+			continue;
+		if (has_above)
+			(void)(take(i, i - w - 1) || take(i, i - w + 1));
+	}
+}
+
+/* Whether any pixel of rgba has an alpha below 255 (texture_desc). */
+[[nodiscard]]
+inline bool has_transparency(const std::span<const std::uint8_t> rgba)
+{
+	for (std::size_t i{3}; i < rgba.size(); i += 4)
+		if (rgba[i] != 255)
+			return true;
+	return false;
+}
+
 }
