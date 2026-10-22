@@ -81,6 +81,138 @@ run_check()
 	(cd "$r" && DXX_D2_DATA=${DATA-$d} tools/dev/check.sh "$@" 2>&1)
 }
 
+# Test that the gate runs its steps (doctor once, the dev and asan builds
+# with their tests, gitleaks on the new commits, R1 against the base),
+# timing each, and passes; that R1's baseline is captured once per base
+# commit, into the clone's git directory without its build tree, and
+# reused; and that nothing it writes shows in git.
+test_gate_runs_its_steps_and_reuses_the_baseline()
+{
+	local r out rc sha common
+	r=$(make_check_repo) || die "make_check_repo failed"
+	sha=$(tgit -C "$r" rev-parse base)
+	common=$(tgit -C "$r" rev-parse --path-format=absolute --git-common-dir)
+	change "$r" src/game.cpp
+	out=$(run_check "$r" --gate "$sha") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	for s in doctor new_secrets unit_tests sanitizer_tests leaks changed_format r1; do
+		assert_contains "$out" "-- $s: "
+	done
+	assert_contains "$out" "new_secrets: $sha..HEAD"
+	assert_contains "$out" "check.sh: gate checks passed"
+	assert_eq "$(grep -c '^doctor.sh' "$r/calls")" 1
+	assert_contains "$(cat "$r/calls")" "build.sh dev check build/dev/compile_commands.json"
+	assert_contains "$(cat "$r/calls")" "build.sh asan check"
+	assert_contains "$(cat "$r/calls")" "r1.sh capture --base $sha R1_DIR=$common/dxx-r1/$sha"
+	assert_contains "$(cat "$r/calls")" "r1.sh check --base $sha R1_DIR=$(cd "$r" && pwd)/traces/local/r1-gate"
+	[[ ! -e $common/dxx-r1/$sha/src ]] || fail "the baseline's build tree was kept"
+	assert_eq "$(tgit -C "$r" status --porcelain --ignored=no)" ""
+	: > "$r/calls"
+	out=$(run_check "$r" --gate "$sha") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_not_contains "$(cat "$r/calls")" "r1.sh capture"
+	assert_contains "$(cat "$r/calls")" "r1.sh check --base $sha"
+}
+
+# Test that a failed R1 check fails the gate, naming it, and that a failed
+# capture of the baseline fails it before R1 runs.
+test_gate_fails_on_r1()
+{
+	local r out rc
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" src/game.cpp
+	out=$(FAKE_R1_RC=1 run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "fake r1 check"
+	assert_eq "$(tail -1 <<<"$out")" "check.sh: failed: r1"
+	r=$(make_check_repo) || die "make_check_repo failed"
+	out=$(FAKE_CAPTURE_RC=1 run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "check.sh: failed: r1_baseline r1"
+	assert_not_contains "$out" "fake r1 check"
+}
+
+# Print a fake GitHub token, assembled here so that this file itself holds
+# none for a scanner to find.
+fake_token()
+{
+	printf 'gh%s_%s' p aB3dE5fG7hJ9kL1mN2pQ4rS6tU8vW0xY2zA4
+}
+
+# Test that the gate scans the new commits for secrets: one committed
+# after the base fails it without printing the secret; one before the base
+# is left to the full run's history scan.
+test_gate_scans_the_new_commits()
+{
+	local r out rc
+	[[ -x $dev_deps_prefix/opt/gitleaks/bin/gitleaks ]] ||
+		skip "gitleaks not in $dev_deps_prefix; run tools/dev/deps.sh build"
+	r=$(make_check_repo) || die "make_check_repo failed"
+	printf 'token = "%s"\n' "$(fake_token)" > "$r/old.txt"
+	tgit -C "$r" add old.txt || die "staging old.txt failed"
+	tgit -C "$r" commit -q --no-verify -m old || die "committing old.txt failed"
+	tgit -C "$r" branch -f base
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	printf 'token = "%s"\n' "$(fake_token)" > "$r/new.txt"
+	tgit -C "$r" add new.txt || die "staging new.txt failed"
+	tgit -C "$r" commit -q --no-verify -m new || die "committing new.txt failed"
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "check.sh: failed: new_secrets"
+	assert_not_contains "$out" "$(fake_token)"
+}
+
+# Test that the gate formats and tidies the changed fork files only.
+test_gate_tidies_the_changed_fork_files()
+{
+	local r out
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" tools/x.cpp
+	change "$r" common/upstream.cpp
+	out=$(run_check "$r" --gate base)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$(cat "$r/calls")" "format.sh --check $(cd "$r" && pwd)/tools/x.cpp"
+	assert_contains "$(cat "$r/calls")" "format.sh --tidy $(cd "$r" && pwd)/tools/x.cpp"
+	assert_not_contains "$(cat "$r/calls")" "upstream.cpp"
+}
+
+# Test that the gate times itself against its 5-minute budget (ADR 6) and
+# fails, naming the budget, when it takes longer, here
+# DXX_GATE_BUDGET=-1 s.
+test_gate_fails_over_its_budget()
+{
+	local r out rc
+	r=$(make_check_repo) || die "make_check_repo failed"
+	out=$(DXX_GATE_BUDGET=-1 run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	[[ $out =~ check.sh:\ merge\ gate\ took\ [0-9]+\ s,\ budget\ -1\ s ]] || fail "no timing: $out"
+	assert_contains "$out" "check.sh: failed: budget"
+	out=$(env -u DXX_GATE_BUDGET "$r/tools/dev/check.sh" --gate base 2>&1)
+	assert_contains "$out" "needs DXX_D2_DATA"
+	out=$(run_check "$r" --gate base)
+	assert_contains "$out" ", budget 300 s"
+}
+
+# Test that the gate fails before any step without the game data, and
+# that it needs a base commit.
+test_gate_needs_data_and_base()
+{
+	local r out rc d
+	r=$(make_check_repo) || die "make_check_repo failed"
+	for d in '' "$r"; do
+		out=$(DATA=$d run_check "$r" --gate base) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "data '$d': $out"
+		assert_contains "$out" "the merge gate needs DXX_D2_DATA"
+		assert_not_contains "$out" "== "
+	done
+	for a in '--gate' '--gate no-such-rev' '--gate base extra'; do
+		# shellcheck disable=SC2086  # split the arguments on purpose
+		out=$(run_check "$r" $a) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "$a: $out"
+	done
+}
+
 # Test that --tools runs the named shell tests only, failing on a failed
 # one or a missing name.
 test_tools_runs_the_named_shell_tests()

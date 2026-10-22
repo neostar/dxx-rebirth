@@ -8,6 +8,9 @@
 #   check.sh --fast         quick subset: the pre-commit steps and more,
 #                           the shell tests among them
 #   check.sh                everything: the fast subset plus the full steps
+#   check.sh --gate REV     the merge gate's native steps (ADR 6) on the
+#                           commits REV..HEAD, within its 5-minute budget;
+#                           ci.sh --gate runs it
 #   check.sh --tools [TEST...]  shellcheck, the docs and test checks, and
 #                           the named tools/dev/tests files (ci.sh --gate's
 #                           tools part)
@@ -22,7 +25,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--pre-commit|--pre-push|--fast|--tools [TEST...]]" >&2
+	echo "usage: $0 [--pre-commit|--pre-push|--fast|--gate REV|--tools [TEST...]]" >&2
 	exit 2
 }
 
@@ -168,7 +171,7 @@ run_gitleaks()
 		if [[ ${DXX_REFERENCE_IMAGE-} == 1 ]]; then
 			echo "FAIL $step: $why; the reference image must have it"
 			return 1
-		elif [[ $mode == pre-commit || $mode == pre-push ]]; then
+		elif [[ $mode == pre-commit || $mode == pre-push || $mode == gate ]]; then
 			echo "FAIL $step: $why; nothing goes in or out unscanned: run" \
 				"tools/dev/deps.sh all, or put gitleaks $pin on PATH"
 			return 1
@@ -226,6 +229,66 @@ step_push_secrets()
 		run_gitleaks push_secrets --log-opts="$range" || rc=1
 	done
 	return "$rc"
+}
+
+# The merge gate: fail on a secret in the new commits, base..HEAD.
+step_new_secrets()
+{
+	echo "new_secrets: $gate_rev..HEAD"
+	run_gitleaks new_secrets --log-opts="$gate_rev..HEAD"
+}
+
+# The merge gate: clang-format, then clang-tidy, on the fork C, C++ and
+# Objective-C(++) files changed in base..HEAD (format.sh, as --staged
+# picks them); none is a pass.
+step_changed_format()
+{
+	local d f e changed files=() dirs=()
+	while IFS= read -r d; do
+		[[ -z $d || $d == \#* ]] || dirs+=("$d")
+	done < "$dev_dir/fork-dirs"
+	changed=$(git -C "$root" diff --no-renames --diff-filter=d --name-only "$gate_rev" HEAD) ||
+		{ echo "changed_format: cannot list the files changed since $gate_rev"; return 1; }
+	while IFS= read -r f; do
+		[[ -n $f ]] || continue
+		e=${f##*.}
+		[[ " c cc cpp cxx h hh hpp hxx m mm " == *" $e "* ]] || continue
+		for d in "${dirs[@]}"; do
+			[[ $f == "$d"/* ]] && { files+=("$root/$f"); break; }
+		done
+	done <<<"$changed"
+	if [[ ${#files[@]} -eq 0 ]]; then
+		echo "changed_format: no changed fork C or C++ file"
+		return 0
+	fi
+	"$dev_dir/format.sh" --check "${files[@]}" && "$dev_dir/format.sh" --tidy "${files[@]}"
+}
+
+# The merge gate's R1 (ADR 6): r1.sh check against the base commit's
+# baseline.  r1_baseline captures it, once per base commit, into the
+# clone's git directory (dxx-r1/<commit>: shared by its worktrees, never
+# committed; the baseline's build tree is removed) and reuses it after;
+# step_r1 plays the working tree's scenes into traces/local/r1-gate, its
+# baseline a link to the captured one.  Both derive from the licensed data
+# and stay out of git (game-data.md).
+r1_baseline()
+{
+	local common
+	common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir) || return 1
+	r1_cache=$common/dxx-r1/$gate_rev
+	if [[ -f $r1_cache/baseline/commit ]]; then
+		echo "r1_baseline: reusing the baseline of $gate_rev in $r1_cache"
+		return 0
+	fi
+	echo "r1_baseline: capturing the baseline of $gate_rev, once, outside the budget"
+	R1_DIR=$r1_cache "$dev_dir/r1.sh" capture --base "$gate_rev" || return 1
+	rm -rf "$r1_cache/src"
+}
+step_r1()
+{
+	local work=$root/traces/local/r1-gate
+	rm -rf "$work" && mkdir -p "$work" && ln -s "$r1_cache/baseline" "$work/baseline" || return 1
+	R1_DIR=$work "$dev_dir/r1.sh" check --base "$gate_rev"
 }
 
 # Fail on a secret anywhere in the history of HEAD, upstream's included;
@@ -547,6 +610,9 @@ fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellc
 	workflows commit_sizes test_git gpu_gate sdl_arms shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests
 	sdl3_link)
+# The merge gate's steps (ADR 6), with r1 run beside them.
+gate_steps=(repo_config doctor guard gitleaks_allow new_secrets gpu_gate sdl_arms unit_tests
+	sanitizer_tests leaks changed_format)
 tools_steps=(shellcheck stale_hashes test_git shell_tests)
 
 mode=full
@@ -554,15 +620,21 @@ case "${1-}" in
 	--pre-commit) mode=pre-commit ;;
 	--pre-push) mode=pre-push ;;
 	--fast) mode=fast ;;
+	--gate)
+		mode=gate
+		[[ $# -eq 2 && -n $2 ]] || usage
+		gate_rev=$(git -C "$root" rev-parse --verify -q "$2^{commit}") ||
+			{ echo "check.sh: $2 is no commit" >&2; exit 2; } ;;
 	--tools) mode=tools; only_tests=("${@:2}") ;;
 	'') ;;
 	*) usage ;;
 esac
-[[ $mode == tools || $# -le 1 ]] || usage
+[[ $mode == gate || $mode == tools || $# -le 1 ]] || usage
 
 steps=("${fast_steps[@]}")
 [[ $mode == pre-commit ]] && steps=("${pre_commit_steps[@]}")
 [[ $mode == pre-push ]] && steps=(push_secrets)
+[[ $mode == gate ]] && steps=("${gate_steps[@]}")
 [[ $mode == tools ]] && steps=("${tools_steps[@]}")
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
@@ -576,16 +648,52 @@ fi
 budget=${DXX_CHECK_BUDGET:-$((15 * 60))}
 
 failed=()
+if [[ $mode == gate ]]; then
+	# The merge gate's budget (ADR 6): 5 minutes, from the measured
+	# basis of 2026-10-22 (R1 check 123-161 s beside the other steps,
+	# about 3 minutes).  DXX_GATE_BUDGET (seconds) overrides it, for the
+	# tests.  A first capture of the base's R1 baseline is outside it.
+	budget=${DXX_GATE_BUDGET:-300}
+	if [[ -z ${DXX_D2_DATA-} || ! -f ${DXX_D2_DATA-}/DESCENT2.HOG ]]; then
+		echo "check.sh: the merge gate needs DXX_D2_DATA, the directory holding DESCENT2.HOG," \
+			"for R1 (docs/agents/game-data.md); it is '${DXX_D2_DATA-}'" >&2
+		exit 1
+	fi
+	echo "== r1_baseline"
+	step_start=$EPOCHSECONDS
+	r1_baseline || failed+=(r1_baseline)
+	echo "-- r1_baseline: $((EPOCHSECONDS - step_start)) s"
+fi
 start=$EPOCHSECONDS
+r1_pid=
+if [[ $mode == gate && ${#failed[@]} -eq 0 ]]; then
+	# R1 runs beside the other steps; its output prints when it is done.
+	r1_out=$(mktemp "${TMPDIR:-/tmp}/check-r1.XXXXXX") || exit 1
+	{ step_start=$EPOCHSECONDS; step_r1; rc=$?
+		echo "-- r1: $((EPOCHSECONDS - step_start)) s"; exit "$rc"; } > "$r1_out" 2>&1 &
+	r1_pid=$!
+fi
 for s in "${steps[@]}"; do
 	echo "== $s"
 	step_start=$EPOCHSECONDS
 	"step_$s" || failed+=("$s")
-	[[ $mode == full ]] && echo "-- $s: $((EPOCHSECONDS - step_start)) s"
+	[[ $mode == full || $mode == gate ]] && echo "-- $s: $((EPOCHSECONDS - step_start)) s"
 done
-if [[ $mode == full ]]; then
+if [[ -n $r1_pid ]]; then
+	echo "== r1"
+	wait "$r1_pid" || failed+=(r1)
+	cat "$r1_out"
+	rm -f "$r1_out"
+elif [[ $mode == gate ]]; then
+	failed+=(r1)
+fi
+if [[ $mode == full || $mode == gate ]]; then
 	took=$((EPOCHSECONDS - start))
-	echo "check.sh: full checks took $took s, budget $budget s"
+	if [[ $mode == full ]]; then
+		echo "check.sh: full checks took $took s, budget $budget s"
+	else
+		echo "check.sh: merge gate took $took s, budget $budget s"
+	fi
 	[[ $took -le $budget ]] || failed+=(budget)
 fi
 
