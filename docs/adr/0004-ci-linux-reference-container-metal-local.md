@@ -51,12 +51,13 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   archives without timestamps (`ZERO_AR_DATE=1`; GNU ar is deterministic by default). SPIRV-Cross
   stamps its version string with CMake's `TIMESTAMP`, the build time, which is why
   `libspirv-cross-c-shared` differed between two builds at one path; `SOURCE_DATE_EPOCH=0` fixes it.
-  One leak stays, allowlisted in the test: FluidSynth compiles its prefix into `libfluidsynth`
-  (the default soundfont path) and, on the Mac, sets an absolute install name that SDL3_mixer and
-  the `fluidsynth` program record; its CMake overrides `CMAKE_INSTALL_NAME_DIR`. Masking the
-  prefix inside those files would not make them comparable on the Mac: the linker's ad-hoc code
-  signature hashes the bytes that hold it. The fix is
-  `-DDEFAULT_SOUNDFONT=` and an `@rpath` install name set after its install. pkg-config
+  FluidSynth's CMake overrides `CMAKE_INSTALL_NAME_DIR`, so on the Mac it named itself by its
+  absolute path, which SDL3_mixer and the `fluidsynth` program recorded; deps.sh renames every
+  install name into the prefix to `@rpath` after each install and signs the file again. One leak
+  stays, allowlisted in the test: FluidSynth compiles its prefix into `libfluidsynth` and the
+  `fluidsynth` program (the default soundfont path). Masking the prefix inside those files would
+  not make them comparable on the Mac: the linker's ad-hoc code signature hashes the bytes that
+  hold it. The fix is `-DDEFAULT_SOUNDFONT=`. pkg-config
   and CMake files name their prefix by design. `DXX_REPRO_TESTS=1 tools/dev/tests/repro_test.sh`
   builds the pins twice at two prefixes and compares every installed file.
 - **The venv step downloads at image build time**, hash-locked (`requirements.lock`, `uv pip sync

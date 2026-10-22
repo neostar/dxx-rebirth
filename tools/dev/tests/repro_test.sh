@@ -7,10 +7,8 @@ source "$(dirname "$0")/lib.sh"
 
 # Installed files known to differ between two builds at two prefixes, as
 # path globs relative to the prefix, with their cause in ADR 4: FluidSynth
-# compiles in its prefix (the default soundfont path; on the Mac also its
-# absolute install name, which SDL3_mixer and the fluidsynth program
-# record).
-repro_allowlist=(bin/fluidsynth 'lib/libfluidsynth.*' 'lib/libSDL3_mixer.*.dylib')
+# compiles in its prefix (the default soundfont path).
+repro_allowlist=(bin/fluidsynth 'lib/libfluidsynth.*')
 
 # Test that two builds of the pinned dependencies at two prefixes install
 # the same files, byte for byte, but for the allowlist.
