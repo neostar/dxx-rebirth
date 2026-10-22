@@ -318,6 +318,13 @@ bytes texture_record(const std::uint8_t side, const std::uint8_t format, const s
 	       bytes(pixel_bytes);
 }
 
+/* Bytes b with the byte at `at` set to value. */
+bytes with(bytes b, const std::size_t at, const std::uint8_t value)
+{
+	b.at(at) = value;
+	return b;
+}
+
 /* One malformed trace and the error it must be rejected with; a few
  * well-formed ones (no error) show that each rejection is for its one flaw.
  */
@@ -368,12 +375,21 @@ const std::vector<malformed> corpus{
     {"texture side 4097",
 	 header + bytes{3, 17, 0, 0, 0, 1, 0, 0, 0, 1, 1, 16, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
 	 trace::read_error::bad_value},
+    {"texture filter 2", header + with(texture_record(1, 0, 0, 4), 19, 2),
+	 trace::read_error::bad_value},
+    {"texture has_transparency 2", header + with(texture_record(1, 0, 0, 4), 21, 2),
+	 trace::read_error::bad_value},
+    {"texture height 4097",
+	 header + bytes{3, 17, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 16, 0, 0, 0, 0, 0, 0},
+	 trace::read_error::bad_value},
     {"texture side 2^32 - 1", header + bytes{3,   17,  0,   0,   0,   1,   0,   0, 0, 1, 255,
 	                                         255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 0},
 	 trace::read_error::bad_value},
     {"draw unchanged", header + draw_record(5, 4), std::nullopt},
     {"draw topology 6", header + draw_record(5, 6), trace::read_error::bad_value},
     {"draw blend 5", header + draw_record(10, 5), trace::read_error::bad_value},
+    {"draw depth 2", header + draw_record(11, 2), trace::read_error::bad_value},
+    {"draw cull 2", header + draw_record(12, 2), trace::read_error::bad_value},
     {"draw wrap 2", header + draw_record(17, 2), trace::read_error::bad_value},
     {"draw projection 2", header + draw_record(38, 2), trace::read_error::bad_value},
     {"draw modelview 2", header + draw_record(87, 2), trace::read_error::bad_value},
@@ -399,7 +415,12 @@ BOOST_AUTO_TEST_CASE(malformed_corpus_rejected)
 				BOOST_TEST(r.has_value());
 				continue;
 			}
-			BOOST_REQUIRE(!r.has_value());
+			/* Not BOOST_REQUIRE: one accepted trace must not hide the
+			 * cases after it.
+			 */
+			BOOST_TEST(!r.has_value());
+			if (r.has_value())
+				continue;
 			BOOST_TEST((r.error() == m.error));
 			trace::reader rd{m.trace};
 			auto next{rd.next()};
@@ -412,25 +433,50 @@ BOOST_AUTO_TEST_CASE(malformed_corpus_rejected)
 	}
 }
 
+namespace {
+
+/* Where each record of well-formed trace t ends, found from the record
+ * lengths alone, after the end of the header.
+ */
+std::vector<std::size_t> record_ends(const bytes &t)
+{
+	std::vector<std::size_t> ends{header.size()};
+	for (std::size_t at{header.size()}; at < t.size();)
+	{
+		std::uint32_t length{0};
+		for (std::size_t i{0}; i < 4; ++i)
+			length |= std::uint32_t{t.at(at + 1 + i)} << (8 * i);
+		at += 5 + length;
+		ends.push_back(at);
+	}
+	return ends;
+}
+
+}
+
 /* Test that every proper prefix of a good trace is rejected as truncated,
- * and every prefix that ends at a record boundary reads.
+ * and every prefix that ends at a record boundary reads, for a trace of
+ * clears and a present and for two frames of every record kind.
  */
 BOOST_AUTO_TEST_CASE(every_cut_is_truncated_or_whole)
 {
 	trace::writer w;
 	w.clear({.color = true, .depth = true});
 	w.present();
-	const auto good{w.take()};
-	const std::vector<std::size_t> boundaries{header.size(), header.size() + 6, good.size()};
-	for (std::size_t n{0}; n <= good.size(); ++n)
+	for (const auto &good : {w.take(), two_frames()})
 	{
-		BOOST_TEST_CONTEXT("first " << n << " bytes")
+		const auto boundaries{record_ends(good)};
+		BOOST_TEST(boundaries.back() == good.size());
+		for (std::size_t n{0}; n <= good.size(); ++n)
 		{
-			const auto r{trace::read_all(std::span{good}.first(n))};
-			if (std::ranges::find(boundaries, n) != boundaries.end())
-				BOOST_TEST(r.has_value());
-			else
-				BOOST_TEST((!r.has_value() && r.error() == trace::read_error::truncated));
+			BOOST_TEST_CONTEXT("first " << n << " of " << good.size() << " bytes")
+			{
+				const auto r{trace::read_all(std::span{good}.first(n))};
+				if (std::ranges::find(boundaries, n) != boundaries.end())
+					BOOST_TEST(r.has_value());
+				else
+					BOOST_TEST((!r.has_value() && r.error() == trace::read_error::truncated));
+			}
 		}
 	}
 }
