@@ -77,6 +77,9 @@ test_deadline_fails()
 	out=$(waited "$d/log" 2 "passed" "failed") && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "wait-for.sh: no line containing 'passed' or 'failed' in $d/log after 2 s"
+	out=$(waited "$d/log" 1 "ci.sh: passed" "ci.sh: failed") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no line containing 'ci.sh: passed' or 'ci.sh: failed' in $d/log"
 }
 
 # Test that a missing file is waited for until the deadline: one created

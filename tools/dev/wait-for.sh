@@ -23,10 +23,11 @@ usage()
 [[ $# -ge 3 && -n $1 && $2 =~ ^[1-9][0-9]*$ ]] || usage
 file=$1 seconds=$2
 shift 2
-patterns=() names=()
+patterns=() names=''
 for s in "$@"; do
 	[[ -n $s && $s != *$'\n'* ]] || usage
-	patterns+=(-e "$s") names+=("'$s'")
+	patterns+=(-e "$s")
+	names+=${names:+ or }"'$s'"
 done
 deadline=$((SECONDS + seconds))
 while :; do
@@ -39,8 +40,7 @@ while :; do
 	sleep 0.5
 done
 if [[ -e $file ]]; then
-	joined=${names[*]}
-	echo "wait-for.sh: no line containing ${joined// / or } in $file after $seconds s" >&2
+	echo "wait-for.sh: no line containing $names in $file after $seconds s" >&2
 else
 	echo "wait-for.sh: $file does not exist after $seconds s" >&2
 fi
