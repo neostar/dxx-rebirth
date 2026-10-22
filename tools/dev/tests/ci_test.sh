@@ -41,13 +41,15 @@ DOCKER
 	printf '%s\n' "$r"
 }
 
-# Run ci.sh of repo $1 with the fake docker in $2 and the remaining arguments.
+# Run ci.sh of repo $1 with the fake docker in $2 and the remaining
+# arguments.  Its machine-wide lock is $2/machine.lock, or $MACHINE_LOCK:
+# never the real one, which a real ci.sh running these tests holds.
 run_ci()
 {
 	local r=$1 bin=$2; shift 2
 	mkdir -p "$bin/tm"
 	(cd "$r" && PATH="$bin:$PATH" DXX_DEPS_CACHE="$bin/cache" DXX_TMUTIL="$(fake_tmutil "$bin/tm")" \
-		tools/dev/ci.sh "$@" 2>&1)
+		DXX_CI_MACHINE_LOCK="${MACHINE_LOCK:-$bin/machine.lock}" tools/dev/ci.sh "$@" 2>&1)
 }
 
 # Test that ci.sh runs the native and the container leg at once, and
@@ -275,6 +277,75 @@ test_lock_without_pid_is_taken_over()
 	out=$(run_ci "$r" "$bin" --fast)
 	assert_eq "$?" 0 "$out"
 	[[ ! -e $r/build/ci/lock ]] || fail "the lock outlived the run"
+}
+
+# Test that a ci.sh in another worktree waits for the running one, the
+# machine-wide lock's owner, printing whom it waits for, and runs once that
+# one ended, removing the lock after it.
+test_second_worktree_waits_for_the_machine_lock()
+{
+	local bin1 bin2 r1 r2 out job first
+	bin1=$(make_scratch) || die "make_scratch failed"
+	bin2=$(make_scratch) || die "make_scratch failed"
+	export MACHINE_LOCK=$bin1/machine.lock
+	r1=$(blocked_ci_repo "$bin1") || die "make_ci_repo failed"
+	r2=$(make_ci_repo "$bin2") || die "make_ci_repo failed"
+	start_blocked_ci "$r1" "$bin1"
+	first=$(cat "$MACHINE_LOCK/pid" 2>/dev/null)
+	[[ -n $first ]] || { fail "the first ci.sh never took the machine lock"; touch "$bin1/release"; return; }
+	DXX_CI_POLL=0.2 run_ci "$r2" "$bin2" --fast > "$bin2/ci.out" &
+	job=$!
+	# A bound that only ends a broken run.
+	for _ in $(seq 1200); do grep -q 'waiting for' "$bin2/ci.out" && break; sleep 0.1; done
+	assert_contains "$(cat "$bin2/ci.out")" "ci.sh: waiting for ci.sh pid $first in $(cd "$r1" && pwd)"
+	assert_not_contains "$(cat "$bin2/ci.out")" "native check"
+	touch "$bin1/release"
+	wait "$(cat "$bin1/ci.job")"
+	wait "$job" || fail "the second run failed: $(cat "$bin2/ci.out")"
+	assert_contains "$(cat "$bin2/ci.out")" "ci.sh: passed"
+	[[ ! -e $MACHINE_LOCK ]] || fail "the machine lock outlived the runs"
+}
+
+# Test that a ci.sh waiting for the machine lock longer than
+# DXX_CI_MAX_WAIT seconds fails, naming the owner, without running a leg
+# or touching the owner's lock.
+test_machine_lock_wait_times_out()
+{
+	local bin1 bin2 r1 r2 out rc first
+	bin1=$(make_scratch) || die "make_scratch failed"
+	bin2=$(make_scratch) || die "make_scratch failed"
+	export MACHINE_LOCK=$bin1/machine.lock
+	r1=$(blocked_ci_repo "$bin1") || die "make_ci_repo failed"
+	r2=$(make_ci_repo "$bin2") || die "make_ci_repo failed"
+	start_blocked_ci "$r1" "$bin1"
+	first=$(cat "$MACHINE_LOCK/pid" 2>/dev/null)
+	out=$(DXX_CI_MAX_WAIT=1 DXX_CI_POLL=0.2 run_ci "$r2" "$bin2" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "ci.sh: gave up after 1 s waiting for ci.sh pid $first"
+	assert_not_contains "$out" "native check"
+	assert_eq "$(cat "$MACHINE_LOCK/pid" 2>/dev/null)" "$first" "the owner's lock was touched"
+	touch "$bin1/release"
+	wait "$(cat "$bin1/ci.job")"
+	out=$(DXX_CI_MAX_WAIT=x run_ci "$r2" "$bin2" --fast) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+}
+
+# Test that a machine lock left by a ci.sh that no longer runs is taken
+# over without waiting, and removed after the run.
+test_stale_machine_lock_is_taken_over()
+{
+	local bin r out dead
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_ci_repo "$bin") || die "make_ci_repo failed"
+	sh -c 'exit 0' &
+	dead=$!
+	wait "$dead"
+	mkdir -p "$bin/machine.lock"
+	echo "$dead" > "$bin/machine.lock/pid"
+	out=$(DXX_CI_MAX_WAIT=0 run_ci "$r" "$bin" --fast)
+	assert_eq "$?" 0 "$out"
+	assert_not_contains "$out" "waiting for"
+	[[ ! -e $bin/machine.lock ]] || fail "the machine lock outlived the run"
 }
 
 # Test that ci.sh runs check.sh natively and in the container, offline.
