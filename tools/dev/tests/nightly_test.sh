@@ -461,14 +461,14 @@ bounded()
 }
 
 # Run the native leg's step $2 with the fake game in directory $1, with
-# the remaining arguments, for at most 120 s, from tools/dev or from
-# NIGHTLY_DEV_DIR.
+# the remaining arguments, for at most 120 s (bounded), from tools/dev or
+# from NIGHTLY_DEV_DIR.
 game_step()
 {
 	local vars
 	mapfile -t vars < <(fake_game "$1")
 	env "${vars[@]}" "${NIGHTLY_DEV_DIR:-$DEV_DIR}/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1 &
-	bounded "$!" "${BOUND:-120}"
+	bounded "$!"
 }
 
 # Test that the hardened demo run passes once a whole demo has played, and
@@ -586,7 +586,7 @@ test_demo_steps_find_the_game_not_its_fork()
 	mkdir "$d/bin"
 	printf '#!/bin/sh\n"%s" "$@" | sort -rn\n' "$(command -v ps)" > "$d/bin/ps"
 	chmod +x "$d/bin/ps"
-	out=$(PATH=$d/bin:$PATH FAKE_GAME=fork BOUND=40 game_step "$d" hardened_demo)
+	out=$(PATH=$d/bin:$PATH FAKE_GAME=fork game_step "$d" hardened_demo)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "complete demo playback"
 }
@@ -703,7 +703,8 @@ test_endurance_numbers_reach_log()
 	d=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
 	mapfile -t vars < <(fake_game "$d")
-	out=$(env "${vars[@]}" "$r/tools/dev/nightly.sh" --steps endurance --endurance 10 2>&1)
+	out=$(env "${vars[@]}" "$r/tools/dev/nightly.sh" --steps endurance --endurance 10 2>&1 &
+		bounded "$!")
 	assert_eq "$?" 0 "$out"
 	out=$(cat "$r/build/nightly/nightly.log")
 	assert_contains "$out" "rss_trend: flat: slope "
