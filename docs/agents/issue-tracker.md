@@ -55,8 +55,10 @@ branch. A prompt that says "follow Working a ticket" adds only the ticket number
 - Git: never `git stash` (one list for all worktrees); commit unsigned
   (`git -c commit.gpgsign=false commit`); no pushes, no issue or PR writes.
 - Processes: kill only your own pids, never `pkill -f` with a broad pattern.
-- Background runs: wait for one through `tools/dev/wait-for.sh FILE STRING DEADLINE`, on its log
-  or output; end all your background work before you report.
+- Background runs: wait for one through `tools/dev/wait-for.sh FILE DEADLINE STRING...` on its
+  log or output, naming every ending: `ci.sh: passed` and `ci.sh: failed` for `ci.sh`,
+  `nightly.sh: passed` and `nightly.sh: failed` for `nightly.sh`. End all your background work
+  before you report.
 - Crash reports: create, change or delete nothing in `~/Library/Logs/DiagnosticReports`; on a
   new crash report, stop and report it.
 - Windowless: launch binaries with `tools/dev/run.sh` and any other command that may open a window
