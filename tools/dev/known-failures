@@ -1,0 +1,7 @@
+# doctor.sh failures that check.sh's doctor step prints as KNOWN FAIL,
+# naming the owner decision each waits for, instead of failing.  doctor.sh
+# itself still fails on them.  One per line:
+#   <platform> <glob of the doctor.sh FAIL line> -- <the decision>
+# Remove a line once its cause is fixed.
+darwin FAIL libs lib/libfluidsynth.3.6.1.dylib: install name */dxx-rebirth-wt/secrets/* -- owner decision: fix deps.sh's install names and rebuild the prefix, which changes the reference image tag
+darwin FAIL libs lib/libSDL3_mixer.0.2.4.dylib: */dxx-rebirth-wt/secrets/* -- owner decision: fix deps.sh's install names and rebuild the prefix, which changes the reference image tag

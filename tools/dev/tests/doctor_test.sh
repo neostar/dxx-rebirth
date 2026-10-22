@@ -248,6 +248,62 @@ test_prefix_with_other_build_options_fails()
 	assert_contains "$out" "FAIL deps: $d/prefix was built from other pins"
 }
 
+# Build into directory $1 a dylib $2 with install name $3, linking the
+# libraries "${@:4}" (paths); fail the test if cc cannot.
+make_dylib()
+{
+	local d=$1 out=$2 install_name=$3 src; shift 3
+	src=$(mktemp "$d/src.XXXXXX") || die "mktemp failed"
+	printf 'int f_%s(void) { return 0; }\n' "$RANDOM" > "$src.c"
+	cc -dynamiclib "$src.c" -install_name "$install_name" -Wl,-headerpad_max_install_names "$@" -o "$out" ||
+		die "cc cannot build $out"
+}
+
+# Test that the Mach-O libraries under the prefix's and the venv's lib/
+# pass when they load only through @rpath and from /usr/lib and /System,
+# and fail, one line per reference, when one names a library outside the
+# prefix (also an existing one), an @rpath library that does not resolve,
+# or a library in the prefix that does not exist, and when its own install
+# name lies outside (whatever links it would record that place).
+test_prefix_libraries_reference_only_allowed_places()
+{
+	local d p out rc
+	[[ $(uname -s) == Darwin ]] || skip 'Mach-O libraries are macOS only'
+	command -v cc >/dev/null || skip 'no cc to build the libraries'
+	d=$(make_scratch) || die "make_scratch failed"
+	# The linker records paths normalized: no double slash from TMPDIR.
+	d=$(cd "$d" && pwd -P) p=$d/prefix
+	mkdir -p "$p/lib/sub" "$d/elsewhere" "$d/venv/lib/site"
+	dep_manifest "$d"
+	"$DEV_DIR/deps.sh" --manifest "$d/manifest" stamp > "$p/deps.stamp"
+	make_dylib "$d" "$p/lib/libgood.dylib" @rpath/libgood.dylib
+	make_dylib "$d" "$p/lib/libuser.dylib" @rpath/libuser.dylib "$p/lib/libgood.dylib"
+	make_dylib "$d" "$p/lib/sub/libabs.dylib" @rpath/libabs.dylib "$p/lib/libgood.dylib"
+	install_name_tool -change @rpath/libgood.dylib "$p/lib/libgood.dylib" "$p/lib/sub/libabs.dylib"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$p" --venv "$d/venv") &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ok   libs: 3 Mach-O libraries"
+	make_dylib "$d" "$d/elsewhere/libout.dylib" "$d/elsewhere/libout.dylib"
+	make_dylib "$d" "$p/lib/libgone.dylib" @rpath/libgone.dylib
+	make_dylib "$d" "$p/lib/libprefixgone.dylib" "$p/lib/libprefixgone.dylib"
+	make_dylib "$d" "$p/lib/libbad.dylib" @rpath/libbad.dylib "$d/elsewhere/libout.dylib" \
+		"$p/lib/libgone.dylib" "$p/lib/libprefixgone.dylib"
+	make_dylib "$d" "$d/venv/lib/site/ext.so" @rpath/ext.so "$d/elsewhere/libout.dylib"
+	make_dylib "$d" "$p/lib/libid.dylib" "$d/elsewhere/libid.dylib"
+	rm "$p/lib/libgone.dylib" "$p/lib/libprefixgone.dylib"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$p" --venv "$d/venv") &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL libs lib/libbad.dylib: $d/elsewhere/libout.dylib lies outside $p"
+	assert_contains "$out" "FAIL libs lib/libbad.dylib: @rpath/libgone.dylib does not resolve"
+	assert_contains "$out" "FAIL libs lib/libbad.dylib: $p/lib/libprefixgone.dylib does not exist"
+	assert_contains "$out" "FAIL libs lib/site/ext.so: $d/elsewhere/libout.dylib lies outside $d/venv"
+	assert_contains "$out" "FAIL libs lib/libid.dylib: install name $d/elsewhere/libid.dylib lies outside $p"
+	assert_not_contains "$out" "libuser"
+	assert_not_contains "$out" "ok   libs"
+}
+
 # Test that a prefix not built yet is a visible SKIP, not a failure.
 test_unbuilt_prefix_skips()
 {

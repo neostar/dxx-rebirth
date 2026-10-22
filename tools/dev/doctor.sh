@@ -13,7 +13,9 @@
 # current dependency lines and build options; the venv (default: dev_venv)
 # from the `venv python` pin and the requirements.lock next to the
 # manifest, with exactly the locked packages installed.  Either not made
-# yet is a SKIP.  Exit status 1 means drift, 2 a usage error.
+# yet is a SKIP.  On macOS the libraries under their lib/ must load only
+# from themselves and the system (check_macho_refs).  Exit status 1 means
+# drift, 2 a usage error.
 # The probes are called by name, as probe_<name>.
 # shellcheck disable=SC2329
 set -u
@@ -162,6 +164,77 @@ if [[ -n $want_python ]]; then
 		rc=1
 	else
 		echo "ok   venv python $got_python"
+	fi
+fi
+
+# Print the install names that Mach-O file $1 loads, one per line.
+macho_loads()
+{
+	otool -l "$1" | awk '$1 == "cmd" && $2 ~ /^LC_(LOAD|LOAD_WEAK|REEXPORT|LAZY_LOAD|LOAD_UPWARD)_DYLIB$/ {
+		getline; getline; print $2 }'
+}
+
+# macOS: each Mach-O library (*.dylib, *.so) under $1/lib loads only
+# through @rpath, @loader_path or @executable_path, from /usr/lib or
+# /System (the dyld shared cache), or from $1 itself, and each library it
+# names exists: @rpath ones next to it or in its LC_RPATH directories,
+# @loader_path ones from its directory.  @executable_path names the
+# program's directory, unknown here, so only its form is checked.  A
+# library naming another place works only while that place exists (a
+# library built in a removed worktree); so does its own install name,
+# which whatever links it records.  Prints a FAIL per reference, else
+# counts the libraries into libs_checked.
+check_macho_refs()
+{
+	local root=$1 f rel dir lib rp found rpaths logical physical
+	logical=$(cd "$root" && pwd) physical=$(cd "$root" && pwd -P)
+	while IFS= read -r -d '' f; do
+		otool -l "$f" >/dev/null 2>&1 || continue
+		libs_checked=$((libs_checked + 1))
+		rel=${f#"$root"/} dir=$(cd "$(dirname "$f")" && pwd) rpaths=()
+		while read -r rp; do
+			rpaths+=("${rp/@loader_path/$dir}")
+		done < <(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2 }')
+		lib=$(otool -l "$f" | awk '$1 == "cmd" && $2 == "LC_ID_DYLIB" { getline; getline; print $2 }')
+		case $lib in
+		''|@*|"$root"/*|"$logical"/*|"$physical"/*) ;;
+		*) echo "FAIL libs $rel: install name $lib lies outside $root" ;;
+		esac
+		while read -r lib; do
+			case $lib in
+			/usr/lib/*|/System/*|@executable_path/*) ;;
+			@rpath/*)
+				found=
+				for rp in "$dir" "${rpaths[@]+"${rpaths[@]}"}"; do
+					[[ -e $rp/${lib#@rpath/} ]] && found=1
+				done
+				[[ -n $found ]] || echo "FAIL libs $rel: $lib does not resolve" ;;
+			@loader_path/*)
+				[[ -e ${lib/@loader_path/$dir} ]] || echo "FAIL libs $rel: $lib does not exist" ;;
+			"$root"/*|"$logical"/*|"$physical"/*)
+				[[ -e $lib ]] || echo "FAIL libs $rel: $lib does not exist" ;;
+			*) echo "FAIL libs $rel: $lib lies outside $root, /usr/lib and /System" ;;
+			esac
+		done < <(macho_loads "$f")
+	done < <(find "$root/lib" -type f \( -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null | sort -z)
+}
+
+if [[ $platform == darwin ]]; then
+	if ! command -v otool >/dev/null; then
+		echo "SKIP libs: otool not found; install Xcode's command line tools"
+	else
+		libs_checked=0
+		libs_out=$(for d in "$prefix" "$venv"; do
+			[[ -d $d/lib ]] && check_macho_refs "$d"
+		done; echo "$libs_checked")
+		libs_checked=${libs_out##*$'\n'}
+		libs_out=${libs_out%"$libs_checked"}
+		if [[ -n ${libs_out//$'\n'/} ]]; then
+			printf '%s' "$libs_out"
+			rc=1
+		else
+			echo "ok   libs: $libs_checked Mach-O libraries load from the prefix, the venv and the system"
+		fi
 	fi
 fi
 

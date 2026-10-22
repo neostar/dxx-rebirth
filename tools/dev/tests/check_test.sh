@@ -23,7 +23,7 @@ make_dev_repo()
 	r=$(make_repo) || die "make_repo failed"
 	mkdir -p "$r/tools/dev/tests"
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
-	cp "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" \
+	cp "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" "$DEV_DIR/known-failures" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/commit-size-allow" "$DEV_DIR/gpu-programs" \
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$r/tools/dev/"
 	# The real allowlist names upstream files the throwaway repository lacks.
@@ -61,6 +61,38 @@ test_fast_passes_clean_index()
 	out=$("$r/tools/dev/check.sh" --fast 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "guard"
+}
+
+# Replace dev repository $1's doctor.sh with one that prints the remaining
+# arguments as lines and exits with the status in the first.
+fake_doctor()
+{
+	local r=$1 rc=$2; shift 2
+	{ echo '#!/bin/sh'; printf "echo '%s'\n" "$@"; echo "exit $rc"; } > "$r/tools/dev/doctor.sh"
+}
+
+# Test that a doctor.sh FAIL line that tools/dev/known-failures lists for
+# this platform prints as KNOWN FAIL with the decision it waits for and
+# does not fail the doctor step; another FAIL beside it, a listed one on
+# another platform, or doctor.sh failing with no FAIL line does.
+test_known_doctor_failure_reported_not_failed()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '# comment\n%s FAIL libs lib/a.dylib: * -- owner: rebuild a\nother FAIL x -- y\n' \
+		"$dev_os" > "$r/tools/dev/known-failures"
+	fake_doctor "$r" 1 'ok   cmake 4.4.4' 'FAIL libs lib/a.dylib: /gone/b.dylib lies outside'
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "KNOWN FAIL libs lib/a.dylib: /gone/b.dylib lies outside (owner: rebuild a)"
+	fake_doctor "$r" 1 'FAIL libs lib/a.dylib: /gone/b.dylib lies outside' 'FAIL x'
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "failed: doctor"
+	fake_doctor "$r" 2 'usage'
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "failed: doctor"
 }
 
 # Test that the fast subset fails when licensed data is staged.

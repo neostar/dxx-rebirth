@@ -371,10 +371,27 @@ step_commit_sizes()
 	(cd "$root" && "$dev_dir/commit-size.sh" --history upstream/master)
 }
 
-# Check the toolchain against tools/dev/toolchain.pins.
+# Check the toolchain against tools/dev/toolchain.pins.  A doctor.sh FAIL
+# line that tools/dev/known-failures lists for this platform prints as
+# KNOWN FAIL with the owner decision it waits for and does not fail the
+# step; any other FAIL, or doctor.sh failing with no FAIL line, does.
 step_doctor()
 {
-	"$dev_dir/doctor.sh"
+	local out rc line k plat rest unknown=0 known=()
+	out=$("$dev_dir/doctor.sh" 2>&1) && rc=0 || rc=$?
+	while read -r plat rest; do
+		[[ -z $plat || $plat == \#* || $plat != "$dev_os" ]] || known+=("$rest")
+	done < "$dev_dir/known-failures" || { echo "doctor: cannot read known-failures"; return 1; }
+	while IFS= read -r line; do
+		for k in "${known[@]+"${known[@]}"}"; do
+			# shellcheck disable=SC2053  # the entry is a glob
+			[[ $line == FAIL* && $line == ${k%% -- *} ]] && line="KNOWN $line (${k#* -- })"
+		done
+		[[ $line == FAIL* ]] && unknown=1
+		printf '%s\n' "$line"
+	done <<<"$out"
+	[[ $rc -eq 0 ]] && return 0
+	[[ $rc -eq 1 && $unknown -eq 0 ]] && grep -q '^FAIL' <<<"$out"
 }
 
 # Check every fork file against tools/dev/style/clang-format.
