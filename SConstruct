@@ -5285,6 +5285,7 @@ class DXXArchive(DXXCommon):
 	get_objects_arch_ogl = DXXCommon.create_lazy_object_getter((
 'common/arch/ogl/ogl_extensions.cpp',
 'common/arch/ogl/ogl_sync.cpp',
+'common/render/gl_device.cpp',
 ))
 	get_objects_arch_sdlmixer = DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/digi_mixer_music.cpp',
