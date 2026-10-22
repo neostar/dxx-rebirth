@@ -10,7 +10,8 @@ ownership bugs must fail a machine check before review, not reach it. Upstream c
 reformatted or newly warned on (ADR 1), so every gate is scoped to the directories in
 `tools/dev/fork-dirs`. Ticket #56 builds the rules, the editor and pre-commit tiers and the gate
 self-test; #58 adds the check tier (sanitizers, `leaks`, hardening, GPU validation), #59 the
-nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
+nightly tier (the Clang Static Analyzer, thread-safety analysis, libstdc++ debug mode, TSan, the
+hardened demo and endurance runs, GCC `-fanalyzer` on the fork C files).
 
 ## Decision
 
@@ -38,7 +39,7 @@ nightly tier (TSan, GCC `-fanalyzer`, cppcheck, CodeQL).
 | pre-commit | < 10 s | the hook: commit size, then `check.sh --pre-commit`: repo config, licensed-data guard, `format.sh --staged` (clang-format, NOLINT reasons and clang-tidy on the staged fork files), gitleaks on the staged changes (the pinned one, else one at the pinned version on PATH; without either the tier fails, never skips), no `.gitleaksignore` or `gitleaks:allow` unless `.gitleaks.toml` lists its file with a reason | `gates_test.sh`, timing the real hook |
 | pre-push | seconds | the hook: `check.sh --pre-push`: gitleaks on exactly the commits being pushed (`<remote>..<local>`, or those on no remote-tracking branch for a new ref), the same pinned lookup, failing without it | `check_test.sh` |
 | check | 15 min | `check.sh --fast` (shell tests with the gate self-test, shellcheck, format of every fork file) and `check.sh`: gitleaks over the whole history of HEAD, the shader headers rebuilt byte for byte (R9, `tools/shaders/check.sh`), unit tests (hardened), `leaks.sh` on them (Mac), the game's `kconfig.udlr.h` generated from clean (the preprocess pass a full game build runs with the hardening flags), `format.sh --tidy` on every fork file, the real-build strict-warning test, the unit tests under ASan, UBSan and LSan (LSan in the container); the rtrace tests in both (below) | `check.sh`, timing its own full run |
-| nightly | none | #59 | #59 |
+| nightly | none | `tools/dev/nightly.sh`, both legs at once as in `ci.sh`, log `build/nightly/nightly.log`. Native (Mac): the Clang Static Analyzer (pinned clang-tidy `clang-analyzer-*`, four times the node budget and twice the loop unrolling of the check tier) and `-Wthread-safety` on every fork file of the debug-harness build, with SDL's lock annotations on (`SDL_THREAD_SAFETY_ANALYSIS`) and the analysis proven by a probe on each kind of lock fork code takes; TSan on the audio-thread tests (none yet: a SKIP naming #45, the tier's only SKIP: a missing tool, build or `DXX_D2_DATA` fails its step); D2 demo playback in the hardened harness build, windowless through `run.sh`, failing on a hardening trap, a sanitizer or assertion message, a crash report, the game ending by itself, or an unclean end: the run ends by TERM to the game (again each second: a quit that arrives while a demo loads is dropped), which a hidden harness run takes as quit without the "Abort game?" box, and must then exit with status 0 within `run.sh`'s grace; an endurance run of demo playback (default 1 h) whose memory must stay flat (physical footprint on macOS, which counts the compressed pages RSS drops; `rss_trend.py`: under 8 MiB/h after a 300 s warm-up, the Theil-Sen slope of the minima of 60 s windows, since memory rises by about 10 MiB through each demo loop, and a median is not turned by one step, though a step near the middle of the run can still hide a leak). Container: the unit tests built with `_GLIBCXX_DEBUG` and run, a failure passing only when `tools/dev/glibcxx-debug-known` lists the test with the failure its run prints (a listed test that no longer fails so is stale and fails too); GCC `-fanalyzer` on the fork C files | `nightly_test.sh` and `rss_trend_test.sh` (each step red on a plant), `gates_test.sh` (gate `tsan`) |
 
 The editor and pre-commit budgets are the Mac's, where the owner edits and commits: their tests
 pass on the best of three runs on macOS, and on Linux (the container, under amd64 emulation) print
@@ -79,8 +80,11 @@ are not checked on the Mac: the SDK's libc++ (22.1.6) is built without a bounded
 `string` is dereferenced unchecked even in debug mode, and the ABI macros are not ours to flip
 (spike notes `tooling-capabilities.md`, section 5). `_GLIBCXX_ASSERTIONS` does not check
 iterators either. Checked iterators come from libstdc++'s debug mode, `_GLIBCXX_DEBUG`, in the
-nightly unit-test build in the container (#59); until then, only a dereference outside the
-allocation is caught, by ASan in the check tier. On macOS a
+nightly unit-test build in the container (`nightly.sh`'s `glibcxx_debug` step); between
+nightly runs, only a dereference outside the allocation is caught, by ASan in the check tier.
+Debug mode changes the standard containers' layout, and the prebuilt Boost.Test library keeps
+the normal one: upstream's `test-physfsrwops`, which reads `master_test_suite().argv`, crashes
+in its fixture under it and is listed in `tools/dev/glibcxx-debug-known`. On macOS a
 libc++ trap would end in `abort()`, which leaves a crash report; `tools/dev/hardening-exit.h`,
 forced into every compile by the same flags, defines libc++'s `_LIBCPP_VERBOSE_ABORT` hook to
 print the message and exit 1, without touching `SConstruct`. Every step of `check.sh` that runs
@@ -240,4 +244,9 @@ runner.
 - Run-time leaks are found by LeakSanitizer in the container and by `leaks --atExit`
   (`tools/dev/leaks.sh`) on the Mac, where LeakSanitizer is unsupported on Apple Silicon. `leaks`
   drops the program's exit status, so the leaks step relies on the unit_tests step for it.
-- Data races are caught only once #59 lands; the self-test lists the gate as a SKIP until then.
+- Data races are caught by TSan on the Mac only (it fails under Rosetta in the container), in the
+  nightly tier; the gate self-test proves it on a planted race (gate `tsan`), and the nightly
+  step has no tests to run until #45 adds the audio thread.
+- GCC `-fanalyzer` runs only on the fork's C files, nightly in the container: GCC 14.2 documents
+  it as suitable only for C, and the one fork C file is `tools/dev/tests/headless_probe.c`, the
+  probe of `no_window_test.sh`; the Clang Static Analyzer covers C++.

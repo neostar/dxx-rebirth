@@ -13,8 +13,9 @@ runs, crash reports, licensed data, git). Running the game and where the license
 Scripts in `tools/dev/`, each documented in its header comment (read it before running one):
 `setup.sh` once per clone or worktree; `check.sh` all checks (`--fast` a quick subset, the hooks
 run its other modes); `build.sh` the D2X profiles; `run.sh` launches binaries; `ci.sh` the CI,
-local only (ADR 4). Toolchain (ADR 1, ADR 4): `toolchain.pins` pins every tool and dependency,
-`doctor.sh` checks it, `deps.sh` builds it, `container.sh` is the Linux reference container.
+local only (ADR 4); `nightly.sh` the nightly tier (ADR 5). Toolchain (ADR 1, ADR 4):
+`toolchain.pins` pins every tool and dependency, `doctor.sh` checks it, `deps.sh` builds it,
+`container.sh` is the Linux reference container.
 Also: `rebase.sh`, `fetch-docs.sh`, `leaks.sh`, `gpu-validate.sh`, `no-window.sh`; `watch.sh`
 reports crash reports and dev windows during unattended runs; `r1.sh` the R1 frame-hash check
 (`docs/agents/game-data.md`).
