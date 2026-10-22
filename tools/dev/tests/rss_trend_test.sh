@@ -79,7 +79,7 @@ test_min_samples_option()
 	local d out
 	d=$(make_scratch) || die "make_scratch failed"
 	samples "$d/rss" 200 0 0
-	out=$("${TREND[@]}" --window 20 --min-samples 5 "$d/rss" 2>&1)
+	out=$("${TREND[@]}" --warmup 120 --window 20 --min-samples 5 "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
 }
 
@@ -108,6 +108,58 @@ test_sawtooth_is_flat()
 	assert_eq "$?" 0 "$out"
 	out=$("${TREND[@]}" --warmup 0 --window 50 --max-slope 1 "$d/rss" 2>&1)
 	assert_eq "$?" 0 "$out"
+}
+
+# Test that a single drop in memory does not hide a leak: 16 MiB/h with a
+# 22 MiB drop a third of the way in, which a least-squares line through
+# the window minima reads as falling.
+test_step_down_does_not_hide_leak()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	awk 'BEGIN { for (t = 0; t <= 3900; t += 10)
+		printf "%d %d\n", t, 200000 + 16384 * t / 3600 - (t >= 1500 ? 22528 : 0) }' > "$d/rss"
+	out=$("${TREND[@]}" "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "growing"
+}
+
+# Test that a single drop with no leak is flat.
+test_step_down_alone_is_flat()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	awk 'BEGIN { for (t = 0; t <= 3900; t += 10)
+		printf "%d %d\n", t, 200000 - (t >= 1500 ? 22528 : 0) }' > "$d/rss"
+	out=$("${TREND[@]}" "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+}
+
+# Test that a sawtooth on top of a leak still fails: the leak shows in the
+# minima.
+test_sawtooth_with_leak_fails()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	awk 'BEGIN { for (t = 0; t <= 3900; t += 5)
+		printf "%d %d\n", t, 163840 + 16384 * t / 3600 + 10240 * ((t % 50) / 45) }' > "$d/rss"
+	out=$("${TREND[@]}" "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "growing"
+}
+
+# Test that the default warm-up is 300 s: memory still rising through the
+# first five minutes (the first demos loading) does not count.
+test_default_warmup()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	awk 'BEGIN { for (t = 0; t <= 600; t += 10)
+		printf "%d %d\n", t, 200000 + (t < 300 ? 100 * t : 30000) }' > "$d/rss"
+	out=$("${TREND[@]}" "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$("${TREND[@]}" --warmup 0 "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
 }
 
 run_tests
