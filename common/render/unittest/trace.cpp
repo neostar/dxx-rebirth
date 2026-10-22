@@ -8,6 +8,7 @@
 #include "common/render/trace.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -240,6 +241,52 @@ BOOST_AUTO_TEST_CASE(draw_round_trip)
 	const auto &world{std::get<trace::draw>(records.value().back())};
 	BOOST_TEST((world.vertices == fan));
 	BOOST_TEST((world.call() == world_draw));
+}
+
+/* Test that a double is written as its IEEE bits, least significant byte
+ * first across all eight, not as two 32-bit halves in either order.
+ */
+BOOST_AUTO_TEST_CASE(double_bytes)
+{
+	render::draw_call call{world_draw};
+	call.transforms.projection =
+	    render::perspective{.fovy = std::bit_cast<double>(std::uint64_t{0x0102030405060708u}),
+		                    .aspect = 1,
+		                    .z_near = 1,
+		                    .z_far = 2,
+		                    .stereo_dx = 0};
+	trace::writer w;
+	(void)w.take();
+	w.draw(call);
+	const auto out{w.take()};
+	/* fovy follows the projection tag at byte 38 of the record. */
+	BOOST_TEST((bytes(out.begin() + 39, out.begin() + 47) == bytes{8, 7, 6, 5, 4, 3, 2, 1}));
+	const auto records{trace::read_all(header + out)};
+	BOOST_REQUIRE(records.has_value());
+	BOOST_TEST((std::get<trace::draw>(records.value().front()).call() == call));
+}
+
+/* Test that NaNs other than the canonical one, quiet and signalling, keep
+ * their sign and payload bits through a write and a read.
+ */
+BOOST_AUTO_TEST_CASE(nan_payload_round_trip)
+{
+	const auto quiet{std::bit_cast<float>(std::uint32_t{0x7fc12345u})};
+	const auto signalling{std::bit_cast<float>(std::uint32_t{0xffa00001u})};
+	const std::vector<render::vertex> nans{
+	    {.pos = {{quiet, signalling, 0.f}}, .rgba = {{1.f, 1.f, 1.f, 1.f}}, .uv = {{0.f, 0.f}}}};
+	render::draw_call call{world_draw};
+	call.vertices = nans;
+	call.state.alpha_ref = signalling;
+	trace::writer w;
+	w.draw(call);
+	const auto records{trace::read_all(w.take())};
+	BOOST_REQUIRE(records.has_value());
+	const auto &d{std::get<trace::draw>(records.value().front())};
+	BOOST_REQUIRE(d.vertices.size() == 1u);
+	BOOST_TEST(std::bit_cast<std::uint32_t>(d.state.alpha_ref) == 0xffa00001u);
+	BOOST_TEST(std::bit_cast<std::uint32_t>(d.vertices.front().pos[0]) == 0x7fc12345u);
+	BOOST_TEST(std::bit_cast<std::uint32_t>(d.vertices.front().pos[1]) == 0xffa00001u);
 }
 
 /* Test that a trace of frames keeps its frame boundaries and clears in
