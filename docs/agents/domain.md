@@ -2,7 +2,6 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-- Choosing or reviewing a test for the renderer or platform port (what to add, what to skip): `docs/agents/testing-games.md`.
 
 ## Before exploring, read these
 
@@ -20,6 +19,8 @@ Platform research, read before working in its area:
   `docs/agents/sdl-audio.md`.
 - SDL3 input: keyboard, text input, Cmd, mouse and wheel, gamepads, joysticks, saved bindings,
   injected-event tests: `docs/agents/sdl-input.md`.
+- Choosing or reviewing a test for the renderer or platform port (what to add, what to skip):
+  `docs/agents/testing-games.md`.
 
 ## Before recommending a change to the plan
 
