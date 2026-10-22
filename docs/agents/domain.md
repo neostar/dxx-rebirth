@@ -16,6 +16,8 @@ Platform research, read before working in its area:
   `docs/agents/sdl-window.md`.
 - SDL3 audio: sound effects, music, movie audio, silent runs, per-platform backends:
   `docs/agents/sdl-audio.md`.
+- SDL3 input: keyboard, text input, Cmd, mouse and wheel, gamepads, joysticks, saved bindings,
+  injected-event tests: `docs/agents/sdl-input.md`.
 
 ## Before recommending a change to the plan
 
@@ -34,7 +36,3 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
-
-## Topic research
-
-- **SDL3 input** (keyboard, mouse, gamepad and joystick; #42-#44): `docs/agents/sdl-input.md`.
