@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Command-line behaviour of tools/dev/rss_trend.py, the endurance run's
-# check that a process's memory stays flat (nightly.sh, ADR 5).
+# check that a process's memory stays flat, and of footprint.py, its
+# sampler (nightly.sh, ADR 5).
 source "$(dirname "$0")/lib.sh"
 TREND=("$(command -v python3)" "$DEV_DIR/rss_trend.py")
 
@@ -160,6 +161,27 @@ test_default_warmup()
 	assert_eq "$?" 0 "$out"
 	out=$("${TREND[@]}" --warmup 0 "$d/rss" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
+}
+
+# Test that footprint.py, the endurance run's sampler, reports a process's
+# memory in KiB, 64 MiB written counting, and fails for a process gone.
+test_footprint_reports_memory()
+{
+	local d pid kib out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	python3 -c 'import sys, time
+b = bytearray(64 << 20)
+for i in range(0, len(b), 4096): b[i] = 1
+open(sys.argv[1], "w").close()
+time.sleep(30)' "$d/ready" &
+	pid=$!
+	for _ in $(seq 100); do [[ -e $d/ready ]] && break; sleep 0.1; done
+	kib=$(python3 "$DEV_DIR/footprint.py" "$pid")
+	kill "$pid"; wait "$pid" 2>/dev/null
+	[[ $kib =~ ^[0-9]+$ && $kib -ge 65536 ]] || fail "footprint of 64 MiB written: '$kib' KiB"
+	out=$(python3 "$DEV_DIR/footprint.py" "$pid" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "cannot read process $pid"
 }
 
 run_tests

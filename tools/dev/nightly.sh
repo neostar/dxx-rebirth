@@ -32,8 +32,16 @@
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run
 # --steps runs only the steps named (of the leg's); --endurance sets the
-# endurance run's length.  DXX_NIGHTLY_DATABASE names a compilation
-# database to analyse instead of building the harness (the tests).
+# endurance run's length.  A missing input (the pinned clang-tidy, the D2
+# data in DXX_D2_DATA, a build) fails its step: a scheduled run must not
+# stay green on a step that checked nothing; only tsan, which waits on
+# #45, is a SKIP.
+# For the tests only: DXX_NIGHTLY_DATABASE names a compilation database to
+# analyse and DXX_NIGHTLY_GAME a game to run instead of building the
+# harness; DXX_NIGHTLY_WORK the demo runs' work directory;
+# DXX_NIGHTLY_DEMO_TIMEOUT how long a demo may take (600 s);
+# DXX_NIGHTLY_SAMPLE_INTERVAL the endurance run's sampling interval (10 s)
+# and DXX_NIGHTLY_TREND_ARGS rss_trend.py's options.
 # Exit status 1 names the failed steps (or legs), 2 is a usage error.
 # Build the image first with `container.sh build`; the container leg tests
 # the commit (HEAD), not uncommitted changes.
@@ -339,22 +347,20 @@ game_pid()
 		}'
 }
 
-# Endurance: demo playback for DXX_NIGHTLY_ENDURANCE seconds (--endurance,
-# default 3600), sampling the game's RSS every DXX_NIGHTLY_SAMPLE_INTERVAL
-# seconds (default 10) into endurance.rss; rss_trend.py then fails growth
-# over DXX_NIGHTLY_MAX_SLOPE MiB/h (default 8) after DXX_NIGHTLY_WARMUP
-# seconds (default 120), fitted to the minima of DXX_NIGHTLY_WINDOW-second
-# windows (default 60), from at least DXX_NIGHTLY_MIN_SAMPLES samples
-# (default 10).
+# Endurance: demo playback for --endurance seconds (default 3600), sampling
+# the game's memory (footprint.py: its physical footprint on macOS) every
+# 10 s into endurance.mem; rss_trend.py with its defaults then fails
+# growth over 8 MiB/h after a 300 s warm-up.
 step_endurance()
 {
-	local bin early='' rc=0 start now el pid rss samples=$work/endurance.rss
-	local interval=${DXX_NIGHTLY_SAMPLE_INTERVAL:-10}
-	need_data endurance || return 0
+	local bin early='' rc=0 start now el pid kib samples=$work/endurance.mem
+	local interval=${DXX_NIGHTLY_SAMPLE_INTERVAL:-10} trend_args=()
+	read -ra trend_args <<<"${DXX_NIGHTLY_TREND_ARGS-}"
+	need_data endurance || return
 	bin=$(game_binary) || { echo "endurance: building the harness failed"; return 1; }
 	demo_start endurance "$bin" || return 1
 	: > "$samples"
-	echo "endurance: $DXX_NIGHTLY_ENDURANCE s, RSS every $interval s into $samples"
+	echo "endurance: $endurance s, memory every $interval s into $samples"
 	# The clock starts with the game, which run.sh starts after its checks.
 	for ((el = 0; el < ${DXX_NIGHTLY_DEMO_TIMEOUT:-600} * 10; el++)); do
 		pid=$(game_pid "$run_pid" "$bin")
@@ -369,17 +375,15 @@ step_endurance()
 		el=$(( now - start ))
 		kill -0 "$run_pid" 2>/dev/null || { early=1; break; }
 		[[ -n $pid ]] && kill -0 "$pid" 2>/dev/null || pid=$(game_pid "$run_pid" "$bin")
-		rss=${pid:+$(ps -o rss= -p "$pid" | tr -d ' ')}
-		[[ -z $rss ]] || printf '%d.%06d %s\n' $((el / 1000000)) $((el % 1000000)) "$rss" >> "$samples"
-		[[ $el -ge $((DXX_NIGHTLY_ENDURANCE * 1000000)) ]] && break
+		kib=${pid:+$(python3 "$dev_dir/footprint.py" "$pid" 2>/dev/null)}
+		[[ -z $kib ]] || printf '%d.%06d %s\n' $((el / 1000000)) $((el % 1000000)) "$kib" >> "$samples"
+		[[ $el -ge $((endurance * 1000000)) ]] && break
 		sleep "$interval"
 	done
 	demo_finish endurance "$early" || rc=1
 	echo "endurance: $(demos_played) complete demo playbacks"
 	[[ $(demos_played) -ge 1 ]] || { echo "endurance: no complete demo playback"; rc=1; }
-	python3 "$dev_dir/rss_trend.py" --warmup "${DXX_NIGHTLY_WARMUP:-120}" \
-		--window "${DXX_NIGHTLY_WINDOW:-60}" --min-samples "${DXX_NIGHTLY_MIN_SAMPLES:-10}" \
-		--max-slope "${DXX_NIGHTLY_MAX_SLOPE:-8}" "$samples" || rc=1
+	python3 "$dev_dir/rss_trend.py" "${trend_args[@]+"${trend_args[@]}"}" "$samples" || rc=1
 	return "$rc"
 }
 
@@ -393,7 +397,7 @@ while [[ $# -gt 0 ]]; do
 	esac
 	shift
 done
-export DXX_NIGHTLY_ENDURANCE=${endurance:-${DXX_NIGHTLY_ENDURANCE:-3600}}
+endurance=${endurance:-3600}
 
 # Run leg $1's steps (those named by --steps, if given); fail if any did.
 run_leg()
@@ -436,7 +440,7 @@ if ! mkdir -p "${log%/*}" || ! : > "$log"; then
 fi
 legs=$(mktemp -d "${TMPDIR:-/tmp}/nightly.XXXXXX") || exit 1
 trap 'rm -rf "$legs"' EXIT
-args=(--endurance "$DXX_NIGHTLY_ENDURANCE")
+args=(--endurance "$endurance")
 [[ -z $only ]] || args+=(--steps "$only")
 echo "nightly.sh: log: $log" | tee -a "$log"
 "$0" --leg native "${args[@]}" > "$legs/native" 2>&1 &
