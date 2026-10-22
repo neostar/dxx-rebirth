@@ -19,6 +19,9 @@
 #                   every fork C++ file in the debug-harness build's
 #                   compilation database
 #   thread_safety   clang's -Wthread-safety on the same files
+#   container leg:
+#   glibcxx_debug   the unit tests built with libstdc++'s debug mode
+#                   (_GLIBCXX_DEBUG: checked iterators) and run
 # --steps runs only the steps named (of the leg's); --endurance sets the
 # endurance run's length.  DXX_NIGHTLY_DATABASE names a compilation
 # database to analyse instead of building the harness (the tests).
@@ -35,7 +38,7 @@ usage()
 }
 
 native_steps=(analyzer thread_safety)
-container_steps=()
+container_steps=(glibcxx_debug)
 
 harness_dir=build/nightly/harness
 clang_tidy=$(dev_llvm_tool clang-tidy)
@@ -137,6 +140,17 @@ step_thread_safety()
 			"$root/$d" 2>/dev/null | wc -l)))
 	done < <(fork_dirs)
 	[[ $n -gt 0 ]] || echo "thread_safety: no fork file takes a lock yet; all compile cleanly with -Wthread-safety"
+}
+
+# libstdc++'s debug mode: build the unit tests with _GLIBCXX_DEBUG, beside
+# the hardened flags, into build/nightly/glibcxx-debug and run them.
+step_glibcxx_debug()
+{
+	local flags
+	flags="$(python3 "$dev_dir/hardening.py") -D_GLIBCXX_DEBUG"
+	"$dev_dir/build.sh" dev builddir=build/nightly/glibcxx-debug \
+		compilation_database=build/nightly/glibcxx-debug/compile_commands.json \
+		"CPPFLAGS=$flags" check
 }
 
 leg='' only='' endurance=''

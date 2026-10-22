@@ -109,4 +109,40 @@ test_thread_safety_says_when_no_fork_code_locks()
 	assert_contains "$out" "no fork file takes a lock yet"
 }
 
+# Replace build.sh in fork repository $1 with a fake that records its
+# arguments, one per line, in $1/build.args and exits with status $2.
+fake_build()
+{
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/build.args"\nexit %s\n' "$1" "$2" \
+		> "$1/tools/dev/build.sh"
+}
+
+# Test that the container leg builds the unit tests with libstdc++'s debug
+# mode beside the hardened flags, in a build directory of its own, and
+# runs them.
+test_glibcxx_debug_builds_and_runs_unit_tests()
+{
+	local r out args
+	r=$(fork_repo) || die "fork_repo failed"
+	fake_build "$r" 0
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1)
+	assert_eq "$?" 0 "$out"
+	args=$(cat "$r/build.args")
+	assert_contains "$args" "-D_GLIBCXX_DEBUG"
+	assert_contains "$args" "-D_GLIBCXX_ASSERTIONS"
+	assert_contains "$args" "builddir=build/nightly/glibcxx-debug"
+	assert_contains "$args" $'\ncheck'
+}
+
+# Test that a failing unit test in debug mode fails the step.
+test_glibcxx_debug_fails_with_the_tests()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	fake_build "$r" 1
+	out=$("$r/tools/dev/nightly.sh" --leg container --steps glibcxx_debug 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "nightly.sh: failed: glibcxx_debug"
+}
+
 run_tests --parallel
