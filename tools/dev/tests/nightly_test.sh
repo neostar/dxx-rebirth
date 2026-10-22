@@ -407,7 +407,7 @@ GAME
 		"DXX_NIGHTLY_WORK=$d/work" "NO_WINDOW_REPORTS_DIR=$d/reports" \
 		"NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal")" \
 		"DXX_NIGHTLY_DEMO_TIMEOUT=${DEMO_TIMEOUT:-60}" DXX_NIGHTLY_SAMPLE_INTERVAL=0.2 \
-		"DXX_NIGHTLY_TREND_ARGS=--warmup 0 --max-slope 1000 --window 2 --min-samples 4" \
+		"DXX_NIGHTLY_TREND_ARGS=${TREND_ARGS:---warmup 0 --max-slope 1000 --window 2 --min-samples 4}" \
 		RUN_KILL_AFTER=2
 }
 
@@ -546,6 +546,25 @@ test_endurance_fails_growing_memory()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" ": growing"
 	assert_contains "$out" "nightly.sh: failed: endurance"
+}
+
+# Test that the endurance verdict's numbers (windows, slope with its
+# range, the minima's spread) reach the nightly log, where the scheduled
+# runs calibrate the limit from them.
+test_endurance_numbers_reach_log()
+{
+	local r d vars out
+	r=$(fork_repo) || die "fork_repo failed"
+	d=$(make_scratch) || die "make_scratch failed"
+	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
+	mapfile -t vars < <(fake_game "$d")
+	out=$(env "${vars[@]}" "$r/tools/dev/nightly.sh" --steps endurance --endurance 10 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$(cat "$r/build/nightly/nightly.log")
+	assert_contains "$out" "rss_trend: flat: slope "
+	assert_contains "$out" "MiB/h (95% range "
+	assert_contains "$out" "windows of 2 s"
+	assert_contains "$out" "MiB (spread "
 }
 
 # Test that the TSan step, which has no tests to run until #45, is a SKIP

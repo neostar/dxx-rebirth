@@ -16,6 +16,17 @@ samples()
 	}' > "$1"
 }
 
+# Write the real game's footprint to file $1, one sample every 10 s for $2
+# seconds: rising from 104 to 124 MiB through each 230 s demo loop and
+# falling at the next, plus a leak of $3 KiB per hour.
+game_samples()
+{
+	awk -v n="$2" -v g="$3" 'BEGIN {
+		for (t = 0; t <= n; t += 10)
+			printf "%d %d\n", t, 106496 + 20480 * (t % 230) / 230 + g * t / 3600
+	}' > "$1"
+}
+
 # Test that a flat run with noise passes and says so.
 test_flat_samples_pass()
 {
@@ -161,6 +172,39 @@ test_default_warmup()
 	assert_eq "$?" 0 "$out"
 	out=$("${TREND[@]}" --warmup 0 "$d/rss" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
+}
+
+# Test that the real game's sawtooth (104 to 124 MiB through each demo
+# loop) over an hour is flat, and the verdict shows its numbers: the
+# windows, the slope with its confidence range, the minima's spread.
+test_game_sawtooth_flat_shows_numbers()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	game_samples "$d/rss" 3600 0
+	out=$("${TREND[@]}" "$d/rss" 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "rss_trend: flat: slope "
+	assert_contains "$out" "MiB/h (95% range "
+	assert_contains "$out" "over 55 windows of 60 s"
+	assert_contains "$out" "limit 8 MiB/h (provisional)"
+	assert_contains "$out" "window minima 104.0 to "
+	assert_contains "$out" "MiB (spread "
+}
+
+# Test that a 16 MiB/h leak under the real game's sawtooth fails, showing
+# the same numbers.
+test_game_sawtooth_leak_fails_shows_numbers()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	game_samples "$d/rss" 3600 16384
+	out=$("${TREND[@]}" "$d/rss" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rss_trend: growing: slope "
+	assert_contains "$out" "MiB/h (95% range "
+	assert_contains "$out" "over 55 windows of 60 s"
+	assert_contains "$out" "MiB (spread "
 }
 
 # Test that footprint.py, the endurance run's sampler, reports a process's

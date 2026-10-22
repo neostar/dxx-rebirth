@@ -26,7 +26,9 @@
 #                   sanitizer report, a crash report or an unclean end
 #                   (a non-zero status or a hang after TERM) fails it
 #   endurance       demo playback for an hour (--endurance), sampling the
-#                   game's memory: it must stay flat (rss_trend.py)
+#                   game's memory: it must stay flat (rss_trend.py); the
+#                   8 MiB/h limit is provisional until calibrated from
+#                   the numbers each run logs
 #   container leg:
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run
@@ -449,7 +451,8 @@ game_pid()
 # Endurance: demo playback for --endurance seconds (default 3600), sampling
 # the game's memory (footprint.py: its physical footprint on macOS) every
 # 10 s into endurance.mem; rss_trend.py with its defaults then fails
-# growth over 8 MiB/h after a 300 s warm-up.
+# growth over 8 MiB/h after a 300 s warm-up, printing the windows, slope
+# and noise into the log.
 step_endurance()
 {
 	local bin early='' rc=0 start now el pid kib samples=$work/endurance.mem

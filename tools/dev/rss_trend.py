@@ -20,8 +20,13 @@
 # the middle of the run still can, since half the pairs then straddle it.
 # Fewer than 10 samples (--min-samples) or 3 windows after the warm-up
 # fail: too few to call it flat.
+# Each verdict prints its numbers so the scheduled runs can calibrate the
+# limit, which is provisional until they do: the windows, the slope with
+# its 95 % confidence range (Sen's, from Kendall's tau), and the lowest
+# and highest window minima, whose spread is the noise the slope fights.
 # Exit status 0 flat, 1 growing or too few samples, 2 unreadable input.
 import argparse
+import math
 import sys
 
 MIN_WINDOWS = 3
@@ -46,11 +51,18 @@ def read_samples(path):
 
 
 def slope(samples):
-	"""The Theil-Sen slope: the median of the slopes between every two samples."""
+	"""The Theil-Sen slope, the median of the slopes between every two
+	samples, and its 95 % confidence range (Sen 1968): the slopes ranked
+	1.96 standard deviations of Kendall's S either side of the median."""
 	slopes = sorted((r2 - r1) / (t2 - t1) for i, (t1, r1) in enumerate(samples)
 		for t2, r2 in samples[i + 1:])
-	mid = len(slopes) // 2
-	return slopes[mid] if len(slopes) % 2 else (slopes[mid - 1] + slopes[mid]) / 2
+	n, pairs = len(samples), len(slopes)
+	mid = pairs // 2
+	median = slopes[mid] if pairs % 2 else (slopes[mid - 1] + slopes[mid]) / 2
+	c = 1.96 * math.sqrt(n * (n - 1) * (2 * n + 5) / 18)
+	low = max(0, math.floor((pairs - c) / 2) - 1)
+	high = min(pairs - 1, math.ceil((pairs + c) / 2))
+	return median, slopes[low], slopes[high]
 
 
 def main():
@@ -79,16 +91,18 @@ def main():
 			continue  # the last window is cut short by the end of the run
 		if w not in minima or r < minima[w][1]:
 			minima[w] = (t, r)
+	lows = [r / 1024 for _, r in minima.values()]
+	noise = f'window minima {min(lows):.1f} to {max(lows):.1f} MiB (spread {max(lows) - min(lows):.1f} MiB)'
+	span = f'{len(kept)} samples over {kept[-1][0] - kept[0][0]:g} s after the {args.warmup:g} s warm-up'
 	if len(minima) < MIN_WINDOWS:
 		print(f'rss_trend: too few {args.window:g} s windows after the warm-up: '
-			f'{len(minima)}, need {MIN_WINDOWS}')
+			f'{len(minima)}, need {MIN_WINDOWS}; {noise}; {span}')
 		return 1
-	mib_h = slope(list(minima.values())) * 3600 / 1024
-	first, last = kept[0][1] / 1024, kept[-1][1] / 1024
+	mib_h, low, high = (v * 3600 / 1024 for v in slope(list(minima.values())))
 	verdict = 'growing' if mib_h > args.max_slope else 'flat'
-	print(f'rss_trend: {len(kept)} samples over {kept[-1][0] - kept[0][0]:g} s after the '
-		f'{args.warmup:g} s warm-up, {first:.1f} MiB to {last:.1f} MiB, slope '
-		f'{mib_h:.1f} MiB/h (Theil-Sen) over {len(minima)} window minima, limit {args.max_slope:g} MiB/h: {verdict}')
+	print(f'rss_trend: {verdict}: slope {mib_h:.1f} MiB/h (95% range {low:.1f} to {high:.1f}, '
+		f'Theil-Sen) over {len(minima)} windows of {args.window:g} s, limit {args.max_slope:g} MiB/h '
+		f'(provisional); {noise}; {span}')
 	return 1 if verdict == 'growing' else 0
 
 
