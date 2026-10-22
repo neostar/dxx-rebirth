@@ -451,12 +451,13 @@ bounded()
 }
 
 # Run the native leg's step $2 with the fake game in directory $1, with
-# the remaining arguments, for at most 120 s.
+# the remaining arguments, for at most 120 s, from tools/dev or from
+# NIGHTLY_DEV_DIR.
 game_step()
 {
 	local vars
 	mapfile -t vars < <(fake_game "$1")
-	env "${vars[@]}" "$DEV_DIR/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1 &
+	env "${vars[@]}" "${NIGHTLY_DEV_DIR:-$DEV_DIR}/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1 &
 	bounded "$!"
 }
 
@@ -587,14 +588,43 @@ test_demo_steps_fail_without_data()
 	assert_not_contains "$out" "SKIP"
 }
 
+# Print a fork repository (lib.sh) for the endurance run, whose memory
+# sampler takes 6 s a sample, as under emulation on a loaded machine.  How
+# many samples a 10 s run takes depends on that load (2 under emulation
+# while others built, too few to judge), so the real rss_trend.py, given
+# the run's options, judges a fixed series instead, once the run has taken
+# a sample: 20 samples over 10 s (4 whole windows of 2 s) from 1000 KiB,
+# growing by $1 KiB (default 0) each.
+endurance_repo()
+{
+	local r i
+	r=$(fork_repo) || die "fork_repo failed"
+	mv "$r/tools/dev/footprint.py" "$r/tools/dev/real-footprint.py"
+	printf 'import runpy, time\ntime.sleep(6)\nrunpy.run_path("%s", run_name="__main__")\n' \
+		"$r/tools/dev/real-footprint.py" > "$r/tools/dev/footprint.py"
+	for ((i = 0; i < 20; i++)); do
+		printf '%d.%d %d\n' $((i / 2)) $((i % 2 * 5)) $((1000 + i * ${1:-0}))
+	done > "$r/series.mem"
+	mv "$r/tools/dev/rss_trend.py" "$r/tools/dev/real-rss_trend.py"
+	cat > "$r/tools/dev/rss_trend.py" <<STANDIN
+import runpy, sys
+with open(sys.argv[-1]) as f:
+	if not f.read().strip():
+		sys.exit('rss_trend stand-in: the run took no memory sample')
+sys.argv[-1] = '$r/series.mem'
+runpy.run_path('$r/tools/dev/real-rss_trend.py', run_name='__main__')
+STANDIN
+	printf '%s\n' "$r"
+}
+
 # Test that the endurance run passes a game whose memory stays flat,
 # naming the sampled slope.
 test_endurance_passes_flat_memory()
 {
-	local d out
+	local r d out
+	r=$(endurance_repo) || die "endurance_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
-	# 10 s: under emulation (the container leg) a sample takes about 0.5 s.
-	out=$(game_step "$d" endurance --endurance 10)
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev game_step "$d" endurance --endurance 10)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" "MiB/h"
 	assert_contains "$out" ": flat"
@@ -603,10 +633,12 @@ test_endurance_passes_flat_memory()
 # Test that the endurance run fails a game whose memory grows.
 test_endurance_fails_growing_memory()
 {
-	local d out rc
+	local r d out rc
+	# 500 KiB every 0.5 s: about 3500 MiB/h, over the test's 1000 MiB/h.
+	r=$(endurance_repo 500) || die "endurance_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
-	# 10 s: the fake grows slowly under emulation (the container leg).
-	out=$(FAKE_GAME=grow game_step "$d" endurance --endurance 10) && rc=0 || rc=$?
+	out=$(NIGHTLY_DEV_DIR=$r/tools/dev game_step "$d" endurance --endurance 10) \
+		&& rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" ": growing"
 	assert_contains "$out" "nightly.sh: failed: endurance"
@@ -629,34 +661,13 @@ test_endurance_too_short_fails()
 
 # Test that the endurance verdict's numbers (windows, slope with its
 # range, the minima's spread) reach the nightly log, where the scheduled
-# runs calibrate the limit from them.  How many samples a 10 s run takes
-# depends on the machine's load (2 under emulation while others built,
-# too few to judge), so the run's memory sampler is made slow here and
-# the real rss_trend.py, given the run's options, judges a fixed flat
-# series instead, once the run has taken a sample.
+# runs calibrate the limit from them.
 test_endurance_numbers_reach_log()
 {
-	local r d vars out i
-	r=$(fork_repo) || die "fork_repo failed"
+	local r d vars out
+	r=$(endurance_repo) || die "endurance_repo failed"
 	d=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
-	# A memory sample taking 6 s, as under emulation on a loaded machine.
-	mv "$r/tools/dev/footprint.py" "$r/tools/dev/real-footprint.py"
-	printf 'import runpy, time\ntime.sleep(6)\nrunpy.run_path("%s", run_name="__main__")\n' \
-		"$r/tools/dev/real-footprint.py" > "$r/tools/dev/footprint.py"
-	# 20 flat samples over 10 s: 4 whole windows of 2 s.
-	for ((i = 0; i < 20; i++)); do
-		printf '%d.%d 1000\n' $((i / 2)) $((i % 2 * 5))
-	done > "$d/flat.mem"
-	mv "$r/tools/dev/rss_trend.py" "$r/tools/dev/real-rss_trend.py"
-	cat > "$r/tools/dev/rss_trend.py" <<STANDIN
-import runpy, sys
-with open(sys.argv[-1]) as f:
-	if not f.read().strip():
-		sys.exit('rss_trend stand-in: the run took no memory sample')
-sys.argv[-1] = '$d/flat.mem'
-runpy.run_path('$r/tools/dev/real-rss_trend.py', run_name='__main__')
-STANDIN
 	mapfile -t vars < <(fake_game "$d")
 	out=$(env "${vars[@]}" "$r/tools/dev/nightly.sh" --steps endurance --endurance 10 2>&1)
 	assert_eq "$?" 0 "$out"
