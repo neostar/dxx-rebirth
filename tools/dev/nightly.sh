@@ -490,7 +490,9 @@ end_demo_run()
 }
 
 # Print the pid of game $2 among the descendants of process $1: the one
-# whose command is the game, or a script interpreter running it.
+# whose command is the game, or a script interpreter running it, and whose
+# parent's is not.  A child the game forks carries its command line until
+# it execs (slow under emulation), and ps may list it first: pids wrap.
 game_pid()
 {
 	ps -A -o pid=,ppid=,args= | awk -v top="$1" -v bin="$2" '
@@ -503,7 +505,9 @@ game_pid()
 					if (!(pid[i] in tree) && (ppid[i] in tree)) { tree[pid[i]] = 1; more = 1 }
 			}
 			for (i = 1; i <= NR; i++)
-				if ((pid[i] in tree) && (a1[i] == bin || a2[i] == bin)) { print pid[i]; exit }
+				if ((pid[i] in tree) && (a1[i] == bin || a2[i] == bin)) game[pid[i]] = 1
+			for (i = 1; i <= NR; i++)
+				if ((pid[i] in game) && !(ppid[i] in game)) { print pid[i]; exit }
 		}'
 }
 

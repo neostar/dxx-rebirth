@@ -365,14 +365,18 @@ test_fanalyzer_fails_on_double_free()
 # frame hash log until TERM ends it with status 0, and per FAKE_GAME: `trap`
 # prints a libc++ hardening message and exits 1 after one section, `report`
 # writes a crash report of itself, `idle` writes no section, `grow` takes
-# 0.5 MB more memory each time, `shutdown_crash` answers TERM with a heap
+# 0.5 MB more memory each time (the endurance run must sample it rise),
+# `shutdown_crash` answers TERM with a heap
 # corruption message and status 134, `hang` ignores TERM, `drop_term`
 # ignores the first TERM (the game drops a quit while a demo loads),
-# `vanish` writes two sections and becomes a process that is not the game.
-# The growth limit is 1000 MiB/h: bash's own
-# memory moves by kilobytes, which over seconds extrapolate to megabytes
-# an hour.  4 samples are enough: under amd64 emulation on a loaded
-# machine (the container leg) a sample has taken 1.4 s.
+# `vanish` becomes a process that is not the game, which then writes two
+# sections, `fork` runs a child that carries the game's command line.
+# GAME_START_DELAY and EXEC_DELAY (default 0) slow the game's start and
+# vanish's exec: raising their defaults and SAMPLER_DELAY's here
+# simulates a loaded machine under emulation.
+# The endurance verdicts come from endurance_repo's fixed series, judged
+# with TREND_ARGS (default: no warm-up, windows of 2 s, a 1000 MiB/h limit,
+# at least 4 samples and 3 windows).
 fake_game()
 {
 	local d=$1
@@ -380,10 +384,13 @@ fake_game()
 	touch "$d/data/DESCENT2.HOG"
 	cat > "$d/fake-game" <<GAME
 #!/usr/bin/env bash
+sleep ${GAME_START_DELAY:-0}
 case \${FAKE_GAME-} in
 shutdown_crash) trap 'echo "malloc: Heap corruption detected" >&2; exit 134' TERM ;;
 hang) trap '' TERM ;;
 drop_term) trap 'trap "exit 0" TERM' TERM ;;
+fork) ( while :; do sleep 0.1; done ) &
+	trap "kill \$!; exit 0" TERM ;;
 *) trap 'exit 0' TERM ;;
 esac
 echo "\$* hidden=\$DXX_DBG_HIDDEN frametime=\$DXX_DBG_FIXED_FRAMETIME home=\$D2X_REBIRTH_HOME" \
@@ -392,7 +399,7 @@ ls -A "\$D2X_REBIRTH_HOME" >> "$d/game.args"
 s=
 while :; do
 	case \${FAKE_GAME-} in
-	idle) ;;
+	idle|vanish) ;;
 	*) printf '# demo playback demos/fake.dem\n0 0\n' >> "\$DXX_DBG_FRAMEHASH" ;;
 	esac
 	case \${FAKE_GAME-} in
@@ -400,8 +407,11 @@ while :; do
 		exit 1 ;;
 	report) printf '{"pid" : %d, "procName" : "fake-game"}\n' \$\$ > "$d/reports/fake.ips" ;;
 	grow) s+=\$(head -c 500000 /dev/zero | tr '\\0' x) ;;
-	vanish) printf '# demo playback demos/fake.dem\n0 0\n' >> "\$DXX_DBG_FRAMEHASH"
-		exec bash -c 'trap "exit 0" TERM; while :; do sleep 0.1 & wait \$!; done' "$d/vanished" ;;
+	# The sections come after the exec, which is slow under emulation.
+	vanish) sleep ${EXEC_DELAY:-0}
+		exec bash -c 'trap "exit 0" TERM
+			printf "# demo playback demos/fake.dem\n0 0\n%.0s" 1 2 >> "\$DXX_DBG_FRAMEHASH"
+			while :; do sleep 0.1 & wait \$!; done' "$d/vanished" ;;
 	esac
 	# A trap runs only once a foreground command ends, but at once in wait.
 	sleep 0.1 & wait \$!
@@ -458,7 +468,7 @@ game_step()
 	local vars
 	mapfile -t vars < <(fake_game "$1")
 	env "${vars[@]}" "${NIGHTLY_DEV_DIR:-$DEV_DIR}/nightly.sh" --leg native --steps "$2" "${@:3}" 2>&1 &
-	bounded "$!"
+	bounded "$!" "${BOUND:-120}"
 }
 
 # Test that the hardened demo run passes once a whole demo has played, and
@@ -562,6 +572,23 @@ test_demo_steps_fail_when_the_game_is_not_found()
 	assert_contains "$out" "hardened_demo: no process of $d/fake-game found under run.sh"
 	pgrep -f "$d/vanished" >/dev/null && fail "the vanished game still runs"
 	return 0
+}
+
+# Test that the demo steps end the game, not a child of it that still
+# carries its command line (a fork before its exec, slow under emulation),
+# whichever ps lists first: pids wrap, so a child can be listed before
+# its parent.  Ending such a child left the game running and the step
+# waiting for it.
+test_demo_steps_find_the_game_not_its_fork()
+{
+	local d out
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir "$d/bin"
+	printf '#!/bin/sh\n"%s" "$@" | sort -rn\n' "$(command -v ps)" > "$d/bin/ps"
+	chmod +x "$d/bin/ps"
+	out=$(PATH=$d/bin:$PATH FAKE_GAME=fork BOUND=40 game_step "$d" hardened_demo)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "complete demo playback"
 }
 
 # Test that a run with no whole demo before the timeout fails.
