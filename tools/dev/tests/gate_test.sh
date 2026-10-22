@@ -11,6 +11,52 @@ source "$(dirname "$0")/lib.sh"
 export DOCKER_HOST=unix://$_scratch_root/no-docker.sock
 export CHECK_SHELLCHECK=no-such-shellcheck
 
+# Make a throwaway repository holding tools/dev with a fake check.sh that
+# prints its arguments (exit $FAKE_CHECK_RC, default 0), a tests/ directory
+# with a_test.sh (naming run.sh) and lib.sh, committed, and the base
+# branch `base` at that commit; put a fake docker into $1 (logging its
+# arguments to $1/docker.args).  Print the repository's path.
+make_gate_repo()
+{
+	local bin=$1 r
+	r=$(make_repo) || die "make_repo failed"
+	mkdir -p "$r/tools/dev/tests"
+	cp "$DEV_DIR"/{ci,container,deps,env,run}.sh "$DEV_DIR"/{toolchain.pins,requirements.lock} \
+		"$r/tools/dev/"
+	cp -R "$DEV_DIR/container" "$r/tools/dev/"
+	printf '#!/usr/bin/env bash\necho "native check $*"\nexit "${FAKE_CHECK_RC:-0}"\n' \
+		> "$r/tools/dev/check.sh"
+	chmod +x "$r/tools/dev/check.sh"
+	printf '# runs tools/dev/run.sh\n' > "$r/tools/dev/tests/a_test.sh"
+	printf '# helpers\n' > "$r/tools/dev/tests/lib.sh"
+	printf '# none\n' > "$r/tools/dev/tests/b_test.sh"
+	printf 'build/\ntraces/local/\n' > "$r/.gitignore"
+	tgit -C "$r" add -A
+	tgit -C "$r" commit -q --no-verify -m tools
+	tgit -C "$r" branch base
+	cat > "$bin/docker" <<DOCKER
+#!/usr/bin/env bash
+case "\$1 \${2-}" in
+'image inspect') exit 0 ;;
+esac
+printf '%s\n' "\$@" > "$bin/docker.args"
+echo "container ran"
+DOCKER
+	chmod +x "$bin/docker"
+	printf '%s\n' "$r"
+}
+
+# Run ci.sh of repo $1 with the fake docker in $2, a fake DXX_D2_DATA
+# and the remaining arguments.
+run_gate()
+{
+	local r=$1 bin=$2; shift 2
+	mkdir -p "$bin/tm" "$bin/d2"
+	: > "$bin/d2/DESCENT2.HOG"
+	(cd "$r" && PATH="$bin:$PATH" DXX_D2_DATA=${DATA-$bin/d2} DXX_TMUTIL="$(fake_tmutil "$bin/tm")" \
+		DXX_CI_MACHINE_LOCK="$bin/machine.lock" tools/dev/ci.sh "$@" 2>&1)
+}
+
 # Write file $2 in repo $1 (a line added to an existing one) and commit it.
 change()
 {
@@ -18,6 +64,61 @@ change()
 	echo changed >> "$1/$2"
 	tgit -C "$1" add -A || die "staging $2 failed"
 	tgit -C "$1" commit -q --no-verify -m "change $2" || die "committing $2 failed"
+}
+
+# Test that --plan names, for each changed path, what it adds to the gate
+# (ADR 6's table), and the steps of the whole change; the gate itself
+# always runs.
+test_plan_maps_paths_to_steps()
+{
+	local bin r out p want
+	bin=$(make_scratch) || die "make_scratch failed"
+	declare -A want=(
+		[common/main/game.cpp]='game'
+		[common/render/device.cpp]='game'
+		[d2x-rebirth/main/x.cpp]='game'
+		[similar/main/y.cpp]='game'
+		[tools/dev/run.sh]='tools'
+		[docs/agents/issue-tracker.md]='tools'
+		[tools/dev/toolchain.pins]='tools container'
+		[tools/dev/container/Dockerfile]='tools container'
+		[tools/dev/site-dev.py]='tools container'
+		[tools/dev/fork_warnings.py]='tools container'
+		[SConstruct]='container'
+		[site_scons/x.py]='container'
+		[shaders/hlsl/x.hlsl]='container'
+		[README.md]='full'
+		[docs/adr/0009-x.md]='full'
+	)
+	for p in "${!want[@]}"; do
+		r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+		change "$r" "$p"
+		out=$(run_gate "$r" "$bin" --gate --plan --base base)
+		assert_eq "$?" 0 "$p: $out"
+		assert_contains "$out" "gate: $p: ${want[$p]}"
+	done
+}
+
+# Test that a changed tools/dev script runs the shell tests naming it, a
+# file no test names all of them, a changed test itself, and a docs/agents
+# file none (shellcheck alone).
+test_plan_picks_shell_tests()
+{
+	local bin r out p want
+	bin=$(make_scratch) || die "make_scratch failed"
+	declare -A want=(
+		[tools/dev/run.sh]='a_test.sh'
+		[tools/dev/unnamed.txt]='a_test.sh b_test.sh'
+		[tools/dev/tests/b_test.sh]='b_test.sh'
+		[docs/agents/x.md]='none'
+	)
+	for p in "${!want[@]}"; do
+		r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+		change "$r" "$p"
+		out=$(run_gate "$r" "$bin" --gate --plan --base base)
+		assert_eq "$?" 0 "$p: $out"
+		assert_contains "$out" "gate: parts: gate tools"$'\n'"gate: shell tests: ${want[$p]}"
+	done
 }
 
 # Make a throwaway repository holding a copy of tools/dev (no tests, so

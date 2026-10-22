@@ -2,6 +2,11 @@
 # The fork's CI (ADR 4): local only, one command.
 #
 #   ci.sh [--fast] [--clean] [--container]
+#   ci.sh --gate [--base REV] [--plan]
+#
+# ci.sh --clean is the full run (ADR 6): the nightly runs it, and it is the
+# gate before an upstream offer or a release tag.  ci.sh --gate is the
+# merge gate, run before every merge (below).
 #
 # Two legs, run at once:
 # 1. native: tools/dev/check.sh on this machine (skipped with --container);
@@ -22,6 +27,22 @@
 # --fast passes --fast to check.sh in both legs.  Both legs always run;
 # exit status 1 names the failed ones, 2 is a usage error.  Build the image
 # first with `container.sh build`.
+#
+# --gate: the merge gate of ADR 6, on the commits between the base REV
+# (default: the merge-base of HEAD and sdl-gpu-port) and HEAD, which must
+# be clean (no uncommitted or untracked file).  It runs `check.sh --gate
+# REV` natively (builds, tests, leaks, tidy and format of the changed fork
+# files, doctor, gitleaks on the new commits, R1 against REV's baseline;
+# its own 5-minute budget), and adds by changed path (path_classes):
+# tools/dev and docs/agents files run shellcheck and the shell tests of the
+# changed scripts (`check.sh --tools`); image inputs, SConstruct,
+# site_scons, fork build flags and shaders the container leg on a clean
+# clone; any other path the full run, both legs, --clean.  Each part runs,
+# in that order, after the one before; exit 1 names the failed ones.  It
+# fails before running anything when DXX_D2_DATA names no directory
+# holding DESCENT2.HOG (R1 needs the game data, game-data.md).  --plan
+# prints the changed paths, what each adds and the parts that would run,
+# and runs nothing.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
@@ -30,19 +51,113 @@ source "$dev_dir/env.sh"
 usage()
 {
 	echo "usage: $0 [--fast] [--clean] [--container]" >&2
+	echo "       $0 --gate [--base REV] [--plan]" >&2
 	exit 2
 }
 
-fast=() clean=() native=1
+fast=() clean=() native=1 gate=0 plan=0 base=
 while [[ $# -gt 0 ]]; do
 	case $1 in
 	--fast) fast=(--fast) ;;
 	--clean) clean=(--clean) ;;
 	--container) native=0 ;;
+	--gate) gate=1 ;;
+	--plan) plan=1 ;;
+	--base) [[ $# -ge 2 && -n $2 ]] || usage; base=$2; shift ;;
 	*) usage ;;
 	esac
 	shift
 done
+if [[ $gate -eq 1 ]]; then
+	[[ ${#fast[@]} -eq 0 && ${#clean[@]} -eq 0 && $native -eq 1 ]] || usage
+elif [[ $plan -eq 1 || -n $base ]]; then
+	usage
+fi
+
+# Print what changed path $1 adds to the merge gate (ADR 6's table): game
+# (the gate alone), tools (shellcheck and the shell tests of the changed
+# scripts), container (the container leg), or full (the full run).  An
+# image input or fork build flag in tools/dev adds both tools and
+# container; a path no line maps runs the full run.
+path_classes()
+{
+	case $1 in
+	common/*|similar/*|d1x-rebirth/*|d2x-rebirth/*) echo game ;;
+	tools/dev/deps.sh|tools/dev/env.sh|tools/dev/toolchain.pins|tools/dev/requirements.*|\
+	tools/dev/container/*|tools/dev/build.sh|tools/dev/site-*.py|tools/dev/fork_warnings.py|\
+	tools/dev/hardening.py|tools/dev/hardening-exit.h|tools/dev/upstream_begin.h|\
+	tools/dev/upstream_end.h|tools/dev/fork-dirs)
+		echo tools container ;;
+	tools/dev/*|docs/agents/*) echo tools ;;
+	SConstruct|site_scons/*|shaders/*) echo container ;;
+	*) echo full ;;
+	esac
+}
+
+# Print the shell tests (names in tools/dev/tests) changed path $1 runs: a
+# test runs itself (none once deleted); any other tools/dev file runs every
+# test naming it, or every test when none does; a docs/agents file none.
+path_tests()
+{
+	local name=${1##*/} hits rc
+	case $1 in
+	docs/agents/*) return 0 ;;
+	tools/dev/tests/*_test.sh) [[ ! -f $root/$1 ]] || echo "$name"; return 0 ;;
+	esac
+	hits=$(cd "$dev_dir/tests" && grep -lF -- "$name" ./*_test.sh) && rc=0 || rc=$?
+	[[ $rc -le 1 ]] || { echo "ci.sh: cannot search tools/dev/tests for $name" >&2; return 1; }
+	[[ $rc -eq 0 ]] || hits=$(cd "$dev_dir/tests" && ls ./*_test.sh) || return 1
+	printf '%s\n' "${hits//.\//}"
+}
+
+# --gate: set gate_rev, gate_parts (the parts to run, in order),
+# gate_tests (the shell tests of the tools part) and plan (lines naming
+# each changed path with what it adds) from the paths changed between the
+# base and HEAD.
+gate_plan()
+{
+	local p c paths cs classes=() tests=()
+	if [[ -z $base ]]; then
+		base=$(git -C "$root" merge-base HEAD sdl-gpu-port) ||
+			{ echo "ci.sh: no merge-base of HEAD and sdl-gpu-port; pass --base" >&2; return 2; }
+	fi
+	gate_rev=$(git -C "$root" rev-parse --verify -q "$base^{commit}") ||
+		{ echo "ci.sh: --base $base is no commit" >&2; return 2; }
+	paths=$(git -C "$root" diff --no-renames --name-only "$gate_rev" HEAD) ||
+		{ echo "ci.sh: cannot list the paths changed since $gate_rev" >&2; return 1; }
+	plan_lines=("gate: base $gate_rev")
+	while IFS= read -r p; do
+		[[ -n $p ]] || continue
+		c=$(path_classes "$p")
+		plan_lines+=("gate: $p: $c")
+		read -r -a cs <<<"$c"
+		classes+=("${cs[@]}")
+		if [[ " $c " == *" tools "* ]]; then
+			c=$(path_tests "$p") || return 1
+			[[ -z $c ]] || mapfile -t -O "${#tests[@]}" tests <<<"$c"
+		fi
+	done <<<"$paths"
+	gate_parts=(gate)
+	for c in tools container full; do
+		[[ " ${classes[*]-} " != *" $c "* ]] && continue
+		# The full run's container leg is the container part's.
+		[[ $c == container && " ${classes[*]} " == *" full "* ]] && continue
+		gate_parts+=("$c")
+	done
+	mapfile -t gate_tests < <(printf '%s\n' "${tests[@]+"${tests[@]}"}" | sed '/^$/d' | sort -u)
+	plan_lines+=("gate: parts: ${gate_parts[*]}")
+	[[ " ${gate_parts[*]} " != *" tools "* ]] || plan_lines+=("gate: shell tests: ${gate_tests[*]-none}")
+}
+
+if [[ $gate -eq 1 ]]; then
+	gate_plan || exit
+	if [[ $plan -eq 1 ]]; then
+		printf '%s\n' "${plan_lines[@]}"
+		exit 0
+	fi
+	echo "ci.sh: --gate plans only, with --plan, until it runs its parts" >&2
+	exit 2
+fi
 
 log=$root/build/ci/ci.log
 lock=$root/build/ci/lock
