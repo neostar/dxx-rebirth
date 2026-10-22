@@ -81,6 +81,8 @@ void ogl_stereo_frame(bool left_eye, int xoff);
 void ogl_end_frame(void);
 /* Draw only pixels whose alpha is at least ref (the alpha test ogl_start_frame enables). */
 void ogl_set_alpha_ref(float ref);
+/* Blend what is drawn next with the target (the default), or overwrite it. */
+void ogl_enable_blending(bool enable);
 /* What the GL context supports beyond the common set. */
 render::caps gr_caps();
 /* Whether bm has a GL texture that is still loaded. */

@@ -145,7 +145,7 @@ void MovieShowFrame(const uint8_t *buf, int dstx, int dsty, int bufw, int bufh, 
 		dsty = (SHEIGHT/2)-((bufh*scale)/2);
 
 #if DXX_USE_OGL
-	glDisable (GL_BLEND);
+	ogl_enable_blending(false);
 
 #if DXX_USE_STEREOSCOPIC_RENDER
 	if (VR_stereo != StereoFormat::None)
@@ -157,7 +157,7 @@ void MovieShowFrame(const uint8_t *buf, int dstx, int dsty, int bufw, int bufh, 
 		dstx, dsty,
 		bufw, bufh, 0, 0, source_bm, grd_curcanv->cv_bitmap, opengl_texture_filter::classic);
 
-	glEnable (GL_BLEND);
+	ogl_enable_blending(true);
 #else
 	{
 		const int dstw = static_cast<int>(bufw * scale);

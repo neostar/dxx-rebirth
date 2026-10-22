@@ -1424,6 +1424,14 @@ void ogl_set_alpha_ref(const float ref)
 	glAlphaFunc(GL_GEQUAL, ref);
 }
 
+void ogl_enable_blending(const bool enable)
+{
+	if (enable)
+		glEnable(GL_BLEND);
+	else
+		glDisable(GL_BLEND);
+}
+
 render::caps gr_caps()
 {
 	return render::gl_caps(ogl_maxanisotropy);
