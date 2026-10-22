@@ -2,6 +2,8 @@
 
 Read `docs/agents/conventions.md` before writing or reviewing C++, SConstruct, tests or commit messages.
 Fork C++ follows the C++ safety rules of ADR 5 (`docs/adr/0005-cpp-safety-rules-for-new-code.md`).
+Load the `mattpocock-skills:writing-for-agents` skill before writing or editing `docs/adr`,
+`docs/agents` or `CLAUDE.md`.
 
 ## Hard rules
 
@@ -28,6 +30,7 @@ Shaders: HLSL in `shaders/hlsl/`, generated headers committed in `shaders/genera
 ### Issue tracker
 
 Issues live in GitHub Issues on the fork neostar/dxx-rebirth, never upstream. See `docs/agents/issue-tracker.md`.
+Orchestrating the work (briefs, reviews, merges): `docs/agents/orchestrating.md`.
 
 ### Triage labels
 
