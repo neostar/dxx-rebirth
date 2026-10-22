@@ -14,7 +14,8 @@
 # from the `venv python` pin and the requirements.lock next to the
 # manifest, with exactly the locked packages installed.  Either not made
 # yet is a SKIP.  On macOS the libraries under their lib/ must load only
-# from themselves and the system (check_macho_refs).  Exit status 1 means
+# from themselves and the system (check_macho_refs), and there must be
+# some: none fails, unless neither is made (a SKIP).  Exit status 1 means
 # drift, 2 a usage error.  A stash entry fails while the clone holding
 # --repo (default: this one) has more than one worktree.
 # The probes are called by name, as probe_<name>.
@@ -236,6 +237,11 @@ if [[ $platform == darwin ]]; then
 		libs_out=${libs_out%"$libs_checked"}
 		if [[ -n ${libs_out//$'\n'/} ]]; then
 			printf '%s' "$libs_out"
+			rc=1
+		elif [[ ! -d $prefix && ! -d $venv ]]; then
+			echo "SKIP libs: neither $prefix nor $venv is made; run tools/dev/deps.sh"
+		elif [[ $libs_checked -eq 0 ]]; then
+			echo "FAIL libs: no Mach-O library under $prefix/lib or $venv/lib"
 			rc=1
 		else
 			echo "ok   libs: $libs_checked Mach-O libraries load from the prefix, the venv and the system"

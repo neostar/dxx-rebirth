@@ -306,6 +306,30 @@ test_prefix_libraries_reference_only_allowed_places()
 	assert_not_contains "$out" "ok   libs"
 }
 
+# Test that the libraries check, having checked no library, never passes:
+# with neither the prefix nor the venv made it is a visible SKIP, like the
+# deps and venv checks; with one of them made but no library under its
+# lib/ it fails.
+test_no_libraries_checked_is_skip_or_fail()
+{
+	local d out rc
+	command -v otool >/dev/null || skip 'no otool for the libraries check'
+	d=$(make_scratch) || die "make_scratch failed"
+	printf 'tool cmake any 4.4.4\n' > "$d/manifest"
+	fake_tool "$d" cmake 'cmake version 4.4.4'
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$d/no-p" --venv "$d/no-v") &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP libs: neither $d/no-p nor $d/no-v is made"
+	assert_not_contains "$out" "ok   libs"
+	mkdir -p "$d/venv/lib"
+	out=$(run_doctor "$d" darwin --manifest "$d/manifest" --prefix "$d/no-p" --venv "$d/venv") &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL libs: no Mach-O library under $d/no-p/lib or $d/venv/lib"
+	assert_not_contains "$out" "ok   libs"
+}
+
 # Test that a stash entry fails once the clone has a second worktree,
 # saying why (one stash list for every worktree), and passes with one
 # worktree or an empty stash; outside a repository it is a visible SKIP.
