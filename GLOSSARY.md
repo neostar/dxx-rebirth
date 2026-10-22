@@ -23,8 +23,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Caps**: what an adapter supports beyond the common set (quad-buffer stereo, `copy_region`,
   anisotropy).
 - **Trace**: a recorded sequence of render-device calls (`.rtr`), replayed by `rtrace`: the render
-  target's size, then one record per draw, texture (its pixels included), clear and present, so it replays without the
-  game and a present marks each frame's end. Format, writer and reader: `common/render/trace.h`.
+  target's size, then one record per draw, texture (its pixels included), clear and present, so it
+  replays without the game; a present marks each frame's end and gives the game's frame index.
+  Format, writer and reader: `common/render/trace.h`.
 - **Capture**: frames recorded from the real game through the GL interposer; derived from licensed
   data, so never committed.
 - **Synthetic trace**: a trace generated from procedural data; may be committed.

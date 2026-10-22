@@ -87,10 +87,13 @@ BOOST_AUTO_TEST_CASE(clear_and_present_bytes)
 	trace::writer w{target};
 	w.clear({.color = false, .depth = true});
 	w.clear({.color = true, .depth = false});
-	w.present();
+	w.present({.frame = 0x01020304});
 	const auto out{w.take()};
-	/* kind 1 clear (flags: bit 0 colour, bit 1 depth), kind 2 present. */
-	BOOST_TEST((out == header + bytes{1, 1, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 2, 0, 0, 0, 0}));
+	/* kind 1 clear (flags: bit 0 colour, bit 1 depth), kind 2 present
+	 * (u32 frame).
+	 */
+	BOOST_TEST(
+	    (out == header + bytes{1, 1, 0, 0, 0, 2, 1, 1, 0, 0, 0, 1, 2, 4, 0, 0, 0, 4, 3, 2, 1}));
 }
 
 /* Test that take() hands over the bytes so far and the writer goes on
@@ -99,11 +102,11 @@ BOOST_AUTO_TEST_CASE(clear_and_present_bytes)
 BOOST_AUTO_TEST_CASE(take_hands_over_pieces)
 {
 	trace::writer w{target};
-	w.present();
+	w.present({.frame = 0});
 	const auto first{w.take()};
 	w.clear({.color = true, .depth = true});
 	const auto second{w.take()};
-	BOOST_TEST((first == header + bytes{2, 0, 0, 0, 0}));
+	BOOST_TEST((first == header + bytes{2, 4, 0, 0, 0, 0, 0, 0, 0}));
 	BOOST_TEST(second == (bytes{1, 1, 0, 0, 0, 3}));
 }
 
@@ -118,13 +121,15 @@ BOOST_AUTO_TEST_CASE(clear_and_present_round_trip)
 	BOOST_TEST(empty.value().empty());
 	w.clear({.color = false, .depth = true});
 	w.clear({.color = true, .depth = true});
-	w.present();
+	w.present({.frame = 30});
+	w.present({.frame = 0xffffffff});
 	const auto records{trace::read_all(header + w.take())};
 	BOOST_REQUIRE(records.has_value());
 	const std::vector<trace::record> expected{
 	    trace::clear{.color = false, .depth = true},
 	    trace::clear{.color = true, .depth = true},
-	    trace::present{},
+	    trace::present{.frame = 30},
+	    trace::present{.frame = 0xffffffff},
 	};
 	BOOST_TEST((records.value() == expected));
 }
@@ -244,10 +249,10 @@ bytes two_frames()
 	w.clear({.color = false, .depth = true});
 	w.draw(world_draw);
 	w.draw(hud_draw);
-	w.present();
+	w.present({.frame = 60});
 	w.texture({42}, nullptr);
 	w.draw(hud_draw);
-	w.present();
+	w.present({.frame = 61});
 	return w.take();
 }
 
@@ -354,6 +359,7 @@ BOOST_AUTO_TEST_CASE(frames_round_trip)
 		return std::holds_alternative<trace::present>(r);
 	})};
 	BOOST_TEST(presents == 2);
+	BOOST_TEST((records.value().back() == trace::record{trace::present{.frame = 61}}));
 	BOOST_TEST(
 	    (records.value().at(3) == trace::record{trace::clear{.color = false, .depth = true}}));
 	trace::writer again{target};
@@ -471,7 +477,11 @@ const std::vector<malformed> corpus{
     {"unknown kind 255", header + bytes{255, 0, 0, 0, 0}, trace::read_error::unknown_kind},
     {"clear without flags", header + bytes{1, 0, 0, 0, 0}, trace::read_error::bad_length},
     {"clear with a spare byte", header + bytes{1, 2, 0, 0, 0, 3, 0}, trace::read_error::bad_length},
-    {"present with a payload", header + bytes{2, 1, 0, 0, 0, 0}, trace::read_error::bad_length},
+    {"present without frame", header + bytes{2, 0, 0, 0, 0}, trace::read_error::bad_length},
+    {"present frame cut short", header + bytes{2, 3, 0, 0, 0, 1, 0, 0},
+	 trace::read_error::bad_length},
+    {"present with a spare byte", header + bytes{2, 5, 0, 0, 0, 1, 0, 0, 0, 0},
+	 trace::read_error::bad_length},
     {"clear flag bit 2", header + bytes{1, 1, 0, 0, 0, 4}, trace::read_error::bad_value},
     {"texture with one pixel", header + texture_record(1, 0, 0, 4), std::nullopt},
     {"texture pixels cut short", header + texture_record(1, 0, 0, 3),
@@ -509,7 +519,8 @@ const std::vector<malformed> corpus{
     {"draw 2^32 - 1 vertices",
 	 header + with(with(with(draw_record(88, 255), 89, 255), 90, 255), 91, 255),
 	 trace::read_error::bad_value},
-    {"good record, then garbage", header + bytes{2, 0, 0, 0, 0, 9}, trace::read_error::truncated},
+    {"good record, then garbage", header + bytes{2, 4, 0, 0, 0, 1, 0, 0, 0, 9},
+	 trace::read_error::truncated},
 };
 
 }
@@ -576,7 +587,7 @@ BOOST_AUTO_TEST_CASE(every_cut_is_truncated_or_whole)
 {
 	trace::writer w{target};
 	w.clear({.color = true, .depth = true});
-	w.present();
+	w.present({.frame = 1});
 	for (const auto &good : {w.take(), two_frames()})
 	{
 		const auto boundaries{record_ends(good)};

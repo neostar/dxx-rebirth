@@ -75,7 +75,9 @@ constexpr std::size_t vertex_size{9 * sizeof(float)};
  */
 template <typename T, std::size_t n>
 constexpr bool has_fields{render::detail::aggregate_size<T>() == n};
-static_assert(has_fields<draw_call, 6> && has_fields<trace::draw, 6> && has_fields<draw_state, 6>);
+static_assert(has_fields<draw_call, 6> && has_fields<trace::draw, 6> && has_fields<draw_state, 6> &&
+              has_fields<trace::present, 1> && has_fields<trace::clear, 2> &&
+              has_fields<header, 1> && has_fields<trace::texture, 3>);
 static_assert(has_fields<render::viewport, 3> && has_fields<extent, 2> &&
               has_fields<render::transforms, 2> && has_fields<vertex, 3>);
 static_assert(has_fields<perspective, 5> && has_fields<ortho, 6> &&
@@ -333,7 +335,7 @@ std::optional<record> decode(const std::uint8_t k, cursor &c)
 	case std::to_underlying(kind::clear):
 		return decode_clear(c);
 	case std::to_underlying(kind::present):
-		return trace::present{};
+		return trace::present{.frame = c.le<std::uint32_t>()};
 	case std::to_underlying(kind::texture):
 		return decode_texture(c);
 	case std::to_underlying(kind::draw):
@@ -365,11 +367,12 @@ void writer::clear(const trace::clear &c)
 	s.le(static_cast<std::uint8_t>((c.color ? clear_color : 0u) | (c.depth ? clear_depth : 0u)));
 }
 
-void writer::present()
+void writer::present(const trace::present &p)
 {
 	sink s{bytes_};
 	s.le(std::to_underlying(kind::present));
-	s.le(std::uint32_t{0});
+	s.le(std::uint32_t{4});
+	s.le(p.frame);
 }
 
 void writer::texture(const texture_slot slot, const texture_image *const image)
@@ -443,7 +446,7 @@ void writer::write(const record &r)
 {
 	std::visit(overloads{
 	               [this](const trace::clear &c) { clear(c); },
-	               [this](const trace::present &) { present(); },
+	               [this](const trace::present &p) { present(p); },
 	               [this](const trace::texture &t) {
 		               const auto image{t.image()};
 		               texture(t.slot, image ? &image.value() : nullptr);

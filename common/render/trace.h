@@ -19,7 +19,7 @@
  * trace ends at the end of a record; a partial record is malformed.
  * Payloads by kind (enums as u8, booleans as u8 0 or 1):
  *   1 clear: u8 flags, bit 0 colour, bit 1 depth
- *   2 present: empty
+ *   2 present: u32 frame
  *   3 texture: u32 slot, u8 has image; with one: u32 width, u32 height,
  *     format, filter, anisotropic, has_transparency, width*height*4 bytes
  *   4 draw: topology, u32 slot, blend, depth, cull, f32 alpha_ref, wrap,
@@ -72,10 +72,13 @@ struct clear
 };
 
 /* The end of a frame: everything recorded since the last present is one
- * frame.
+ * frame.  frame is the game's index of it, as the frame hash log numbers
+ * frames, so a replay of a part of a game can compare its frames with the
+ * log's.
  */
 struct present
 {
+	std::uint32_t frame;
 	constexpr bool operator==(const present &) const = default;
 };
 
@@ -137,7 +140,7 @@ class writer
 	 */
 	explicit writer(extent target);
 	void clear(const trace::clear &c);
-	void present();
+	void present(const trace::present &p);
 	/* The image for a slot, or nullptr to release it.  Throws
 	 * std::length_error for a side over max_texture_side, which the reader
 	 * would reject.
