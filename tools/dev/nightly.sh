@@ -19,6 +19,9 @@
 #                   every fork C++ file in the debug-harness build's
 #                   compilation database
 #   thread_safety   clang's -Wthread-safety on the same files
+#   tsan            ThreadSanitizer on the audio-thread tests (none yet)
+#   cppcheck,       SKIPs until toolchain.pins pins them (the owner's
+#   codeql          decision)
 #   container leg:
 #   glibcxx_debug   the unit tests built with libstdc++'s debug mode
 #                   (_GLIBCXX_DEBUG: checked iterators) and run
@@ -37,7 +40,7 @@ usage()
 	exit 2
 }
 
-native_steps=(analyzer thread_safety)
+native_steps=(analyzer thread_safety tsan cppcheck codeql)
 container_steps=(glibcxx_debug)
 
 harness_dir=build/nightly/harness
@@ -172,6 +175,29 @@ step_glibcxx_debug()
 	[[ $(grep -c '^Failed node list:' <<<"$out") -gt 0 ]] || return 1
 	[[ ${#unexpected[@]} -eq 0 ]] || { echo "glibcxx_debug: failed: ${unexpected[*]}"; return 1; }
 }
+
+# ThreadSanitizer on the audio-thread tests, on the Mac (TSan fails under
+# Rosetta in the container): none exists yet, so a SKIP naming #45, the
+# first fork code with an audio thread, which adds them and this step's
+# build.  tools/dev/tests/gates_test.sh proves TSan reports a planted race.
+step_tsan()
+{
+	echo "SKIP tsan: no audio-thread tests yet; #45 (sound effects on SDL3_mixer) adds them"
+}
+
+# Analyzers the owner has not decided to install: a SKIP until
+# tools/dev/toolchain.pins pins them.  $1 names the step, $2 the tool.
+not_pinned()
+{
+	if ! grep -qE "^[a-z]+ $2 " "$dev_dir/toolchain.pins"; then
+		echo "SKIP $1: $2 is not pinned in tools/dev/toolchain.pins; installing it is the owner's decision (#59)"
+		return 0
+	fi
+	echo "$1: $2 is pinned but nightly.sh has no runner for it yet"
+	return 1
+}
+step_cppcheck() { not_pinned cppcheck cppcheck; }
+step_codeql() { not_pinned codeql codeql; }
 
 leg='' only='' endurance=''
 while [[ $# -gt 0 ]]; do

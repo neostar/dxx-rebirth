@@ -171,4 +171,17 @@ test_glibcxx_debug_known_failures()
 	assert_contains "$out" "glibcxx_debug: failed: build/nightly/glibcxx-debug/common/test-homing.check"
 }
 
+# Test that the steps without a runner yet are SKIPs naming why: TSan the
+# ticket that adds audio-thread tests, cppcheck and CodeQL the owner's
+# install decision.
+test_unbuilt_steps_skip_visibly()
+{
+	local out
+	out=$("$DEV_DIR/nightly.sh" --leg native --steps tsan,cppcheck,codeql 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP tsan: no audio-thread tests yet; #45"
+	assert_contains "$out" "SKIP cppcheck: cppcheck is not pinned"
+	assert_contains "$out" "SKIP codeql: codeql is not pinned"
+}
+
 run_tests --parallel
