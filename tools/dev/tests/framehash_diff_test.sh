@@ -163,4 +163,46 @@ test_whole_frame_line_compared()
 	done
 }
 
+# Test that a line that is neither a "# " header nor a frame line ("index
+# WxH hash"), a blank line or a "#" without its space among them, fails
+# with status 2 naming the line.
+test_malformed_lines_exit_2()
+{
+	local d out rc l
+	d=$(make_scratch) || die "make_scratch failed"
+	write_log "$d/ok" '# scene s1.txt' 1 2
+	for l in '' '#scene s1.txt' '1 640x480' '1 640x480 xyz' '1 640x480 0000000000000002 x'; do
+		write_log "$d/bad" '# scene s1.txt' 1
+		printf '%s\n' "$l" >> "$d/bad"
+		out=$(python3 "$DIFF" S1 "$d/ok" "$d/bad" 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "'$l': $out"
+		assert_contains "$out" "bad:3: not a frame hash log line"
+	done
+}
+
+# Test that a log with nothing to compare fails with status 2, on either
+# side: an empty log, a header-only log and a compared section with no
+# frames, so a run that wrote no frames never passes.
+test_logs_without_frames_exit_2()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	write_log "$d/ok" '# scene s1.txt' 1 '# demo playback a.dem' 2 '# no demo'
+	: > "$d/empty"
+	write_log "$d/header" '# scene s1.txt'
+	write_log "$d/hollow" '# scene s1.txt' 1 '# demo playback a.dem' '# no demo'
+	out=$(python3 "$DIFF" S1 "$d/empty" "$d/ok" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "empty: no frame hash log sections"
+	out=$(python3 "$DIFF" S1 "$d/ok" "$d/empty" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	out=$(python3 "$DIFF" S1 "$d/header" "$d/header" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "header: section '# scene s1.txt' has no frames"
+	out=$(python3 "$DIFF" --section '# demo playback' S2 "$d/ok" "$d/hollow" 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "hollow: section '# demo playback a.dem' has no frames"
+}
+
 run_tests

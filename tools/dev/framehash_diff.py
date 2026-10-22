@@ -5,7 +5,9 @@
 #   NAME: M/N frames identical; first difference: section '<header>', frame I
 # and exit 1.  N counts the baseline's frames, M those the run matches at
 # the same section and frame index.  Sections pair up in order and must
-# have the same header; a log that is not a frame hash log exits 2.
+# have the same header.  A log that is not a frame hash log ("# " headers,
+# each followed by "INDEX WxH HASH" frame lines), or that has nothing to
+# compare (no section, or a compared section with no frames), exits 2.
 #
 # --section PREFIX compares only the first section whose header starts
 # with PREFIX and that a later header closes: a demo run ended by TERM
@@ -14,7 +16,10 @@
 # after it until the TERM.  A log with no such section exits 2.
 #
 #   python3 framehash_diff.py [--section PREFIX] NAME BASELINE RUN
+import re
 import sys
+
+FRAME = re.compile(r'[0-9]+ [0-9]+x[0-9]+ [0-9a-f]{16}')
 
 
 def parse(path):
@@ -25,10 +30,20 @@ def parse(path):
 			line = line.rstrip('\n')
 			if line.startswith('# '):
 				sections.append((line, []))
-			elif sections and line:
+			elif sections and FRAME.fullmatch(line):
 				sections[-1][1].append(line)
 			else:
 				raise ValueError(f'{path}:{n}: not a frame hash log line')
+	if not sections:
+		raise ValueError(f'{path}: no frame hash log sections')
+	return sections
+
+
+def framed(sections, path):
+	"""Sections, when each has a frame."""
+	for header, frames in sections:
+		if not frames:
+			raise ValueError(f"{path}: section '{header}' has no frames")
 	return sections
 
 
@@ -74,6 +89,7 @@ def main(argv):
 		base, run = parse(argv[2]), parse(argv[3])
 		if prefix is not None:
 			base, run = closed(base, prefix, argv[2]), closed(run, prefix, argv[3])
+		base, run = framed(base, argv[2]), framed(run, argv[3])
 	except (OSError, ValueError) as e:
 		print(f'framehash_diff: {e}', file=sys.stderr)
 		return 2
