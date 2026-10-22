@@ -144,6 +144,7 @@ BOOST_AUTO_TEST_CASE(texture_over_bound_not_written)
 	                                  rgba};
 	trace::writer w;
 	BOOST_CHECK_THROW(w.texture({1}, &image), std::length_error);
+	BOOST_TEST(w.take() == header);
 }
 
 namespace {
@@ -287,6 +288,25 @@ BOOST_AUTO_TEST_CASE(nan_payload_round_trip)
 	BOOST_TEST(std::bit_cast<std::uint32_t>(d.state.alpha_ref) == 0xffa00001u);
 	BOOST_TEST(std::bit_cast<std::uint32_t>(d.vertices.front().pos[0]) == 0x7fc12345u);
 	BOOST_TEST(std::bit_cast<std::uint32_t>(d.vertices.front().pos[1]) == 0xffa00001u);
+}
+
+/* Test that the writer refuses a draw of more vertices than the reader
+ * takes, leaving the trace as it was, and writes one of max_draw_vertices.
+ */
+BOOST_AUTO_TEST_CASE(draw_over_bound_not_written)
+{
+	const std::vector<render::vertex> many(std::size_t{trace::max_draw_vertices} + 1, fan.front());
+	render::draw_call call{world_draw};
+	call.vertices = many;
+	trace::writer w;
+	BOOST_CHECK_THROW(w.draw(call), std::length_error);
+	BOOST_TEST(w.take() == header);
+	call.vertices = std::span{many}.first(trace::max_draw_vertices);
+	w.draw(call);
+	const auto records{trace::read_all(header + w.take())};
+	BOOST_REQUIRE(records.has_value());
+	BOOST_TEST(std::get<trace::draw>(records.value().front()).vertices.size() ==
+	           trace::max_draw_vertices);
 }
 
 /* Test that a trace of frames keeps its frame boundaries and clears in
@@ -441,7 +461,12 @@ const std::vector<malformed> corpus{
     {"draw projection 2", header + draw_record(38, 2), trace::read_error::bad_value},
     {"draw modelview 2", header + draw_record(87, 2), trace::read_error::bad_value},
     {"draw vertex missing", header + draw_record(88, 1), trace::read_error::bad_length},
-    {"draw 2^24 vertices", header + draw_record(91, 1), trace::read_error::bad_length},
+    {"draw 2^24 vertices", header + draw_record(91, 1), trace::read_error::bad_value},
+    {"draw 2^20 + 1 vertices", header + with(draw_record(90, 16), 88, 1),
+	 trace::read_error::bad_value},
+    {"draw 2^32 - 1 vertices",
+	 header + with(with(with(draw_record(88, 255), 89, 255), 90, 255), 91, 255),
+	 trace::read_error::bad_value},
     {"good record, then garbage", header + bytes{2, 0, 0, 0, 0, 9}, trace::read_error::truncated},
 };
 

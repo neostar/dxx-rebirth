@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -64,6 +65,12 @@ class sink
 
 /* The bytes of one vertex: position, colour and texture coordinates. */
 constexpr std::size_t vertex_size{9 * sizeof(float)};
+
+/* A draw's payload without its vertices is under 128 bytes, so one of
+ * max_draw_vertices fits its u32 length, and its byte count a 32-bit size_t.
+ */
+static_assert(std::uint64_t{max_draw_vertices} * vertex_size + 128 <=
+              std::numeric_limits<std::uint32_t>::max());
 
 void encode(sink &s, const projection &p)
 {
@@ -276,10 +283,16 @@ trace::draw decode_draw(cursor &c)
 		             .size = {.width = c.le<std::uint32_t>(), .height = c.le<std::uint32_t>()}},
 	    .transforms = {.projection = decode_projection(c), .modelview = decode_modelview(c)},
 	};
-	/* The count is checked against the payload before anything is
-	 * allocated for it.
+	/* The count is checked against its bound, and then against the
+	 * payload, before anything is allocated for it; the bound keeps the
+	 * byte count from wrapping where size_t has 32 bits.
 	 */
-	const auto count{c.le<std::uint32_t>()};
+	auto count{c.le<std::uint32_t>()};
+	if (count > max_draw_vertices)
+	{
+		c.invalidate();
+		count = 0;
+	}
 	cursor v{c.bytes(vertex_size * count)};
 	d.vertices.reserve(v.remaining() / vertex_size);
 	while (v.remaining() != 0)
@@ -332,6 +345,9 @@ void writer::present()
 
 void writer::texture(const texture_slot slot, const texture_image *const image)
 {
+	if (image && (image->desc().size.width > max_texture_side ||
+	              image->desc().size.height > max_texture_side))
+		throw std::length_error("trace::writer: texture side over max_texture_side");
 	sink s{bytes_};
 	s.le(std::to_underlying(kind::texture));
 	if (!image)
@@ -342,8 +358,6 @@ void writer::texture(const texture_slot slot, const texture_image *const image)
 		return;
 	}
 	const auto &d{image->desc()};
-	if (d.size.width > max_texture_side || d.size.height > max_texture_side)
-		throw std::length_error("trace::writer: texture side over max_texture_side");
 	const auto rgba{image->rgba()};
 	s.le(static_cast<std::uint32_t>(17 + rgba.size()));
 	s.le(slot.index);
@@ -362,6 +376,8 @@ void writer::texture(const texture_slot slot, const texture_image *const image)
 
 void writer::draw(const draw_call &call)
 {
+	if (call.vertices.size() > max_draw_vertices)
+		throw std::length_error("trace::writer: draw over max_draw_vertices");
 	sink s{bytes_};
 	s.le(std::to_underlying(kind::draw));
 	const auto length_at{bytes_.size()};

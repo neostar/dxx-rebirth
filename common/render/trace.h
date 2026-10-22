@@ -26,7 +26,8 @@
  *     (0 perspective: f64 fovy, aspect, z_near, z_far, f32 stereo_dx;
  *     1 ortho: f64 left, right, bottom, top, z_near, z_far); u8 modelview
  *     (0 identity; 1 translate_scale: f32 translate[3], scale[3]); u32
- *     count, then count vertices of f32 pos[3], rgba[4], uv[2]
+ *     count (at most max_draw_vertices), then count vertices of f32 pos[3],
+ *     rgba[4], uv[2]
  * A new kind or field is a new version.
  */
 
@@ -88,6 +89,12 @@ struct texture
 	bool operator==(const texture &) const = default;
 };
 
+/* The most vertices of a draw in a trace, a bound that keeps a malformed
+ * count from asking for gigabytes and a draw's payload within its u32
+ * length: 2^20.
+ */
+inline constexpr std::uint32_t max_draw_vertices{1048576};
+
 /* A draw call, its vertices copied. */
 struct draw
 {
@@ -122,6 +129,9 @@ class writer
 	 * would reject.
 	 */
 	void texture(texture_slot slot, const texture_image *image);
+	/* Throws std::length_error for more than max_draw_vertices vertices,
+	 * which the reader would reject.
+	 */
 	void draw(const draw_call &call);
 	/* A record as read, written back as the same bytes. */
 	void write(const record &r);
