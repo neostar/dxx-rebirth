@@ -25,3 +25,6 @@ fork_warnings.install()
 # Hardened standard library (ADR 5).
 import hardening
 CPPFLAGS = ' '.join(hardening.HARDENING_FLAGS)
+# Unit tests run through run.sh (test_runner.py).
+import test_runner
+test_runner.install()

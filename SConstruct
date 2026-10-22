@@ -5015,7 +5015,7 @@ class DXXCommon(LazyObjectConstructor):
 				LIBS = ['bcm_host'],
 			)
 
-	def _register_runtime_test_link_targets(self, _check_action = [['$SOURCE']]):
+	def _register_runtime_test_link_targets(self, _check_action = [['$DXX_TEST_RUNNER', '$SOURCE']]):
 		runtime_test_boost_tests = self.runtime_test_boost_tests
 		if not runtime_test_boost_tests:
 			return

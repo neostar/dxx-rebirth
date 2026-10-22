@@ -297,4 +297,75 @@ test_strict_warnings_fail_fork_file_in_real_build()
 	assert_contains "$out" "strictwrapped.cpp:11:"
 }
 
+# Write into directory $1 an SConstruct that registers each program named
+# by `progs=a,b` with the check action of SConstruct's
+# _register_runtime_test_link_targets, read from the real SConstruct, after
+# reading the site files named by `sites=` (comma-separated) as SCons does.
+check_action_sconstruct()
+{
+	cat > "$1/SConstruct" <<EOF
+import ast, os, sys
+for site in filter(None, ARGUMENTS.get('sites', '').split(',')):
+	sys.path.insert(0, os.path.dirname(site))
+	exec(open(site).read(), {}, {})
+	del sys.path[0]
+tree = ast.parse(open('$REPO_ROOT/SConstruct').read())
+action = next(ast.literal_eval(f.args.defaults[-1]) for f in ast.walk(tree)
+	if isinstance(f, ast.FunctionDef) and f.name == '_register_runtime_test_link_targets')
+env = Environment(ENV = os.environ.copy())
+for p in ARGUMENTS['progs'].split(','):
+	env.AlwaysBuild(env.Command(target = p + '.check', source = p, action = action))
+EOF
+}
+
+# Test that the check target runs each unit test program through run.sh
+# with the dev profile's site file, so a crash report of the run fails the
+# target although the program exits 0, and a library that does not resolve
+# fails it without launching the program; a passing program passes.
+# Without a site file the program runs directly, as upstream's does.  The
+# stand-ins leave no real crash report: the crash is a report file written
+# into NO_WINDOW_REPORTS_DIR by a child that then ends by USR1.
+test_unit_tests_run_through_run_sh()
+{
+	local d out rc env=()
+	command -v scons >/dev/null || skip "scons not found"
+	d=$(make_scratch) || die "make_scratch failed"
+	mkdir "$d/reports" "$d/bin"
+	check_action_sconstruct "$d"
+	printf '#!/bin/sh\nexit 0\n' > "$d/bin/pass"
+	cat > "$d/bin/crashy" <<EOF
+#!/bin/sh
+parent=\$\$
+sh -c 'printf "{\"app_name\":\"child\"}\n{\"pid\" : %s, \"parentPid\" : %s}\n" \$\$ '\$parent' \
+	> "$d/reports/child.ips"; kill -USR1 \$\$'
+exit 0
+EOF
+	chmod +x "$d/bin/pass" "$d/bin/crashy"
+	out=$(cd "$d" && scons -Q -n progs=bin/pass 2>&1)
+	assert_eq "$out" "bin/pass" "without a site file"
+	out=$(cd "$d" && scons -Q -n progs=bin/pass sites="$DEV_DIR/site-dev.py" 2>&1)
+	assert_eq "$out" "$DEV_DIR/run.sh bin/pass" "with site-dev.py" || return
+	env=(NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" '1 Finder')" NO_WINDOW_REPORTS_DIR="$d/reports")
+	out=$(cd "$d" && env "${env[@]}" scons -Q progs=bin/pass sites="$DEV_DIR/site-dev.py" 2>&1)
+	assert_eq "$?" 0 "$out"
+	out=$(cd "$d" && env "${env[@]}" scons -Q progs=bin/crashy sites="$DEV_DIR/site-dev.py" 2>&1) &&
+		rc=0 || rc=$?
+	[[ $rc -ne 0 ]] || fail "a crash report passed: $out"
+	assert_contains "$out" "new crash report of the run: $d/reports/child.ips"
+	[[ $(uname -s) == Darwin ]] || return 0
+	command -v cc >/dev/null || skip 'no cc to build the stand-in with a library'
+	printf 'int lib_answer(void) { return 42; }\n' > "$d/lib.c"
+	printf 'int lib_answer(void);\nint main(void) { return lib_answer() == 42 ? 0 : 1; }\n' > "$d/main.c"
+	if ! cc -dynamiclib "$d/lib.c" -install_name @rpath/libanswer.dylib -o "$d/bin/libanswer.dylib" ||
+		! cc "$d/main.c" -L"$d/bin" -lanswer -Wl,-rpath,@executable_path -o "$d/bin/unlinked"; then
+		fail 'cannot build the stand-in with a library'; return
+	fi
+	rm "$d/bin/libanswer.dylib"
+	out=$(cd "$d" && env "${env[@]}" scons -Q progs=bin/unlinked sites="$DEV_DIR/site-dev.py" 2>&1) &&
+		rc=0 || rc=$?
+	[[ $rc -ne 0 ]] || fail "an unresolved library passed: $out"
+	assert_contains "$out" "unresolved libraries:"
+	assert_contains "$out" "@rpath/libanswer.dylib"
+}
+
 run_tests
