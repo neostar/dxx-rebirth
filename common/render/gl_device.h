@@ -49,7 +49,12 @@ struct gl_front_end
 	 */
 	std::function<void(texture_slot, render::wrap)> textured;
 	/* Multiplies the current matrix by the perspective's: gluPerspective,
-	 * or the front end's replacement for it on GLES.
+	 * or the front end's replacement for it on GLES, which also sets
+	 * glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST) and
+	 * glDepthMask(GL_TRUE), as ogl_start_frame did through it; the shadow
+	 * runs it on every rebuild of a perspective projection.  Nothing else
+	 * calls glDepthMask, so the mask it sets is the one every draw wants;
+	 * the shadow must track the mask once a draw state turns writes off.
 	 */
 	std::function<void(const render::perspective &)> build_perspective;
 	/* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 0 without the extension: the

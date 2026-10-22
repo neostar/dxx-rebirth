@@ -325,7 +325,9 @@ BOOST_AUTO_TEST_CASE(replay_leaves_recipe_matrices)
 /* Test that a draw is right after code outside the device changed GL
  * behind the shadow's back and the front end recorded the change in its
  * ambient state (invariant (a) of gl_state.h): culling turned off by a
- * line, blending by a movie, the 2D projection by the end of a frame.
+ * line, blending by a movie, the 2D projection by the end of a frame, the
+ * alpha reference by render_mine, the viewport by a canvas and the depth
+ * test by its toggle, each and back.
  */
 BOOST_AUTO_TEST_CASE(draw_right_after_recorded_change_behind_shadow)
 {
@@ -365,6 +367,28 @@ BOOST_AUTO_TEST_CASE(draw_right_after_recorded_change_behind_shadow)
 	check();
 	g.projection = perspective_matrix(render::view_perspective);
 	a.transforms.projection = render::view_perspective;
+	check();
+	/* render_mine's alpha reference for grates and doors, and back. */
+	g.alpha_func_gequal(0.8f);
+	a.alpha_ref = 0.8f;
+	check();
+	g.alpha_func_gequal(render::default_alpha_ref);
+	a.alpha_ref = render::default_alpha_ref;
+	check();
+	/* OGL_VIEWPORT for a smaller canvas, and back. */
+	const render::viewport small{.x = 10, .y = 20, .size = {.width = 320, .height = 200}};
+	g.viewport(small);
+	a.viewport = small;
+	check();
+	g.viewport({.x = 0, .y = 0, .size = {.width = 640, .height = 480}});
+	a.viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
+	check();
+	/* ogl_toggle_depth_test off, and on again. */
+	g.enable(gl::capability::depth_test, false);
+	a.depth = render::depth::off;
+	check();
+	g.enable(gl::capability::depth_test, true);
+	a.depth = render::depth::test_and_write;
 	check();
 }
 
