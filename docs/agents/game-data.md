@@ -37,15 +37,14 @@ D2X_REBIRTH_HOME=$PWD/traces/local/d2home tools/dev/run.sh build/dev/d2x-rebirth
 ## Hashing a demo, invisibly
 
 A `dbg_harness=1` build writes the frame hash log (`GLOSSARY.md`, debug harness) of a demo with
-no window on screen, from a fresh home; demo runs need the build without the hardened standard
-library, which stops on a known upstream `std::sort` assertion on the first demo frame:
+no window on screen, from a fresh home; like every `build.sh` profile it has the hardened
+standard library (ADR 5):
 
 ```sh
-tools/dev/build.sh dev dbg_harness=1 builddir=build/nohard \
-  compilation_database=build/nohard/compile_commands.json \
-  CPPFLAGS=-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE
+tools/dev/build.sh dev dbg_harness=1 builddir=build/harness \
+  compilation_database=build/harness/compile_commands.json
 DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/frames.log \
-  D2X_REBIRTH_HOME=$PWD/traces/local/d2home tools/dev/run.sh build/nohard/d2x-rebirth/d2x-rebirth \
+  D2X_REBIRTH_HOME=$PWD/traces/local/d2home tools/dev/run.sh build/harness/d2x-rebirth/d2x-rebirth \
   -hogdir "$DXX_D2_DATA" -window -pilot harness -nomovies -autodemo
 ```
 
@@ -93,3 +92,23 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
   LeakSanitizer prints no report, so ASan scene runs do not check leaks.
 - To write a scene, play a draft script with `press PRSCR` lines and look at the screenshots in
   the home's `screenshots/`; they are derived from the licensed data and stay there.
+
+## Checking R1, invisibly
+
+`tools/dev/r1.sh` plays S1, S2, S3 and S4 hidden, as above, at `-maxfps` 60 and 200, and compares
+each frame with a baseline in `traces/local/r1/baseline/`, which records the commit it was built
+from in its `commit` file, with the hardened dev profile:
+
+```sh
+export DXX_D2_DATA=~/Developer/descent-installer/data/common/D2
+tools/dev/r1.sh capture --base sdl-gpu-port   # once per branch point
+tools/dev/r1.sh check                         # after each change
+```
+
+- It prints `<scene> at <fps> fps: N/N frames identical` per scene and fps, or the first frame
+  that differs (its section and index), and exits 0 only when every frame matches. A log with
+  no frames, or with a line the harness does not write, fails too.
+- The scenes have one baseline per fps: the harness clock makes their logs differ between
+  `-maxfps` values. S2's demo also has to match itself across them.
+- S2 stands in for the coverage demo with the installed demo until that demo exists; the first
+  whole `# demo playback` section of each run is compared.

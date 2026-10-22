@@ -42,3 +42,6 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   defaults, so a fresh `D2X_REBIRTH_HOME` skips the pilot prompt.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.
+- **R1 baseline**: the frame hash logs of S1-S4 played by a build of the branch point, one set
+  per `-maxfps` value, kept in `traces/local/r1/baseline/` with the commit they came from;
+  `tools/dev/r1.sh check` compares a change's frames with it.
