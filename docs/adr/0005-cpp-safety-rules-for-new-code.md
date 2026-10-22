@@ -1,6 +1,7 @@
 # 5. C++ safety rules for new code, enforced by tiered gates
 
 Date: 2026-10-21. Status: accepted.
+Amended by ADR 6: the check tier splits into the 5-minute merge gate (`check.sh --gate`) and the nightly full run.
 
 ## Context
 

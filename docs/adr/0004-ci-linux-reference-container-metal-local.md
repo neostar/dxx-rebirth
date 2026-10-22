@@ -1,6 +1,7 @@
 # 4. Local CI is the only CI; Metal checks stay local
 
 Date: 2026-10-20. Status: accepted.
+Amended by ADR 6: the merge gate (`ci.sh --gate`) decides a merge; the full run (`ci.sh --clean`) runs nightly.
 
 ## Context
 
