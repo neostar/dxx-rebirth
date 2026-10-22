@@ -98,6 +98,11 @@ inline constexpr bool fields_complete{
 
 }
 
+/* The alpha reference the game draws with unless it asks for another: GL's
+ * alpha test passes a fragment whose alpha is at least this.
+ */
+inline constexpr float default_alpha_ref{0.02f};
+
 /* The fixed-function state of one draw call.  alpha_ref is explicit per draw
  * (fragments with alpha below it are discarded), so no draw inherits the
  * alpha test of an earlier one.  line_width applies to lines and points, in
@@ -108,7 +113,7 @@ struct draw_state
 	render::blend blend{render::blend::normal};
 	render::depth depth{render::depth::off};
 	render::cull cull{render::cull::none};
-	float alpha_ref{0.02f};
+	float alpha_ref{default_alpha_ref};
 	render::wrap wrap{render::wrap::clamp};
 	float line_width{1.f};
 	[[nodiscard]]

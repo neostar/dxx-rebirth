@@ -1712,7 +1712,7 @@ void render_mine(grs_canvas &canvas, const vms_vector &Viewer_eye, const vcsegid
 							}
 							ogl_set_alpha_ref(0.8); // prevent ugly outlines if an object (which is rendered later) is shown behind a grate, door, etc. if texture filtering is enabled. These sides are rendered later again with normal AlphaFunc
 							render_side(vcvertptr, canvas, seg, sn, wid, Viewer_eye);
-							ogl_set_alpha_ref(0.02);
+							ogl_set_alpha_ref(render::default_alpha_ref);
 						}
 						else
 							render_side(vcvertptr, canvas, seg, sn, wid, Viewer_eye);

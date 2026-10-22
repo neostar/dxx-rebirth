@@ -1305,7 +1305,7 @@ void ogl_start_frame(grs_canvas &canvas)
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GEQUAL,0.02);
+	glAlphaFunc(GL_GEQUAL, render::default_alpha_ref);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 
