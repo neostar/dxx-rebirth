@@ -5065,6 +5065,20 @@ class DXXCommon(LazyObjectConstructor):
 				# invoking an alias that collects test targets.
 				env.Ignore(builddir, run_test_program)
 				runnable_runtime_tests.append(run_test_program)
+		# The rtrace programs (#19) draw on a hidden GL window, so
+		# `check` does not run them: tools/dev/rtrace-tests.sh does, in the
+		# environment the window needs.  They use GLU, which GLES lacks.
+		# On SDL 1.2, which has no hidden windows, they build but cannot
+		# draw, and rtrace-tests.sh skips them.
+		rtrace_programs = self.rtrace_programs
+		if rtrace_programs and user_settings.opengl and not user_settings.opengles:
+			for test in rtrace_programs:
+				LIBS = [] if env_LIBS is None else env_LIBS.copy()
+				LIBS.extend(self.platform_settings.ogllibs)
+				if test.target.startswith('test-'):
+					LIBS.append('boost_unit_test_framework')
+				LIBS.append(library)
+				env.Program(target=builddir.File(test.target), source=test.source(self), LIBS=LIBS)
 		if runnable_runtime_tests:
 			# Provide an alias that runs the tests of one directory.
 			top_builddir_alias = env.Alias(f'{top_builddir!s}/check', runnable_runtime_tests)
@@ -5072,6 +5086,7 @@ class DXXCommon(LazyObjectConstructor):
 			DXXCommon.runnable_runtime_test_aliases.append(top_builddir_alias)
 
 	runtime_test_boost_tests: collections.abc.Sequence[RuntimeTest] = None
+	rtrace_programs: collections.abc.Sequence[RuntimeTest] = None
 
 class DXXArchive(DXXCommon):
 	PROGRAM_NAME: typing.Final[str] = 'DXX-Archive'
@@ -5175,7 +5190,16 @@ class DXXArchive(DXXCommon):
 			'common/unittest/zip.cpp',
 			)),
 			)
-	del RuntimeTest
+	# What the rtrace tool and its tests share: the GL adapter on its
+	# hidden window.
+	_rtrace_sources = (
+		'common/render/rtrace/gl_host.cpp',
+		'common/render/gl_device.cpp',
+		)
+	rtrace_programs = (
+		RuntimeTest('test-rtrace', ('common/render/unittest/rtrace.cpp',) + _rtrace_sources),
+			)
+	del RuntimeTest, _rtrace_sources
 
 	def get_objects_common(self,
 		__get_objects_common=DXXCommon.create_lazy_object_getter((
