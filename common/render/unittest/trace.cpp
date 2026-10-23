@@ -629,3 +629,14 @@ BOOST_AUTO_TEST_CASE(every_cut_is_truncated_or_whole)
 		}
 	}
 }
+
+/* Test that each read error has its own name for messages. */
+BOOST_AUTO_TEST_CASE(read_errors_have_names)
+{
+	BOOST_TEST(trace::to_string(trace::read_error::bad_magic) == "bad magic");
+	BOOST_TEST(trace::to_string(trace::read_error::unsupported_version) == "unsupported version");
+	BOOST_TEST(trace::to_string(trace::read_error::truncated) == "truncated");
+	BOOST_TEST(trace::to_string(trace::read_error::unknown_kind) == "unknown record kind");
+	BOOST_TEST(trace::to_string(trace::read_error::bad_length) == "bad record length");
+	BOOST_TEST(trace::to_string(trace::read_error::bad_value) == "bad value");
+}

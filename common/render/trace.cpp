@@ -488,6 +488,26 @@ std::vector<std::uint8_t> writer::take()
 reader::reader(const std::span<const std::uint8_t> bytes) : bytes_{bytes}
 {}
 
+std::string_view to_string(const read_error e)
+{
+	switch (e)
+	{
+	case read_error::bad_magic:
+		return "bad magic";
+	case read_error::unsupported_version:
+		return "unsupported version";
+	case read_error::truncated:
+		return "truncated";
+	case read_error::unknown_kind:
+		return "unknown record kind";
+	case read_error::bad_length:
+		return "bad record length";
+	case read_error::bad_value:
+		break;
+	}
+	return "bad value";
+}
+
 std::expected<header, read_error> reader::header()
 {
 	if (offset_ != 0)

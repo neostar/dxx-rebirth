@@ -41,6 +41,7 @@
 #include <expected>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -172,6 +173,10 @@ enum class read_error : std::uint8_t
 	/* A field outside its range: an enum, a flag, a size over its bound. */
 	bad_value,
 };
+
+/* The error's name for a message: "bad magic", "truncated", ... */
+[[nodiscard]]
+std::string_view to_string(read_error e);
 
 /* Reads the records of a trace held in memory, one at a time.  The bytes
  * are viewed, not copied, and must outlive the reader; records own their
