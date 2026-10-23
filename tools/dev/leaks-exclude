@@ -1,0 +1,8 @@
+# Leaks tools/dev/leaks.sh excludes: system frameworks' leaks that no
+# program can free.  One "<program> <symbol> -- <reason>" a line.
+#
+# AppIntents (macOS 26.7) connects to its daemon on a dispatch worker
+# thread of any Cocoa app and leaves each NSXPCConnection as a cycle,
+# about 290 blocks; rtrace's hidden SDL window brings it in (#19).
+rtrace -[LNProcessInstanceRegistryClient makeXPCConnection] -- AppIntents' XPC connection cycle
+test-rtrace -[LNProcessInstanceRegistryClient makeXPCConnection] -- AppIntents' XPC connection cycle
