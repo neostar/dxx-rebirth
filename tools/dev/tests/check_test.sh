@@ -28,6 +28,9 @@ make_dev_repo()
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$r/tools/dev/"
 	# The real allowlist names upstream files the throwaway repository lacks.
 	: > "$r/tools/dev/sdl-arms-allow"
+	# It holds no rtrace programs either: a stub SKIPs their tests.
+	printf '#!/bin/sh\necho "SKIP rtrace tests ($1): a stub in the throwaway repository"\n' \
+		> "$r/tools/dev/rtrace-tests.sh"
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	printf 'tools\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
@@ -484,6 +487,24 @@ test_gpu_gate_follows_props_and_flags_taken_address()
 	assert_contains "$out" "gpu.cpp:7: SDL_CreateGPUDeviceWithProperties named but not called"
 	assert_not_contains "$out" "gpu.cpp:9:"
 	assert_eq "$(grep -c . <<<"$out")" 5 "$out"
+}
+
+# Test that the full run fails when tools/dev/rtrace-tests.sh is missing or
+# not executable, naming it, in both steps that run it.
+test_full_fails_without_rtrace_tests()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	chmod -x "$r/tools/dev/rtrace-tests.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace tests (asan): tools/dev/rtrace-tests.sh is missing or not executable"
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "sanitizer_tests"
+	rm "$r/tools/dev/rtrace-tests.sh"
+	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace tests (asan): tools/dev/rtrace-tests.sh is missing or not executable"
 }
 
 # Test that the fast subset fails on a command in check.sh or

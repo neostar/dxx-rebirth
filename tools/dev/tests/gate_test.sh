@@ -312,6 +312,9 @@ make_check_repo()
 	done
 	cp -R "$DEV_DIR/hooks" "$DEV_DIR/style" "$r/tools/dev/"
 	: > "$r/tools/dev/sdl-arms-allow"
+	# The repository holds no rtrace programs: a stub SKIPs their tests.
+	printf '#!/bin/sh\necho "SKIP rtrace tests ($1): a stub in the throwaway repository"\n' \
+		> "$r/tools/dev/rtrace-tests.sh"
 	printf 'tools\n' > "$r/tools/dev/fork-dirs"
 	cp "$DEV_DIR/style/clang-tidy" "$r/tools/.clang-tidy"
 	cp "$DEV_DIR/tests/lib.sh" "$r/tools/dev/tests/"

@@ -554,13 +554,13 @@ step_kconfig()
 }
 
 # Run the rtrace tests (#19) built by profile $1, each through the command
-# "${@:2}" (none: directly).  #19 adds tools/dev/rtrace-tests.sh, which takes
-# the same arguments; until then this is a SKIP.
+# "${@:2}" (none: directly), with tools/dev/rtrace-tests.sh, which takes the
+# same arguments; a missing or non-executable script fails.
 rtrace_tests()
 {
 	if [[ ! -x $dev_dir/rtrace-tests.sh ]]; then
-		echo "SKIP rtrace tests ($1): none yet; #19 adds tools/dev/rtrace-tests.sh"
-		return 0
+		echo "rtrace tests ($1): tools/dev/rtrace-tests.sh is missing or not executable"
+		return 1
 	fi
 	"$dev_dir/rtrace-tests.sh" "$@"
 }
