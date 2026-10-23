@@ -195,28 +195,50 @@ bool has_gl_extension(const char *)
 
 namespace {
 
+/* The context's GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, 0 without the
+ * extension.
+ */
 [[nodiscard]]
-render::caps context_caps()
+float context_max_anisotropy()
 {
 	GLfloat max_anisotropy{0};
 	if (has_gl_extension("GL_EXT_texture_filter_anisotropic"))
 		glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &max_anisotropy);
-	return render::gl_caps(max_anisotropy);
+	return max_anisotropy;
 }
 
 }
 
 gl_host::gl_host(const extent target)
     : window_{std::make_unique<sdl_window>(target)},
-      device_{context_caps(),
+      device_{render::gl_caps(context_max_anisotropy()),
 	          {
                   .swap = [w = window_.get()] { w->swap(); },
                   .target_height = [h = target.height] { return h; },
                   .untextured = [] { glDisable(GL_TEXTURE_2D); },
+                  /* Nothing else draws to the context, so the adapter's
+				   * own name for the slot is the texture, and its wrap is
+				   * set on every draw.  A slot that holds no texture is
+				   * refused rather than drawn with whatever GL has bound.
+				   */
+                  .textured =
+                      [this](const render::texture_slot slot, const render::wrap wrap) {
+	                      const GLuint name{device_.gl_name(slot)};
+	                      if (name == 0)
+		                      throw std::logic_error(
+		                          "rtrace: a textured draw of a slot that holds no texture");
+	                      glEnable(GL_TEXTURE_2D);
+	                      glBindTexture(GL_TEXTURE_2D, name);
+	                      const GLint mode{wrap == render::wrap::repeat ? GL_REPEAT
+						                                                : GL_CLAMP_TO_EDGE};
+	                      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mode);
+	                      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, mode);
+                      },
                   .build_perspective =
                       [](const render::perspective &p) {
 	                      gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
                       },
+                  .max_anisotropy = context_max_anisotropy(),
               }}
 {}
 

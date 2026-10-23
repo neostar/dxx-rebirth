@@ -20,6 +20,8 @@
 #include <ios>
 #include <iterator>
 #include <span>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "common/render/readback.h"
@@ -137,6 +139,56 @@ struct quad
 	quad &operator=(quad &&) = delete;
 	~quad() = default;
 };
+
+/* A width by 1 texture image of nearest-filtered opaque texels. */
+struct texture_row
+{
+	std::vector<std::uint8_t> rgba;
+	render::texture_image image;
+	explicit texture_row(std::vector<std::uint8_t> texels)
+	    : rgba{std::move(texels)},
+	      image{{.size = {.width = static_cast<std::uint32_t>(rgba.size() / 4), .height = 1},
+		         .format = render::texture_format::rgba8,
+		         .filter = render::filter::nearest,
+		         .anisotropic = false,
+		         .has_transparency = false},
+		        rgba}
+	{}
+};
+
+/* The whole target in white, textured from slot with wrap, its texture
+ * coordinates running from 0 to u_end left to right.  The call views the
+ * vertices.
+ */
+struct textured_quad
+{
+	std::array<render::vertex, 4> vertices;
+	render::draw_call call;
+	textured_quad(const render::texture_slot slot, const render::wrap wrap, const float u_end)
+	    : vertices{{
+	          {.pos = {{0, 0, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{0, 0}}},
+	          {.pos = {{1, 0, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{u_end, 0}}},
+	          {.pos = {{1, 1, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{u_end, 1}}},
+	          {.pos = {{0, 1, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = {{0, 1}}},
+	      }},
+	      call{flat_draw(render::topology::fan, vertices)}
+	{
+		call.texture = slot;
+		call.state.wrap = wrap;
+	}
+	textured_quad(const textured_quad &) = delete;
+	textured_quad &operator=(const textured_quad &) = delete;
+	textured_quad(textured_quad &&) = delete;
+	textured_quad &operator=(textured_quad &&) = delete;
+	~textured_quad() = default;
+};
+
+/* The colour of column x of the middle row of image rgb of target. */
+std::array<std::uint8_t, 3> column(const std::span<const std::uint8_t> rgb, const std::uint32_t x)
+{
+	const std::size_t i{(std::size_t{target.height / 2} * target.width + x) * 3};
+	return {rgb[i], rgb[i + 1], rgb[i + 2]};
+}
 
 /* The committed sample trace (common/render/rtrace/synthetic/sample.rtr):
  * the shaded triangle, then the whole target in yellow.
@@ -320,4 +372,59 @@ BOOST_AUTO_TEST_CASE(sample_trace_is_the_writers)
 	BOOST_REQUIRE(in.good());
 	const bytes committed{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
 	BOOST_TEST((committed == sample_trace()));
+}
+
+/* Test that a textured draw samples the texture of its own slot, not the
+ * one uploaded last.
+ */
+BOOST_AUTO_TEST_CASE(textured_draw_samples_its_slot)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	const texture_row green{{0, 255, 0, 255}};
+	const texture_row blue{{0, 0, 255, 255}};
+	d.texture({1}, &green.image);
+	d.texture({2}, &blue.image);
+	d.clear({.color = true, .depth = true});
+	const textured_quad q{{1}, render::wrap::clamp, 1};
+	d.draw(q.call);
+	BOOST_TEST(every_pixel_is(drawing(d), {{0, 255, 0}}));
+}
+
+/* Test that a textured draw takes its wrap: texture coordinates past 1
+ * repeat the texture with repeat and its edge with clamp.
+ */
+BOOST_AUTO_TEST_CASE(textured_draw_takes_its_wrap)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	const texture_row red_blue{{255, 0, 0, 255, 0, 0, 255, 255}};
+	d.texture({1}, &red_blue.image);
+	const std::array<std::uint8_t, 3> red_rgb{{255, 0, 0}}, blue_rgb{{0, 0, 255}};
+	for (const auto wrap : {render::wrap::repeat, render::wrap::clamp})
+	{
+		d.clear({.color = true, .depth = true});
+		/* u runs 0 to 2: each quarter of the target is one texel wide. */
+		const textured_quad q{{1}, wrap, 2};
+		d.draw(q.call);
+		const auto rgb{drawing(d)};
+		BOOST_TEST((column(rgb, 8) == red_rgb));
+		BOOST_TEST((column(rgb, 24) == blue_rgb));
+		BOOST_TEST((column(rgb, 40) == (wrap == render::wrap::repeat ? red_rgb : blue_rgb)));
+	}
+}
+
+/* Test that a textured draw of a slot that holds no texture, which a
+ * well-formed trace never makes, is refused rather than drawn with
+ * whatever texture GL has bound.
+ */
+BOOST_AUTO_TEST_CASE(textured_draw_of_empty_slot_is_refused)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	const texture_row green{{0, 255, 0, 255}};
+	d.texture({1}, &green.image);
+	d.texture({1}, nullptr);
+	const textured_quad q{{1}, render::wrap::clamp, 1};
+	BOOST_CHECK_THROW(d.draw(q.call), std::logic_error);
 }
