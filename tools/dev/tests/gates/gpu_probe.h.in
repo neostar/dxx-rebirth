@@ -20,6 +20,8 @@ int main()
 		std::fprintf(stderr, "probe: SDL_CreateGPUDevice: %s\n", SDL_GetError());
 		return 1;
 	}
+	/* Created with debug_mode true: gpu-validate.sh looks for this line. */
+	std::fprintf(stderr, "sdlgpu: debug mode on\n");
 	SDL_GPUTextureCreateInfo info{};
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;

@@ -28,6 +28,8 @@ int main()
 		std::fprintf(stderr, "probe: SDL_CreateGPUDevice: %s\n", SDL_GetError());
 		return 1;
 	}
+	/* Created with debug_mode true: gpu-validate.sh looks for this line. */
+	std::fprintf(stderr, "sdlgpu: debug mode on\n");
 	SDL_GPUComputePipelineCreateInfo info{};
 	info.code = reinterpret_cast<const Uint8 *>(shader);
 	info.code_size = sizeof(shader) - 1;

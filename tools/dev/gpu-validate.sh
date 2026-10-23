@@ -10,7 +10,8 @@
 # warnings and performance warnings, with synchronization and thread-safety
 # validation (vk_layer_settings.txt); SDL's GPU debug mode is CMD's own: it
 # creates its device with debug_mode true, which on Vulkan also loads the
-# layer.  SDL assertions log and continue
+# layer, and prints the line `sdlgpu: debug mode on` (sdlgpu::device logs
+# it), which a run with an SDL_GPU device fails without.  SDL assertions log and continue
 # (SDL_ASSERT=ignore), never a dialog; SDL logs warnings, and the GPU
 # category its driver lines.  Neither SDL nor the layers change the exit
 # status (spike #55, K4), so CMD's output is scanned.  Prints the output,
@@ -20,7 +21,8 @@
 #     Metal shader validation's "... executing kernel|compute function: ..."
 #     ones (macOS 27 says "compute"),
 #     the Vulkan layer's "Validation Error/Warning" messages;
-#   - no SDL_GPU device, or its validation not active (on Vulkan, the
+#   - no SDL_GPU device, its debug mode not on (no `sdlgpu: debug mode
+#     on` line), or its validation not active (on Vulkan, the
 #     layer's status must list synchronization validation and no disables,
 #     naming any it lists).
 # Otherwise CMD's own exit status.
@@ -46,6 +48,14 @@ layer='[^ ] Validation$|failed assertion|Validation [A-Za-z ]*(Error|Warning): '
 shader='executing [a-z]+ function: '
 n=$(matches "$layer|$shader" | wc -l)
 [[ $n -gt 0 ]] && problems+=("$((n)) from the driver's validation layer")
+# SDL prints nothing that tells debug mode on Metal: a program prints this
+# line for each device it created with debug_mode true, as SDL prints its
+# driver line for each device.
+devices=$(matches 'SDL_GPU Driver: ' | wc -l)
+debug=$(matches 'sdlgpu: debug mode on$' | wc -l)
+if [[ $devices -gt $debug ]]; then
+	problems+=("SDL's GPU debug mode was not on for $((devices - debug)) of $((devices)) devices (no 'sdlgpu: debug mode on' line)")
+fi
 if matches 'SDL_GPU Driver: Metal' >/dev/null; then
 	matches 'Metal API Validation Enabled' >/dev/null ||
 		problems+=("Metal API validation was not active")
@@ -53,8 +63,7 @@ if matches 'SDL_GPU Driver: Metal' >/dev/null; then
 		problems+=("Metal shader validation was not active")
 elif matches 'SDL_GPU Driver: Vulkan' >/dev/null; then
 	matches 'Validation layers enabled' >/dev/null ||
-		problems+=("the Vulkan validation layer was not active" \
-			"(debug_mode, vulkan-validationlayers)")
+		problems+=("the Vulkan validation layer was not active (debug_mode, vulkan-validationlayers)")
 	matches 'Current Enables: .*SYNCHRONIZATION_VALIDATION' >/dev/null ||
 		problems+=("Vulkan synchronization validation was not active")
 	# The layer disables thread safety by default; the settings clear it.
@@ -68,7 +77,9 @@ else
 	problems+=("no SDL_GPU device was created, so nothing was validated")
 fi
 if [[ ${#problems[@]} -gt 0 ]]; then
-	printf 'gpu-validate: %s: %s\n' "${1##*/}" "${problems[@]}" >&2
+	for p in "${problems[@]}"; do
+		printf 'gpu-validate: %s: %s\n' "${1##*/}" "$p" >&2
+	done
 	exit 1
 fi
 echo "gpu-validate: ${1##*/}: no validation messages"

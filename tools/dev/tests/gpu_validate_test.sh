@@ -19,13 +19,15 @@ validate()
 
 metal='2026-10-21 03:39:30.424 probe[1:2] Metal API Validation Enabled
 2026-10-21 03:39:30.424 probe[1:2] Metal GPU Validation Enabled
-2026-10-21 03:39:30.438 probe[1:2] SDL_GPU Driver: Metal'
+2026-10-21 03:39:30.438 probe[1:2] SDL_GPU Driver: Metal
+INFO: sdlgpu: debug mode on'
 vulkan='Validation layers enabled, expect debug level performance!
 WARNING-CreateInstance-status-message(INFO / SPEC): msgNum: 601872502 - Validation Information: [ WARNING-CreateInstance-status-message ] | vkCreateInstance():  Khronos Validation Layer Active:
     Settings File: Found at /x/vk_layer_settings.txt specified by environment variable (VK_LAYER_SETTINGS_PATH).
     Current Enables: VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION.
     Current Disables: None.
-SDL_GPU Driver: Vulkan'
+SDL_GPU Driver: Vulkan
+sdlgpu: debug mode on'
 
 # Test that a run with validation active and no message passes with the
 # program's own exit status.
@@ -115,6 +117,22 @@ test_inactive_validation_fails()
 	assert_contains "$(validate "${metal/GPU Validation/}")" \
 		"probe: Metal shader validation was not active"
 	assert_contains "$(validate 'hello')" "probe: no SDL_GPU device was created"
+}
+
+# Test that a run whose program did not print that it created its device
+# in debug mode fails, on Metal, where nothing else tells (#24), also when
+# one of several devices lacks it.
+test_debug_mode_off_fails()
+{
+	local out
+	out=$(validate "${metal/INFO: sdlgpu: debug mode on/}")
+	assert_contains "$out" "probe: SDL's GPU debug mode was not on"
+	assert_contains "$out" "status 1"
+	out=$(validate "${vulkan/sdlgpu: debug mode on/}")
+	assert_contains "$out" "probe: SDL's GPU debug mode was not on"
+	# One line for two devices: one of them ran without debug mode.
+	out=$(validate "$metal"$'\n''SDL_GPU Driver: Metal')
+	assert_contains "$out" "probe: SDL's GPU debug mode was not on for 1 of 2 devices"
 }
 
 run_tests

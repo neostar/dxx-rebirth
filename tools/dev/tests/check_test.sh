@@ -392,7 +392,8 @@ test_fast_fails_on_unchecked_scratch()
 
 # Test that the fast subset fails on fork code creating an SDL_GPU device
 # without debug_mode true, naming file and line, and that the check lets
-# true through, however the call is spread over lines.
+# true through, however the call is spread over lines; a gpu_debug_mode
+# only as a constexpr, and a configuration's debug_mode field.
 test_fast_fails_on_gpu_device_without_debug_mode()
 {
 	local r out rc
@@ -408,6 +409,20 @@ test_fast_fails_on_gpu_device_without_debug_mode()
 	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	sed -i.bak '3d' "$r/tools/gpu.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
+	assert_eq "$?" 0 "$out"
+	# The constant passes only as a constexpr; a local copied from the
+	# configuration fails, the configuration's own field passes (#24).
+	printf '%s\n' 'void f(const config &c) {' 'const bool gpu_debug_mode{c.debug_mode};' \
+		'auto *d = SDL_CreateGPUDevice(f, gpu_debug_mode, nullptr);' '}' > "$r/tools/gpu2.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/gpu2.cpp:3: SDL_CreateGPUDevice without debug_mode true"
+	sed -i.bak 's/const bool gpu_debug_mode/constexpr bool gpu_debug_mode/' "$r/tools/gpu2.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
+	assert_eq "$?" 0 "$out"
+	printf '%s\n' 'void g(const config &c) {' 'SDL_SetBooleanProperty(p, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, c.debug_mode);' \
+		'auto *d = SDL_CreateGPUDeviceWithProperties(p);' '}' > "$r/tools/gpu3.cpp"
 	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
 	assert_eq "$?" 0 "$out"
 }

@@ -5,8 +5,14 @@
 # debug mode is the program's own).  Game code creates the device too, so
 # the scan is not limited to tools/dev/fork-dirs.
 #
-# Debug mode is asked for by `true` or by the constant `gpu_debug_mode`
-# (namespace-qualified or not), which a release build may define false:
+# Debug mode is asked for by `true`, by the constant `gpu_debug_mode`
+# (namespace-qualified or not; a release build may define it false), which
+# fails when the file declares it as anything but `constexpr bool` (a
+# local copied from runtime configuration is no constant), or by a
+# configuration's field,
+# `X.debug_mode` or `X->debug_mode` (sdlgpu::config's defaults to true; a
+# run in a check proves it on with the `sdlgpu: debug mode on` line
+# gpu-validate.sh requires):
 # - SDL_CreateGPUDevice(formats, DEBUG, name) with DEBUG one of those;
 # - SDL_CreateGPUDeviceWithProperties(props) where the last
 #   SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, X)
@@ -24,7 +30,8 @@ import subprocess
 import sys
 
 SOURCES = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.m', '.mm')
-DEBUG = re.compile(r'^(true|(\w+\s*::\s*)*gpu_debug_mode)$')
+DEBUG = re.compile(r'^(true|(\w+\s*::\s*)*gpu_debug_mode|\w+\s*(\.|->)\s*debug_mode)$')
+DECLARED = re.compile(r'((?:\b\w+\s+)*)bool\s+gpu_debug_mode\b')
 PROPERTY = 'SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN'
 
 
@@ -92,6 +99,20 @@ def function_body(text, pos):
 	return 0, len(text)
 
 
+def asks_debug(text, value):
+	"""Does value ask for debug mode: true, gpu_debug_mode unless the file
+	declares it other than constexpr, or a configuration's debug_mode
+	field?"""
+	m = DEBUG.match(value)
+	if not m:
+		return False
+	if value.split('::')[-1].strip() == 'gpu_debug_mode':
+		# Declared here, it must be a constant; declared elsewhere (a
+		# header), it is taken as the constant it is meant to be.
+		return all('constexpr' in m.group(1).split() for m in DECLARED.finditer(text))
+	return True
+
+
 def sets_debug_property(text, start, call, props):
 	"""Is the last debug-mode property set on props before the call true?"""
 	last = None
@@ -99,7 +120,7 @@ def sets_debug_property(text, start, call, props):
 		args = arguments(text, start + m.end())
 		if args and len(args) == 3 and args[0] == props and args[1] == PROPERTY:
 			last = args[2]
-	return last is not None and bool(DEBUG.match(last))
+	return last is not None and asks_debug(text, last)
 
 
 def problem(text, call):
@@ -108,7 +129,7 @@ def problem(text, call):
 		return f'{name} named but not called (its address taken)'
 	args = arguments(text, call.end())
 	if name == 'SDL_CreateGPUDevice':
-		if args is not None and len(args) == 3 and DEBUG.match(args[1]):
+		if args is not None and len(args) == 3 and asks_debug(text, args[1]):
 			return None
 		return 'SDL_CreateGPUDevice without debug_mode true or gpu_debug_mode'
 	if name == 'SDL_CreateGPUDeviceWithProperties':
