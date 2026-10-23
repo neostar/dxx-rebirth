@@ -5199,6 +5199,7 @@ class DXXArchive(DXXCommon):
 		'common/render/gl_device.cpp',
 		)
 	rtrace_programs = (
+		RuntimeTest('rtrace', ('common/render/rtrace/main.cpp',) + _rtrace_sources),
 		RuntimeTest('test-rtrace', ('common/render/unittest/rtrace.cpp',) + _rtrace_sources),
 			)
 	del RuntimeTest, _rtrace_sources

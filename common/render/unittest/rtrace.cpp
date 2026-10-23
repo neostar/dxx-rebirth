@@ -16,6 +16,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
+#include <ios>
+#include <iterator>
 #include <span>
 #include <vector>
 
@@ -134,6 +137,22 @@ struct quad
 	quad &operator=(quad &&) = delete;
 	~quad() = default;
 };
+
+/* The committed sample trace (common/render/rtrace/synthetic/sample.rtr):
+ * the shaded triangle, then the whole target in yellow.
+ */
+bytes sample_trace()
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	w.draw(flat_draw(render::topology::triangles, shaded_triangle));
+	w.present({.frame = 0});
+	w.clear({.color = true, .depth = true});
+	const quad yellow{{{1, 1, 0, 1}}};
+	w.draw(yellow.call);
+	w.present({.frame = 1});
+	return w.take();
+}
 
 }
 
@@ -285,4 +304,20 @@ BOOST_AUTO_TEST_CASE(malformed_trace_reports_its_error_after_its_frames)
 	BOOST_TEST((o.error == trace::read_error::truncated));
 	BOOST_REQUIRE(o.frames.size() == 1u);
 	BOOST_TEST(o.frames.front().frame == 0u);
+}
+
+/* Test that the committed sample trace is the writer's: its bytes are what
+ * sample_trace() writes.  tools/dev/rtrace-tests.sh passes its path after
+ * `--`.
+ */
+BOOST_AUTO_TEST_CASE(sample_trace_is_the_writers)
+{
+	const auto &suite{boost::unit_test::framework::master_test_suite()};
+	BOOST_REQUIRE_MESSAGE(suite.argc == 2, "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE");
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
+	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
+	std::ifstream in{args[1], std::ios::binary};
+	BOOST_REQUIRE(in.good());
+	const bytes committed{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+	BOOST_TEST((committed == sample_trace()));
 }
