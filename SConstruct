@@ -5079,6 +5079,15 @@ class DXXCommon(LazyObjectConstructor):
 					LIBS.append('boost_unit_test_framework')
 				LIBS.append(library)
 				env.Program(target=builddir.File(test.target), source=test.source(self), LIBS=LIBS)
+		# The SDL_GPU programs (#24) need SDL3 and a GPU, so `check` does
+		# not run them either: check.sh's gpu_tests step runs each under
+		# tools/dev/gpu-validate.sh (tools/dev/gpu-programs).
+		if self.sdlgpu_programs and user_settings.sdl3:
+			for test in self.sdlgpu_programs:
+				LIBS = [] if env_LIBS is None else env_LIBS.copy()
+				LIBS.append('boost_unit_test_framework')
+				LIBS.append(library)
+				env.Program(target=builddir.File(test.target), source=test.source(self), LIBS=LIBS)
 		if runnable_runtime_tests:
 			# Provide an alias that runs the tests of one directory.
 			top_builddir_alias = env.Alias(f'{top_builddir!s}/check', runnable_runtime_tests)
@@ -5087,6 +5096,7 @@ class DXXCommon(LazyObjectConstructor):
 
 	runtime_test_boost_tests: collections.abc.Sequence[RuntimeTest] = None
 	rtrace_programs: collections.abc.Sequence[RuntimeTest] = None
+	sdlgpu_programs: collections.abc.Sequence[RuntimeTest] = None
 
 class DXXArchive(DXXCommon):
 	PROGRAM_NAME: typing.Final[str] = 'DXX-Archive'
@@ -5207,6 +5217,12 @@ class DXXArchive(DXXCommon):
 	rtrace_programs = (
 		RuntimeTest('rtrace', ('common/render/rtrace/main.cpp',) + _rtrace_sources),
 		RuntimeTest('test-rtrace', ('common/render/unittest/rtrace.cpp',) + _rtrace_sources),
+			)
+	sdlgpu_programs = (
+		RuntimeTest('test-sdlgpu', (
+			'common/render/unittest/sdlgpu_device.cpp',
+			'common/render/sdlgpu_device.cpp',
+			)),
 			)
 	del RuntimeTest, _rtrace_sources
 
