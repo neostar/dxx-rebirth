@@ -28,6 +28,8 @@ make_dev_repo()
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$r/tools/dev/"
 	# The real allowlist names upstream files the throwaway repository lacks.
 	: > "$r/tools/dev/sdl-arms-allow"
+	# It builds no GPU programs: the tests register their own.
+	grep '^#' "$DEV_DIR/gpu-programs" > "$r/tools/dev/gpu-programs"
 	# It holds no rtrace programs either: a stub SKIPs their tests.
 	printf '#!/bin/sh\necho "SKIP rtrace tests ($1): a stub in the throwaway repository"\n' \
 		> "$r/tools/dev/rtrace-tests.sh"
@@ -558,26 +560,40 @@ test_fast_fails_on_gpu_program_run_outside_the_wrapper()
 	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gpu_gate"
 }
 
-# Test that the full checks run every registered GPU program under
-# gpu-validate.sh, failing on a validation message, and SKIP naming #24
-# with none registered.
+# Test that the full checks build every registered GPU program with
+# sdl3=1 and run it under gpu-validate.sh, failing on a validation message;
+# SKIP with none registered; fail on a program outside build/dev-sdl3, also
+# on a last line without a newline (check.sh --gpu, the gate's gpu part),
+# and on a missing gpu-programs.
 test_full_runs_gpu_programs_under_gpu_validate()
 {
 	local r out rc
+	[[ $dev_os == darwin ]] || skip "macOS only: gpu_tests is a SKIP elsewhere (#24)"
 	r=$(make_dev_repo) || die "make_dev_repo failed"
-	printf '#!/bin/sh\nexit 0\n' > "$r/tools/dev/build.sh"
+	printf '#!/bin/sh\ncd "$(dirname "$0")/../.."\necho "build.sh $*" >> calls\nexit 0\n' \
+		> "$r/tools/dev/build.sh"
+	echo '# none' > "$r/tools/dev/gpu-programs"
 	out=$("$r/tools/dev/check.sh" 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs; #24"
-	mkdir -p "$r/build/dev"
+	assert_contains "$out" "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs"
+	mkdir -p "$r/build/dev-sdl3"
 	printf '%s\n' '#!/bin/sh' "echo 'Validation layers enabled'" "echo 'SDL_GPU Driver: Vulkan'" \
-		"echo 'Validation Error: [ VUID-x ] bad'" > "$r/build/dev/gpu-probe"
-	chmod +x "$r/build/dev/gpu-probe"
-	echo build/dev/gpu-probe >> "$r/tools/dev/gpu-programs"
+		"echo 'Validation Error: [ VUID-x ] bad'" > "$r/build/dev-sdl3/gpu-probe"
+	chmod +x "$r/build/dev-sdl3/gpu-probe"
+	echo build/dev-sdl3/gpu-probe >> "$r/tools/dev/gpu-programs"
 	out=$("$r/tools/dev/check.sh" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
+	assert_contains "$(cat "$r/calls")" "build.sh dev sdl3=1 build/dev-sdl3/gpu-probe"
 	assert_contains "$out" "gpu-validate: gpu-probe: 1 from the driver's validation layer"
 	assert_eq "$(grep '^check.sh: failed' <<<"$out")" 'check.sh: failed: gpu_tests' "$out"
+	printf 'build/dev/gpu-other' >> "$r/tools/dev/gpu-programs"
+	out=$("$r/tools/dev/check.sh" --gpu 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "gpu_tests: build/dev/gpu-other is not a build/dev-sdl3 program"
+	rm "$r/tools/dev/gpu-programs"
+	out=$("$r/tools/dev/check.sh" --gpu 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "gpu_tests: no tools/dev/gpu-programs"
 }
 
 # Test that the full checks build the SDL3 unit tests (macOS) and fail

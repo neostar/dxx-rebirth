@@ -90,6 +90,11 @@ test_plan_maps_paths_to_steps()
 		[SConstruct]='container'
 		[site_scons/x.py]='container'
 		[shaders/hlsl/x.hlsl]='container'
+		[common/render/sdlgpu_device.cpp]='game gpu'
+		[common/render/unittest/sdlgpu_device.cpp]='game gpu'
+		[common/sdl/sdl_wrap_gpu.h]='game gpu'
+		[tools/dev/gpu-programs]='tools gpu'
+		[tools/dev/gpu-validate.sh]='tools gpu'
 		[README.md]='full'
 		[docs/adr/0009-x.md]='full'
 	)
@@ -199,6 +204,28 @@ test_parts_follow_the_changed_paths()
 	assert_contains "$out" "container ran"
 	assert_contains "$(cat "$bin/docker.args")" "CI_COMMIT="
 	assert_not_contains "$out" $'native check \n'
+}
+
+# Test that a change to the SDL_GPU device's sources adds the gpu part,
+# check.sh --gpu, after the gate (#24), and that other game code does not.
+test_gpu_sources_run_the_gpu_programs()
+{
+	local bin r out
+	bin=$(make_scratch) || die "make_scratch failed"
+	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
+	change "$r" common/main/game.cpp
+	out=$(run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 0 "$out"
+	assert_not_contains "$out" "native check --gpu"
+	change "$r" common/render/sdlgpu_device.cpp
+	out=$(run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "gate: parts: gate gpu"
+	assert_contains "$out" "native check --gpu"
+	assert_contains "$(grep -n 'native check' <<<"$out" | head -n 1)" "native check --gate"
+	out=$(FAKE_CHECK_RC=1 run_gate "$r" "$bin" --gate --base base)
+	assert_eq "$?" 1 "$out"
+	assert_contains "$out" "ci.sh: failed: gate gpu"
 }
 
 # Test that the gate fails before running anything when DXX_D2_DATA is

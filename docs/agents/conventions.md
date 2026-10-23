@@ -98,6 +98,11 @@ Done when every touched line follows the rules for its kind of code.
 - Each case carries a block comment `/* Test that <behaviour>. */` directly above it
   (`enumerate.cpp:19`).
 - Register new files in `runtime_test_boost_tests` (`SConstruct:4999`); run them with `check`.
+- A fork source built only with `sdl3=1` (the SDL_GPU device and its test, `sdlgpu_programs` in
+  `SConstruct`) is missing from `build/dev`'s compilation database: list it in
+  `tools/dev/sdl3-only`, and `format.sh` tidies it with `build/dev-sdl3`'s (a SKIP without it, as
+  in the container). A GPU program also goes in `tools/dev/gpu-programs`, which `check.sh --gpu`
+  runs under `gpu-validate.sh` on Metal.
 - Fork tests live in their fork directory's `unittest/` (`common/render/unittest/`), not in
   `common/unittest/`, so the fork gates (strict warnings, clang-tidy, format) cover them.
 - Each fork `unittest/` holds a copy of `tools/dev/style/clang-tidy-unittest` as its

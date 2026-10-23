@@ -41,7 +41,9 @@
 # files, doctor, gitleaks on the new commits, R1 against REV's baseline;
 # its own 5-minute budget), and adds by changed path (path_classes):
 # tools/dev and docs/agents files run shellcheck and the shell tests of the
-# changed scripts (`check.sh --tools`); image inputs, SConstruct,
+# changed scripts (`check.sh --tools`); the SDL_GPU device's sources,
+# gpu-programs and gpu-validate.sh the GPU programs (`check.sh --gpu`,
+# #24); image inputs, SConstruct,
 # site_scons, fork build flags and shaders the container leg on a clean
 # clone; any other path the full run, both legs, --clean, which holds the
 # tools and container parts.  Each part runs,
@@ -97,12 +99,18 @@ fi
 
 # Print what changed path $1 adds to the merge gate (ADR 6's table): game
 # (the gate alone), tools (shellcheck and the shell tests of the changed
-# scripts), container (the container leg), or full (the full run).  An
+# scripts), gpu (check.sh --gpu: the GPU programs under gpu-validate.sh,
+# on Metal; for the SDL_GPU device's sources, sdl_wrap_gpu.h, gpu-programs
+# and gpu-validate.sh), container (the container leg), or full (the full
+# run, which holds gpu).  An
 # image input or fork build flag in tools/dev adds both tools and
 # container; a path no line maps runs the full run.
 path_classes()
 {
 	case $1 in
+	common/render/sdlgpu*|common/render/unittest/sdlgpu*|common/sdl/sdl_wrap_gpu.h)
+		echo game gpu ;;
+	tools/dev/gpu-programs|tools/dev/gpu-validate.sh) echo tools gpu ;;
 	common/*|similar/*|d1x-rebirth/*|d2x-rebirth/*) echo game ;;
 	tools/dev/deps.sh|tools/dev/env.sh|tools/dev/toolchain.pins|tools/dev/requirements.*|\
 	tools/dev/container/*|tools/dev/build.sh|tools/dev/site-*.py|tools/dev/fork_warnings.py|\
@@ -192,7 +200,7 @@ gate_plan()
 		fi
 	done <<<"$paths"
 	gate_parts=(gate)
-	for c in tools container full; do
+	for c in tools gpu container full; do
 		[[ " ${classes[*]-} " != *" $c "* ]] && continue
 		# The full run holds the container leg and every shell test.
 		[[ $c != full && " ${classes[*]} " == *" full "* ]] && continue
@@ -431,6 +439,7 @@ else
 		case $part in
 		gate) gate_part gate "$dev_dir/check.sh" --gate "$gate_rev" ;;
 		tools) gate_part tools "$dev_dir/check.sh" --tools "${gate_tests[@]+"${gate_tests[@]}"}" ;;
+		gpu) gate_part gpu "$dev_dir/check.sh" --gpu ;;
 		container) gate_part container "$dev_dir/container.sh" check --clean ;;
 		full)
 			clean=(--clean)

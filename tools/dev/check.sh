@@ -14,6 +14,8 @@
 #   check.sh --tools [TEST...]  shellcheck, the docs and test checks, and
 #                           the named tools/dev/tests files (ci.sh --gate's
 #                           tools part)
+#   check.sh --gpu          the GPU programs under gpu-validate.sh (ci.sh
+#                           --gate's gpu part, #24)
 #   check.sh --doctor       the doctor step alone (ci.sh runs it first)
 #
 # Later tickets add a step by writing a step_<name> function and listing it
@@ -26,7 +28,7 @@ source "$dev_dir/env.sh"
 
 usage()
 {
-	echo "usage: $0 [--pre-commit|--pre-push|--fast|--gate REV|--tools [TEST...]|--doctor]" >&2
+	echo "usage: $0 [--pre-commit|--pre-push|--fast|--gate REV|--tools [TEST...]|--gpu|--doctor]" >&2
 	exit 2
 }
 
@@ -464,17 +466,30 @@ step_sdl_arms()
 }
 
 # Run every GPU program tools/dev/gpu-programs registers under
-# gpu-validate.sh (and no-window.sh); none yet is a SKIP naming #24.
+# gpu-validate.sh (and no-window.sh), after building them: each is a
+# build/dev-sdl3 program, built with build.sh's sdl3=1.  macOS only, on
+# Metal: elsewhere it is a SKIP, until #25 runs them on lavapipe in the
+# container; none registered is a SKIP, a missing gpu-programs a failure.
 step_gpu_tests()
 {
 	local gpu_program line rc=0 programs=()
-	while IFS= read -r line; do
+	[[ -f $dev_dir/gpu-programs ]] || { echo "gpu_tests: no tools/dev/gpu-programs"; return 1; }
+	while IFS= read -r line || [[ -n $line ]]; do
 		[[ -z $line || $line == \#* ]] || programs+=("$line")
 	done < "$dev_dir/gpu-programs"
 	if [[ ${#programs[@]} -eq 0 ]]; then
-		echo "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs; #24 registers the first"
+		echo "SKIP gpu_tests: no GPU program in tools/dev/gpu-programs"
 		return 0
 	fi
+	if [[ $dev_os != darwin ]]; then
+		echo "SKIP gpu_tests: macOS only; SDL_GPU on lavapipe in the container is #25"
+		return 0
+	fi
+	for line in "${programs[@]}"; do
+		[[ $line == build/dev-sdl3/* ]] ||
+			{ echo "gpu_tests: $line is not a build/dev-sdl3 program"; return 1; }
+	done
+	"$dev_dir/build.sh" dev sdl3=1 "${programs[@]}" || return 1
 	for gpu_program in "${programs[@]}"; do
 		"$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$root/$gpu_program" || rc=1
 	done
@@ -668,6 +683,7 @@ case "${1-}" in
 		gate_rev=$(git -C "$root" rev-parse --verify -q "$2^{commit}") ||
 			{ echo "check.sh: $2 is no commit" >&2; exit 2; } ;;
 	--tools) mode=tools; only_tests=("${@:2}") ;;
+	--gpu) mode=gpu ;;
 	--doctor) mode=doctor ;;
 	'') ;;
 	*) usage ;;
@@ -679,6 +695,7 @@ steps=("${fast_steps[@]}")
 [[ $mode == pre-push ]] && steps=(push_secrets)
 [[ $mode == gate ]] && steps=("${gate_steps[@]}")
 [[ $mode == tools ]] && steps=("${tools_steps[@]}")
+[[ $mode == gpu ]] && steps=(gpu_tests)
 [[ $mode == doctor ]] && steps=(doctor)
 if [[ $mode == full ]]; then
 	steps+=("${full_steps[@]}")
