@@ -545,20 +545,89 @@ void device::texture(texture_slot, const texture_image *)
 	throw std::logic_error("sdlgpu: textures come with #27");
 }
 
-/* The frame operations follow in the next commit. */
-void device::clear(clear_targets)
+void device::clear(const clear_targets targets)
 {
-	throw std::logic_error("sdlgpu: clear is not built yet");
+	state_->pending.color = state_->pending.color || targets.color;
+	state_->pending.depth = state_->pending.depth || targets.depth;
 }
 
 void device::present()
 {
-	throw std::logic_error("sdlgpu: present is not built yet");
+	auto &s{*state_};
+	command_buffer cb{s.gpu.get()};
+	s.encode_pending(cb.get());
+	SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb.get())};
+	if (copy == nullptr)
+		sdl_failed("SDL_BeginGPUCopyPass");
+	SDL_GPUTextureLocation from{};
+	from.texture = s.color.get();
+	SDL_GPUTextureLocation to{};
+	to.texture = s.presented.get();
+	SDL_CopyGPUTextureToTexture(copy, &from, &to, s.cfg.target.width, s.cfg.target.height, 1,
+	                            false);
+	SDL_EndGPUCopyPass(copy);
+	cb.submit();
+	s.pending_done();
+	s.has_presented = true;
 }
 
-void device::read_pixels(read_source, const read_rect &, pixel_format, std::span<std::uint8_t>)
+void device::read_pixels(const read_source source, const read_rect &rect, const pixel_format format,
+                         const std::span<std::uint8_t> pixels)
 {
-	throw std::logic_error("sdlgpu: read_pixels is not built yet");
+	auto &s{*state_};
+	if (pixels.size() != image_bytes(rect.size, format))
+		throw std::length_error("read_pixels: buffer size does not match the rectangle");
+	const auto clip{clip_read_rect(s.cfg.target, rect)};
+	if (!clip || (source == read_source::presented && !s.has_presented))
+	{
+		std::ranges::fill(pixels, std::uint8_t{0});
+		return;
+	}
+	const auto &c{clip.value()};
+	const std::size_t bytes{image_bytes(c.size, pixel_format::rgba8)};
+	if (bytes > std::numeric_limits<std::uint32_t>::max())
+		throw std::length_error("read_pixels: the rectangle is too large for a transfer buffer");
+	SDL_GPUDevice *const d{s.gpu.get()};
+	SDL_GPUTransferBufferCreateInfo info{};
+	info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+	info.size = static_cast<std::uint32_t>(bytes);
+	const transfer_handle download{d, SDL_CreateGPUTransferBuffer(d, &info), s.ledger.get(),
+	                               "SDL_CreateGPUTransferBuffer"};
+	command_buffer cb{d};
+	const bool drawing{source == read_source::drawing};
+	if (drawing)
+		s.encode_pending(cb.get());
+	SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb.get())};
+	if (copy == nullptr)
+		sdl_failed("SDL_BeginGPUCopyPass");
+	SDL_GPUTextureRegion region{};
+	region.texture = drawing ? s.color.get() : s.presented.get();
+	region.x = c.source_x;
+	region.y = c.source_y;
+	region.w = c.size.width;
+	region.h = c.size.height;
+	region.d = 1;
+	SDL_GPUTextureTransferInfo destination{};
+	destination.transfer_buffer = download.get();
+	/* Tightly packed rows, top row first: SDL_GPU's textures are top-down. */
+	SDL_DownloadFromGPUTexture(copy, &region, &destination);
+	SDL_EndGPUCopyPass(copy);
+	cb.submit_and_wait(d);
+	if (drawing)
+		s.pending_done();
+	const auto mapped{sdl::map_for_reading(d, download.get(), bytes)};
+	if (mapped.empty())
+		sdl_failed("SDL_MapGPUTransferBuffer");
+	try
+	{
+		place_rows(mapped, c, rect.size, format, pixels);
+	}
+	catch (...)
+	{
+		SDL_UnmapGPUTransferBuffer(d, download.get());
+		throw;
+	}
+	SDL_UnmapGPUTransferBuffer(d, download.get());
 }
 
 const device_caps &device::probed() const

@@ -10,7 +10,8 @@
  * and a renderer.  Its interface is draw, texture and three frame
  * operations (clear, present, read_pixels); a draw call carries everything
  * it depends on, so no state carries from one draw to the next.  Adapters:
- * GL (gl_device.h), and later SDL_GPU, recording and fake.
+ * GL (gl_device.h), SDL_GPU (sdlgpu_device.h: headless, clear and
+ * readback so far, #24), and later recording and fake.
  */
 
 #pragma once
