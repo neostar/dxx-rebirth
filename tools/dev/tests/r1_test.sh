@@ -53,6 +53,9 @@ test_check_without_baseline_exits_2()
 # Its hashes depend on the tree's game.seed (from the build), the scene
 # and -maxfps (the demo's do not); R1_FAKE_EXIT=SCENE makes it exit 3,
 # R1_FAKE_HANG=SCENE hang, R1_FAKE_DEMO_FPS=1 its demo depend on -maxfps.
+# Like the game, it rewrites a descent.cfg it finds with two lines of its own,
+# dropping the setting R1_FAKE_CFG_DROP names; R1_FAKE_CFG_KEEP=1 leaves
+# the file as it was.
 # Its home gets the sanitizer settings it saw, in env; @PIDS@ its pid.
 stub_game='#!/usr/bin/env bash
 echo $$ >> "@PIDS@"
@@ -63,6 +66,10 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n ${DXX_DBG_INPUT_SCRIPT-} ]] && scene=$(basename "$DXX_DBG_INPUT_SCRIPT" .txt)
 printf "ASAN_OPTIONS=%s\nUBSAN_OPTIONS=%s\n" "$ASAN_OPTIONS" "$UBSAN_OPTIONS" > "$D2X_REBIRTH_HOME/env"
+if [[ -e $D2X_REBIRTH_HOME/descent.cfg ]]; then
+	{ grep -v "^${R1_FAKE_CFG_DROP:-^}=" "$D2X_REBIRTH_HOME/descent.cfg"; printf "PlayerFile=harness\nWindowMode=1\n"; } > "$D2X_REBIRTH_HOME/cfg.new"
+	[[ -n ${R1_FAKE_CFG_KEEP-} ]] || mv "$D2X_REBIRTH_HOME/cfg.new" "$D2X_REBIRTH_HOME/descent.cfg"
+fi
 [[ ${R1_FAKE_HANG-} == "$scene" ]] && while :; do sleep 1; done
 frames() # header, count, hash base
 {
@@ -285,6 +292,75 @@ test_runs_get_sanitizer_settings()
 	out=$(cat "$d/r1/baseline/60/s1-title-menu.home/env" 2>&1)
 	assert_contains "$out" "ASAN_OPTIONS=detect_leaks=1:abort_on_error=0"$'\n'
 	assert_contains "$out" "UBSAN_OPTIONS=print_stacktrace=1:abort_on_error=0"
+}
+
+# Test that R1_CFG's settings reach every run's descent.cfg, one per line,
+# and the baseline's cfg, and that without it a run gets no descent.cfg.
+test_cfg_reaches_each_run()
+{
+	local d out rc s
+	r1_mac_only
+	d=$(r1_setup)
+	out=$(r1_run "$d" capture 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	[[ ! -e $d/r1/baseline/60/s1-title-menu.home/descent.cfg ]] || fail "a run without R1_CFG got a descent.cfg"
+	assert_eq "$(cat "$d/r1/baseline/cfg")" ""
+	out=$(R1_CFG=' TexFilt=2  TexAnisotropy=1 ' r1_run "$d" capture 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	for s in s1-title-menu demo s3-briefing s4-automap-cockpit; do
+		assert_eq "$(cat "$d/r1/baseline/60/$s.home/descent.cfg")" $'TexFilt=2\nTexAnisotropy=1\nPlayerFile=harness\nWindowMode=1' "$s"
+	done
+	assert_eq "$(cat "$d/r1/baseline/cfg")" "TexFilt=2 TexAnisotropy=1"
+}
+
+# Test that an R1_CFG word not of the form NAME=VALUE exits 2, naming it,
+# before anything is built.
+test_bad_cfg_exits_2()
+{
+	local d out rc c
+	d=$(make_scratch) || die "make_scratch failed"
+	: > "$d/DESCENT2.HOG"
+	for c in 'TexFilt' '=1' 'TexFilt=1=2' 'Tex-Filt=1' 'ResolutionX=640' 'TexFilt=x' 'TexFilt=-1'; do
+		out=$(DXX_D2_DATA="$d" R1_DIR="$d/r1" R1_CFG="$c" "$R1" capture 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 2 "$c: $out"
+		assert_contains "$out" "R1_CFG: '$c' is not NAME=VALUE"
+		assert_not_contains "$out" "building"
+	done
+	out=$(DXX_D2_DATA="$d" R1_DIR="$d/r1" R1_CFG=$'TexFilt=1\nMovieTexFilt=1' "$R1" capture 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "newline: $out"
+	assert_contains "$out" "R1_CFG holds a newline"
+	assert_not_contains "$out" "building"
+}
+
+# Test that a run fails, naming the scene, when the game drops an R1_CFG
+# setting from the descent.cfg it rewrites, or does not rewrite it.
+test_cfg_the_game_drops_fails()
+{
+	local d out rc
+	r1_mac_only
+	d=$(r1_setup)
+	out=$(R1_CFG='TexFilt=2 TexAnisotropy=1' R1_FAKE_CFG_DROP=TexAnisotropy r1_run "$d" capture 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "s1-title-menu at 60 fps: the game did not keep R1_CFG"
+	out=$(R1_CFG='TexFilt=2' R1_FAKE_CFG_KEEP=1 r1_run "$d" capture 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "the game did not keep R1_CFG"
+}
+
+# Test that check fails with status 2, before it builds, on a baseline
+# played with another R1_CFG, and passes with the same one.
+test_check_needs_baseline_of_same_cfg()
+{
+	local d out rc
+	r1_mac_only
+	d=$(r1_setup)
+	R1_CFG='TexFilt=1' r1_run "$d" capture >/dev/null 2>&1 || fail "capture failed"
+	out=$(r1_run "$d" check 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "the baseline was played with R1_CFG='TexFilt=1', not ''"
+	assert_eq "$(grep -c . "$d/bin/scons.args")" 1 "check built"
+	out=$(R1_CFG='TexFilt=1' r1_run "$d" check 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
 }
 
 run_tests --parallel

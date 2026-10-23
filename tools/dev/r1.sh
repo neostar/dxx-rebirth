@@ -17,8 +17,17 @@
 # (docs/agents/game-data.md); R1_FPS the -maxfps values (default "60 200");
 # R1_DIR the directory of baseline, runs and builds (default
 # traces/local/r1, kept out of git: the logs derive from licensed data);
-# R1_TIMEOUT the seconds a run may take (default 900).
-# baseline/commit records the commit a baseline was built from.
+# R1_TIMEOUT the seconds a run may take (default 900); R1_CFG settings
+# for the game, as NAME=VALUE words separated by blanks (TexFilt=2
+# TexAnisotropy=1), written one per line into each run's descent.cfg
+# (default: none, and no descent.cfg), so R1 can play the texture filters
+# too.  NAME is one R1 varies (TexFilt, TexAnisotropy, MovieTexFilt) and
+# VALUE a whole number; any other word, or a newline in R1_CFG, is a usage
+# error.  A run fails unless the game rewrote its descent.cfg keeping
+# every word, so a value the game drops is never played unseen.
+# baseline/commit records the commit a baseline was built from,
+# baseline/cfg its R1_CFG; check fails, before it builds, on a baseline of
+# another R1_CFG.
 #
 # capture builds a `git archive` copy of REV in R1_DIR/src; the scene
 # scripts always come from the working tree, so both sides play the same
@@ -54,6 +63,13 @@ data=${DXX_D2_DATA-}
 r1=${R1_DIR:-$root/traces/local/r1}
 mkdir -p "$r1" && r1=$(cd "$r1" && pwd)
 read -r -a fps_list <<<"${R1_FPS:-60 200}"
+[[ ${R1_CFG-} != *$'\n'* ]] || { echo "r1.sh: R1_CFG holds a newline" >&2; exit 2; }
+read -r -a cfg_list <<<"${R1_CFG-}"
+for c in ${cfg_list[@]+"${cfg_list[@]}"}; do
+	[[ $c =~ ^(TexFilt|TexAnisotropy|MovieTexFilt)=[0-9]+$ ]] ||
+		{ echo "r1.sh: R1_CFG: '$c' is not NAME=VALUE with NAME TexFilt, TexAnisotropy or MovieTexFilt and VALUE a number" >&2; exit 2; }
+done
+cfg=${cfg_list[*]+"${cfg_list[*]}"}
 scenes=(S1:s1-title-menu S2:demo S3:s3-briefing S4:s4-automap-cockpit)
 demo_section='# demo playback'
 
@@ -89,6 +105,9 @@ play()
 		env+=(DXX_DBG_INPUT_SCRIPT="$root/common/debug/scenes/$scene.txt")
 	fi
 	rm -rf "$home" "$log" && mkdir -p "$home" || return 1
+	if [[ -n $cfg ]]; then
+		printf '%s\n' "${cfg_list[@]}" > "$home/descent.cfg" || return 1
+	fi
 	env "${env[@]}" "$dev_dir/run.sh" "$bin" "${args[@]}" > "${log%.log}.out" 2>&1 &
 	pid=$!
 	while kill -0 "$pid" 2>/dev/null; do
@@ -115,6 +134,20 @@ play()
 		echo "r1.sh: $scene at $fps fps: no scene section; does the build play input scripts?" >&2
 		return 1
 	fi
+	cfg_kept "$home/descent.cfg" || { echo "r1.sh: $scene at $fps fps: the game did not keep R1_CFG in $home/descent.cfg" >&2; return 1; }
+}
+
+# Succeed when there is no R1_CFG, or when the game rewrote descent.cfg $1
+# (it holds more lines than R1_CFG's words) and it holds every word.
+cfg_kept()
+{
+	local c lines
+	[[ -n $cfg ]] || return 0
+	lines=$(grep -c . "$1") || return 1
+	((lines > ${#cfg_list[@]})) || return 1
+	for c in "${cfg_list[@]}"; do
+		grep -qxF -- "$c" "$1" || return 1
+	done
 }
 
 # Play every scene at every fps with binary $1 into directory $2.
@@ -180,13 +213,21 @@ if [[ $mode == capture ]]; then
 	build "$r1/src"
 	play_all "$r1/src/build/r1/d2x-rebirth/d2x-rebirth" "$r1/baseline.new"
 	compare_fps "$r1/baseline.new" || exit 1
-	git -C "$root" log -1 --format="%H %s" "$rev" > "$r1/baseline.new/commit"
+	git -C "$root" log -1 --format="%H %s" "$rev" > "$r1/baseline.new/commit" || exit 1
+	printf '%s\n' "$cfg" > "$r1/baseline.new/cfg" || exit 1
 	rm -rf "$r1/baseline" && mv "$r1/baseline.new" "$r1/baseline" || exit 1
 	echo "r1.sh: baseline of $(cut -c1-12 "$r1/baseline/commit") in $r1/baseline"
 else
 	read -r have _ < "$r1/baseline/commit"
 	if [[ $have != "$rev" ]]; then
 		echo "r1.sh: the baseline is of ${have:0:12}, not of $base (${rev:0:12}); run r1.sh capture$again" >&2
+		exit 2
+	fi
+	# A baseline from before R1_CFG has no cfg file and was played without.
+	had_cfg=
+	[[ ! -e $r1/baseline/cfg ]] || had_cfg=$(cat "$r1/baseline/cfg") || exit 1
+	if [[ $had_cfg != "$cfg" ]]; then
+		echo "r1.sh: the baseline was played with R1_CFG='$had_cfg', not '$cfg'; run r1.sh capture$again with this R1_CFG" >&2
 		exit 2
 	fi
 	build "$root"
