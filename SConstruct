@@ -5190,10 +5190,12 @@ class DXXArchive(DXXCommon):
 			'common/unittest/zip.cpp',
 			)),
 			)
-	# What the rtrace tool and its tests share: the GL adapter on its
-	# hidden window.
+	# What the rtrace tool and its tests share: the replay, the trace reader
+	# and the GL adapter on its hidden window.
 	_rtrace_sources = (
 		'common/render/rtrace/gl_host.cpp',
+		'common/render/replay.cpp',
+		'common/render/trace.cpp',
 		'common/render/gl_device.cpp',
 		)
 	rtrace_programs = (

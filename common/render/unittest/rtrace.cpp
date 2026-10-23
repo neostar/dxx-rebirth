@@ -21,17 +21,47 @@
 
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
+#include "common/render/replay.h"
 #include "common/render/rtrace/gl_host.h"
+#include "common/render/trace.h"
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth rtrace
 #include <boost/test/unit_test.hpp>
 
 namespace render = dcx::render;
+namespace trace = dcx::render::trace;
 
 namespace {
 
+using bytes = std::vector<std::uint8_t>;
+
 constexpr render::extent target{.width = 64, .height = 48};
+
+/* The frames a replay of the trace in t gives, and how it ended. */
+struct outcome
+{
+	std::vector<render::replayed_frame> frames;
+	bool ok;
+	trace::read_error error;
+};
+
+outcome replay_on_gl(const bytes &t)
+{
+	trace::reader r{t};
+	const auto h{r.header()};
+	BOOST_REQUIRE(h.has_value());
+	render::rtrace::gl_host host{h.value().target};
+	outcome o{.frames = {}, .ok = true, .error = {}};
+	const auto done{render::replay(
+	    r, host.device(), [&o](const render::replayed_frame &f) { o.frames.push_back(f); })};
+	if (!done)
+	{
+		o.ok = false;
+		o.error = done.error();
+	}
+	return o;
+}
 
 /* A draw of vertices in a viewport of the whole target, with an ortho
  * projection of [0, 1] on both axes.
@@ -54,6 +84,13 @@ render::draw_call flat_draw(const render::topology t, const std::span<const rend
 
 constexpr std::array<float, 4> red{{1, 0, 0, 1}};
 constexpr std::array<float, 2> no_uv{{0, 0}};
+
+/* A shaded triangle, whose edges and colours GL rasterizes unevenly. */
+constexpr std::array<render::vertex, 3> shaded_triangle{{
+    {.pos = {{0.1f, 0.1f, 0}}, .rgba = {{1, 0, 0, 1}}, .uv = no_uv},
+    {.pos = {{0.9f, 0.3f, 0}}, .rgba = {{0, 1, 0, 1}}, .uv = no_uv},
+    {.pos = {{0.4f, 0.95f, 0}}, .rgba = {{0, 0, 1, 1}}, .uv = no_uv},
+}};
 
 bool every_pixel_is(const std::span<const std::uint8_t> rgb, const std::array<std::uint8_t, 3> p)
 {
@@ -152,4 +189,100 @@ BOOST_AUTO_TEST_CASE(front_face_is_culled)
 	const quad q{red, 0, {.cull = render::cull::front}};
 	d.draw(q.call);
 	BOOST_TEST(every_pixel_is(drawing(d), {{0, 0, 0}}));
+}
+
+/* Test that a cleared frame reads back black, at the target's size and
+ * under the present's frame index.
+ */
+BOOST_AUTO_TEST_CASE(cleared_frame_is_black)
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	w.present({.frame = 7});
+	const auto o{replay_on_gl(w.take())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 1u);
+	const auto &f{o.frames.front()};
+	BOOST_TEST(f.frame == 7u);
+	BOOST_TEST((f.size == target));
+	BOOST_TEST(f.rgb.size() == std::size_t{64} * 48 * 3);
+	BOOST_TEST(every_pixel_is(f.rgb, {{0, 0, 0}}));
+}
+
+/* Test that a draw covering the target shows in its frame, in its colour. */
+BOOST_AUTO_TEST_CASE(draw_shows_in_its_frame)
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	const quad q{red};
+	w.draw(q.call);
+	w.present({.frame = 0});
+	const auto o{replay_on_gl(w.take())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 1u);
+	BOOST_TEST(every_pixel_is(o.frames.front().rgb, {{255, 0, 0}}));
+}
+
+/* Test that a trace replayed twice, each time on a new window, gives the
+ * same frames, and that its two different frames hash differently.
+ */
+BOOST_AUTO_TEST_CASE(replay_twice_gives_identical_hashes)
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	w.draw(flat_draw(render::topology::triangles, shaded_triangle));
+	w.present({.frame = 0});
+	w.clear({.color = true, .depth = true});
+	const quad q{red};
+	w.draw(q.call);
+	w.present({.frame = 1});
+	const auto t{w.take()};
+	const auto first{replay_on_gl(t)};
+	const auto second{replay_on_gl(t)};
+	BOOST_TEST(first.ok);
+	BOOST_TEST(second.ok);
+	BOOST_REQUIRE(first.frames.size() == 2u);
+	BOOST_REQUIRE(second.frames.size() == 2u);
+	for (std::size_t i{0}; i != 2; ++i)
+	{
+		BOOST_TEST(first.frames[i].hash == second.frames[i].hash);
+		BOOST_TEST((first.frames[i].rgb == second.frames[i].rgb));
+	}
+	BOOST_TEST(first.frames[0].hash != first.frames[1].hash);
+}
+
+/* Test that a frame comes back with its top row first: a draw over the top
+ * half fills the first half of the rows.
+ */
+BOOST_AUTO_TEST_CASE(frame_is_top_row_first)
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	const quad top_half{red, 0.5f};
+	w.draw(top_half.call);
+	w.present({.frame = 0});
+	const auto o{replay_on_gl(w.take())};
+	BOOST_REQUIRE(o.frames.size() == 1u);
+	const std::span<const std::uint8_t> rgb{o.frames.front().rgb};
+	const auto half{rgb.size() / 2};
+	BOOST_TEST(every_pixel_is(rgb.first(half), {{255, 0, 0}}));
+	BOOST_TEST(every_pixel_is(rgb.subspan(half), {{0, 0, 0}}));
+}
+
+/* Test that a trace ending inside a record replays the frames before it and
+ * then reports it as truncated.
+ */
+BOOST_AUTO_TEST_CASE(malformed_trace_reports_its_error_after_its_frames)
+{
+	trace::writer w{target};
+	w.clear({.color = true, .depth = true});
+	w.present({.frame = 0});
+	w.present({.frame = 1});
+	auto t{w.take()};
+	t.pop_back();
+	const auto o{replay_on_gl(t)};
+	BOOST_TEST(!o.ok);
+	BOOST_TEST((o.error == trace::read_error::truncated));
+	BOOST_REQUIRE(o.frames.size() == 1u);
+	BOOST_TEST(o.frames.front().frame == 0u);
 }
