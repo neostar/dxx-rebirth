@@ -332,7 +332,25 @@ step_r1()
 {
 	local work=$root/traces/local/r1-gate
 	rm -rf "$work" && mkdir -p "$work" && ln -s "$r1_cache/baseline" "$work/baseline" || return 1
-	R1_DIR=$work "$dev_dir/r1.sh" check --base "$gate_rev"
+	R1_DIR=$work "$dev_dir/r1.sh" check --base "$gate_rev" &&
+		foreground_game "$root/build/r1/d2x-rebirth/d2x-rebirth"
+}
+
+# Fail when the game binary $1, the one R1 built and played, holds SDL's
+# background-app hint (#24: the game is a foreground app; the source scan
+# in gpu_gate misses a hint that reaches it through a macro or a library
+# built in).  A missing binary fails too.
+foreground_game()
+{
+	local rc
+	[[ -f $1 ]] || { echo "r1: no game binary at $1 to scan for the background-app hint"; return 1; }
+	grep -a -q -e SDL_MAC_BACKGROUND_APP -- "$1" && rc=0 || rc=$?
+	case $rc in
+		0) echo "r1: the game binary $1 holds SDL_MAC_BACKGROUND_APP; the game is a foreground app (#24)"
+			return 1 ;;
+		1) return 0 ;;
+		*) echo "r1: cannot scan $1 for the background-app hint"; return 1 ;;
+	esac
 }
 
 # Fail on a secret anywhere in the history of HEAD, upstream's included;
@@ -439,8 +457,31 @@ step_test_git()
 	[[ -z $hits && -z $unchecked ]]
 }
 
+# The game is a foreground app (#24): fail on a C, C++ or Objective-C(++)
+# source outside tools/, third_party/, the rtrace tool and the unittest/
+# directories that names SDL's background-app hint, by its macro or its
+# string.  Tests and tools set it in their own main(), never shared code.
+background_app_hint()
+{
+	local hits rc
+	hits=$(git -C "$root" grep -n -E --untracked -e 'SDL_HINT_MAC_BACKGROUND_APP|"SDL_MAC_BACKGROUND_APP"' \
+		-- '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx' '*.m' '*.mm' \
+		':(exclude)tools/' ':(exclude)third_party/' ':(exclude)common/render/rtrace/' \
+		':(exclude,glob)**/unittest/**') && rc=0 || rc=$?
+	case $rc in
+		0)
+			echo "$hits"
+			echo "gpu_gate: only a test's or tool's main() sets SDL's background-app hint;" \
+				"the game is a foreground app (#24)"
+			return 1 ;;
+		1) return 0 ;;
+		*) echo "gpu_gate: git grep for the background-app hint failed"; return 1 ;;
+	esac
+}
+
 # GPU validation is a gate (ADR 5): fail on an SDL_GPU device created
-# anywhere outside third_party/ without debug mode (gpu_debug_mode.py), and
+# anywhere outside third_party/ without debug mode (gpu_debug_mode.py), on
+# game code setting SDL's background-app hint (background_app_hint), and
 # on a command in this file or tools/dev/rtrace-tests.sh that runs a
 # registered GPU program ($gpu_program or a gpu-programs path) other than
 # as an argument of gpu-validate.sh (gpu_wrapper.py, which parses commands
@@ -449,6 +490,7 @@ step_gpu_gate()
 {
 	local rc=0
 	python3 "$dev_dir/gpu_debug_mode.py" "$root" || rc=1
+	background_app_hint || rc=1
 	if ! (cd "$root" && python3 tools/dev/gpu_wrapper.py tools/dev/gpu-programs \
 		tools/dev/check.sh tools/dev/rtrace-tests.sh); then
 		echo "gpu_gate: run a GPU program through gpu-validate.sh"

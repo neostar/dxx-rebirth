@@ -524,6 +524,25 @@ test_full_fails_without_rtrace_tests()
 	assert_contains "$out" "rtrace tests (asan): tools/dev/rtrace-tests.sh is missing or not executable"
 }
 
+# Test that the fast subset fails on game code that sets SDL's
+# background-app hint, by its macro or its string, and lets a test's or a
+# tool's main() set it (#24: the game is a foreground app).
+test_fast_fails_on_background_app_hint_in_game_code()
+{
+	local r out rc
+	r=$(make_dev_repo) || die "make_dev_repo failed"
+	mkdir -p "$r/common/render/unittest" "$r/similar/main"
+	echo 'int main() { SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1"); }' \
+		> "$r/common/render/unittest/gpu.cpp"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1)
+	assert_eq "$?" 0 "$out"
+	echo 'void f() { SDL_SetHint("SDL_MAC_BACKGROUND_APP", "1"); }' > "$r/similar/main/game.cpp"
+	out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" 'similar/main/game.cpp:1:void f()'
+	assert_contains "$(grep '^check.sh: failed' <<<"$out")" "gpu_gate"
+}
+
 # Test that the fast subset fails on a command in check.sh or
 # rtrace-tests.sh that runs a registered GPU program other than as an
 # argument of gpu-validate.sh, in the shape step_gpu_tests runs it, also

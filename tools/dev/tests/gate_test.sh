@@ -327,7 +327,8 @@ test_tested_names_the_trees_the_gate_passed()
 # calls: doctor.sh, build.sh, format.sh and r1.sh.  The fake r1.sh's
 # capture writes R1_DIR/baseline/commit and a build tree in R1_DIR/src;
 # it exits $FAKE_CAPTURE_RC (default 0); its check writes R1_DIR/run/s1.log
-# and exits $FAKE_R1_RC (default 0).
+# and a game binary holding $FAKE_GAME_STRING, and exits $FAKE_R1_RC
+# (default 0).
 # Commit it, with branch `base` there, and print its path.
 make_check_repo()
 {
@@ -366,6 +367,8 @@ if [[ \$1 == capture ]]; then
 else
 	[[ -f \$R1_DIR/baseline/commit ]] || { echo "no baseline"; exit 2; }
 	mkdir -p "\$R1_DIR/run" && echo frames > "\$R1_DIR/run/s1.log"
+	mkdir -p "$r/build/r1/d2x-rebirth"
+	printf 'game %s\n' "\${FAKE_GAME_STRING-}" > "$r/build/r1/d2x-rebirth/d2x-rebirth"
 fi
 exit "\${FAKE_R1_RC:-0}"
 R1
@@ -463,6 +466,21 @@ test_gate_fails_on_r1()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "check.sh: failed: r1_baseline r1"
 	assert_not_contains "$out" "fake r1 check"
+}
+
+# Test that the gate fails R1 when the game binary it built holds SDL's
+# background-app hint (#24): the game is a foreground app.
+test_gate_fails_on_background_hint_in_game_binary()
+{
+	local r out rc
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" src/game.cpp
+	out=$(run_check "$r" --gate base)
+	assert_eq "$?" 0 "$out"
+	out=$(FAKE_GAME_STRING=SDL_MAC_BACKGROUND_APP run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "holds SDL_MAC_BACKGROUND_APP; the game is a foreground app"
+	assert_eq "$(tail -1 <<<"$out")" "check.sh: failed: r1"
 }
 
 # Print a fake GitHub token, assembled here so that this file itself holds
