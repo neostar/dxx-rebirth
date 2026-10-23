@@ -262,7 +262,23 @@ step_changed_format()
 		echo "changed_format: no changed fork C or C++ file"
 		return 0
 	fi
+	for f in "${files[@]}"; do
+		if grep -qxF -e "${f#"$root"/}" "$dev_dir/sdl3-only" 2>/dev/null; then
+			sdl3_database || return 1
+			break
+		fi
+	done
 	"$dev_dir/format.sh" --check "${files[@]}" && "$dev_dir/format.sh" --tidy "${files[@]}"
+}
+
+# Write build/dev-sdl3's compilation database, with which format.sh tidies
+# the SDL3-only sources (tools/dev/sdl3-only); macOS only, where the pinned
+# SDL3 is built: elsewhere format.sh SKIPs them, naming each.
+sdl3_database()
+{
+	[[ $dev_os == darwin ]] || return 0
+	"$dev_dir/build.sh" dev sdl3=1 build/dev-sdl3/compile_commands.json >/dev/null ||
+		{ echo "build.sh dev sdl3=1 build/dev-sdl3/compile_commands.json failed"; return 1; }
 }
 
 # The merge gate's R1 (ADR 6): r1.sh check against the base commit's
@@ -515,7 +531,7 @@ step_staged()
 # build (unit_tests) writes; the format step has run clang-format.
 step_tidy()
 {
-	"$dev_dir/format.sh" --tidy
+	sdl3_database && "$dev_dir/format.sh" --tidy
 }
 
 # R9: the committed shader headers are what the pinned toolchain builds

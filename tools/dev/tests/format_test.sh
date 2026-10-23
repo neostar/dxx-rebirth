@@ -176,12 +176,43 @@ test_tidy_needs_a_database_entry()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/plant.cpp: no entry in build/dev/compile_commands.json"
 	assert_contains "$out" "run tools/dev/build.sh dev"
+	assert_contains "$out" "belongs in tools/dev/sdl3-only"
 	assert_not_contains "$out" "no such file or directory"
 	add_database_entry "$r" src/plant.cpp
 	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "src/plant.cpp:4:9: error: unsafe buffer access"
 	assert_not_contains "$out" "no entry in"
+}
+
+# Test that --tidy tidies an SDL3-only source (tools/dev/sdl3-only), which
+# build/dev's database lacks, with build/dev-sdl3's, and SKIPs it, naming
+# it and the build that writes the database, when there is none.
+test_tidy_takes_sdl3_only_sources_from_the_sdl3_database()
+{
+	local r out rc
+	r=$(fork_repo) || die "fork_repo failed"
+	printf '%s\n' 'int third(const int *p);' 'int third(const int *p)' '{' '	return p[2];' '}' \
+		> "$r/src/gpu.cpp"
+	echo src/gpu.cpp > "$r/tools/dev/sdl3-only"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "SKIP tidy src/gpu.cpp: SDL3-only, and no build/dev-sdl3/compile_commands.json"
+	assert_not_contains "$out" "no entry in"
+	mkdir -p "$r/build/dev-sdl3"
+	cp "$r/build/dev/compile_commands.json" "$r/build/dev-sdl3/compile_commands.json"
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/gpu.cpp: no entry in build/dev-sdl3/compile_commands.json"
+	python3 - "$r/build/dev-sdl3/compile_commands.json" <<'PY'
+import json, sys
+db = json.load(open(sys.argv[1]))
+db.append(dict(db[0], file="src/gpu.cpp", arguments=db[0]["arguments"][:-1] + ["src/gpu.cpp"]))
+json.dump(db, open(sys.argv[1], "w"))
+PY
+	out=$("$r/tools/dev/format.sh" --tidy 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "src/gpu.cpp:4:9: error: unsafe buffer access"
 }
 
 # Test that C files get clang-format but not the C++ clang-tidy rules, so a

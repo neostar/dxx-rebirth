@@ -19,6 +19,10 @@
 # missing from the compilation database gets the flags of its nearest
 # neighbour; --tidy fails on a C++ source file missing from it, naming the
 # file (clang-tidy would borrow a neighbour's command and lose ExtraArgs).
+# An SDL3-only source (tools/dev/sdl3-only: built only with sdl3=1, so
+# missing from build/dev's database) is tidied with build/dev-sdl3's
+# database instead, failing the same way when that lacks it; without that
+# database it is a SKIP naming the file and the build that writes it.
 #
 # clang-tidy reports findings in fork headers only (--header-filter built
 # from fork-dirs), none in upstream or third-party ones; a header named
@@ -283,7 +287,7 @@ header_filter()
 # Source files keep their database entry, less the flags clang rejects.
 tidy()
 {
-	local f c rc=0 cxx=() headers=() configs=() filter
+	local f c rc=0 cxx=() headers=() configs=() filter db flag removed=() missing=()
 	filter=(--header-filter="$(header_filter)" --exclude-header-filter='(^|/)\.\./')
 	for f in "$@"; do
 		case $f in
@@ -294,12 +298,19 @@ tidy()
 		esac
 	done
 	mapfile -t configs < <(for f in "${headers[@]}" "${cxx[@]}"; do config_of "$f"; done | sort -u)
+	# The SDL3-only sources (tools/dev/sdl3-only) are not in build/dev's
+	# database: they are tidied with build/dev-sdl3's after the others.
+	local sdl3=() rest=()
+	for f in "${cxx[@]+"${cxx[@]}"}"; do
+		if sdl3_only "$f"; then sdl3+=("$f"); else rest+=("$f"); fi
+	done
+	cxx=("${rest[@]+"${rest[@]}"}")
 	if [[ ${#cxx[@]} -gt 0 ]]; then
 		if [[ ! -f $database/compile_commands.json ]]; then
 			echo "format.sh: no $database/compile_commands.json; run tools/dev/build.sh first" >&2
 			return 1
 		fi
-		local db=$database flag removed=() missing=()
+		db=$database
 		# clang-tidy would borrow a neighbour's command for a file the
 		# database lacks and pass the config's ExtraArgs to the driver as
 		# file names, dropping the findings they turn on: such a file fails
@@ -309,7 +320,8 @@ tidy()
 			for f in "${missing[@]}"; do
 				echo "$(rel "$f"): no entry in build/dev/compile_commands.json" >&2
 			done
-			echo "format.sh: run tools/dev/build.sh dev to write the entries" >&2
+			echo "format.sh: run tools/dev/build.sh dev to write the entries; a source built" \
+				"only with sdl3=1 belongs in tools/dev/sdl3-only" >&2
 			rc=1
 			mapfile -t cxx < <(printf '%s\n' "${cxx[@]}" | grep -vxF -f <(printf '%s\n' "${missing[@]}"))
 		fi
@@ -328,7 +340,44 @@ tidy()
 		tidy_headers "$c" "${headers[@]+"${headers[@]}"}" || rc=1
 		tidy_sources "$c" "${cxx[@]+"${cxx[@]}"}" || rc=1
 	done
+	[[ ${#sdl3[@]} -gt 0 ]] || return "$rc"
+	local sdl3_database=$root/build/dev-sdl3
+	if [[ ! -f $sdl3_database/compile_commands.json ]]; then
+		for f in "${sdl3[@]}"; do
+			echo "SKIP tidy $(rel "$f"): SDL3-only, and no build/dev-sdl3/compile_commands.json" \
+				"(build.sh dev sdl3=1 build/dev-sdl3/compile_commands.json writes it)"
+		done
+		return "$rc"
+	fi
+	db=$sdl3_database
+	mapfile -t missing < <(database=$sdl3_database; [[ -n $tree ]] || not_in_database "${sdl3[@]}")
+	for f in "${missing[@]+"${missing[@]}"}"; do
+		echo "$(rel "$f"): no entry in build/dev-sdl3/compile_commands.json" >&2
+		rc=1
+	done
+	if [[ -n $tree ]]; then
+		db=$tree/.database-sdl3
+		mkdir -p "$db"
+		staged_database "$sdl3_database/compile_commands.json" "${sdl3[@]}" \
+			> "$db/compile_commands.json" || return 1
+	fi
+	removed=()
+	while IFS= read -r flag; do
+		removed+=(--removed-arg="$flag")
+	done < <(unknown_flags "$db/compile_commands.json")
+	for c in "${configs[@]+"${configs[@]}"}"; do
+		tidy_sources "$c" "${sdl3[@]}" || rc=1
+	done
 	return "$rc"
+}
+
+# True when file $1 is listed in tools/dev/sdl3-only: a C++ source built only
+# with sdl3=1, so absent from build/dev's database.
+sdl3_only()
+{
+	local r
+	r=$(rel "$1")
+	[[ -f $dev_dir/sdl3-only ]] && grep -qxF -e "$r" "$dev_dir/sdl3-only"
 }
 
 # Print the .clang-tidy clang-tidy reads for file $1: the nearest one in its

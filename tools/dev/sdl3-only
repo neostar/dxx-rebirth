@@ -1,0 +1,5 @@
+# C++ sources built only with sdl3=1 (SConstruct: sdlgpu_programs), one
+# per line from the repo root: format.sh tidies them with build/dev-sdl3's
+# compilation database, which build/dev's lacks.
+common/render/sdlgpu_device.cpp
+common/render/unittest/sdlgpu_device.cpp
