@@ -309,11 +309,11 @@ handling and pacing rules reappear in `gr.cpp`, `event.cpp`, `game.cpp`, `automa
 `timer.cpp`, each
 with its own `#if` chain. It earns its keep.
 
-_Contradicts ADR-0003 (SDL3 beside SDL1.2 and SDL2), but worth rewording:_ it says the module
-"hands the window to SDL_GPU for the runtime renderer switch". The owner dropped the runtime
-switch (#51 closed, #50 updated 2026-10-22): the choice is at startup, and SDL's in-place
-conversion makes hand-over unnecessary. ADR 3's wording should follow, and so should #41's
-acceptance criterion "can hand the window to SDL_GPU later (ADR 3)".
+_ADR 3 now follows (amended 2026-10-23):_ the module chooses the renderer at startup instead of
+"hand[ing] the window to SDL_GPU for the runtime renderer switch". The owner dropped the runtime
+switch (#51 closed, #50 updated 2026-10-22), and SDL's in-place conversion makes hand-over
+unnecessary. #41's acceptance criterion "can hand the window to SDL_GPU later (ADR 3)" is still to
+follow.
 
 ## Gaps and measurements
 
