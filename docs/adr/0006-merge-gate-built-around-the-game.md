@@ -1,6 +1,7 @@
 # 6. The merge gate is built around the game
 
-Date: 2026-10-22. Status: accepted (owner). Amends ADR 4 (which run counts for a merge) and
+Date: 2026-10-22. Status: accepted (owner). Amended 2026-10-23 (owner):
+the `gpu` path class; report-only nightly steps. Amends ADR 4 (which run counts for a merge) and
 ADR 5 (the check tier splits into the merge gate and the full run).
 
 ## Context
@@ -36,11 +37,19 @@ steps about 3 minutes; R1 runs beside the unit and sanitizer tests.
 | `tools/dev/**`, `docs/agents/**` | the shell tests of the changed scripts, shellcheck |
 | image inputs (`deps.sh`, `env.sh`, `toolchain.pins`, `requirements.lock`, the Dockerfile), `SConstruct`, `site_scons/**`, fork build flags | the container leg |
 | `shaders/**` | the shader rebuild check (R9) on the container leg |
+| the inputs of the registered GPU programs (`gpu` class in `path_classes`, `tools/dev/ci.sh`): the SDL_GPU device's sources and tests (`common/render/sdlgpu*`, `common/render/unittest/sdlgpu*`), `common/sdl/sdl_wrap_gpu.h`, `tools/dev/gpu-programs`, `tools/dev/gpu-validate.sh` | `gpu_tests`: the programs `tools/dev/gpu-programs` lists, under `gpu-validate.sh` on Metal (`check.sh --gpu`) |
 | any other path | the full run |
 
+`SConstruct`, `shaders/**`, `deps.sh` and `toolchain.pins` also run the `gpu` leg; `path_classes`
+in `tools/dev/ci.sh` holds the current list.
+
 **The full run** runs nightly, before ADR 5's nightly tier, and is the gate before an upstream
-offer or a release tag. A red nightly holds further merges until it is fixed or a follow-up
+offer or a release tag. A red nightly (a report-only step aside, below) holds further merges until it is fixed or a follow-up
 issue names it.
+
+**A step added after 2026-10-23 runs report-only for its first seven nightly runs** (owner,
+2026-10-23, from research #78): its failure is logged as such and the nightly still passes, so a
+flaky step does not hold merges at once. After the week the step holds merges like any other.
 
 **R1 on the container leg** comes next (#65): the data mounted read-only, an offscreen GL
 context, and a baseline per platform, since llvmpipe draws other pixels than the Mac.
