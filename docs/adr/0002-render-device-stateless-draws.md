@@ -1,6 +1,7 @@
 # 2. Render device: stateless draws with transform recipes
 
 Date: 2026-10-20. Status: accepted.
+Amended 2026-10-23 (owner): the `fan` helper is `render::ambient::fan`, on the front end's state.
 
 ## Context
 
@@ -21,8 +22,9 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   the SDL_GPU adapter builds matrices with the exact model from the spike (clip = P·(MV·v), viewport
   depth 0.5..1, depth clamp plus near/far clip distances).
 - The **front end** (`similar/arch/ogl`) keeps the game's current blend and alpha reference, as GL
-  did, and builds each draw state from them. Game code calling `gr_settransblend` is unchanged. A
-  non-virtual `fan(vertices, texture)` helper serves the common case.
+  did, and builds each draw state from them. Game code calling `gr_settransblend` is unchanged.
+  `render::ambient::fan(vertices, texture)` (`common/render/ambient.h`) builds the common case's
+  self-contained draw call from that state.
 - Textures live in the front end's existing pool; `has_transparency` lets SDL_GPU skip `discard`.
 - GL-only features (quad-buffer stereo, `copy_region`) stay behind `caps`.
 - No command list in the interface; SDL_GPU collects a frame internally and submits at `present`.
