@@ -423,6 +423,19 @@ test_fast_fails_on_gpu_device_without_debug_mode()
 	sed -i.bak 's/const bool gpu_debug_mode/constexpr bool gpu_debug_mode/' "$r/tools/gpu2.cpp"
 	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
 	assert_eq "$?" 0 "$out"
+	# Any declaration other than a constexpr bool fails, however spelled.
+	for decl in 'const auto gpu_debug_mode{c.debug_mode};' 'bool const gpu_debug_mode = c.debug_mode;' \
+		'constexpr auto gpu_debug_mode = true;' 'static const bool gpu_debug_mode(c.debug_mode);'; do
+		printf '%s\n' 'void f(const config &c) {' "$decl" \
+			'auto *d = SDL_CreateGPUDevice(f, gpu_debug_mode, nullptr);' '}' > "$r/tools/gpu2.cpp"
+		out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$decl: $out"
+		assert_contains "$out" "tools/gpu2.cpp:3: SDL_CreateGPUDevice without debug_mode true"
+	done
+	printf '%s\n' 'static constexpr bool gpu_debug_mode = true;' \
+		'auto *d = SDL_CreateGPUDevice(f, gpu_debug_mode, nullptr);' > "$r/tools/gpu2.cpp"
+	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)
+	assert_eq "$?" 0 "$out"
 	printf '%s\n' 'void g(const config &c) {' 'SDL_SetBooleanProperty(p, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, c.debug_mode);' \
 		'auto *d = SDL_CreateGPUDeviceWithProperties(p);' '}' > "$r/tools/gpu3.cpp"
 	out=$(python3 "$r/tools/dev/gpu_debug_mode.py" "$r" 2>&1)

@@ -31,7 +31,10 @@ import sys
 
 SOURCES = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.m', '.mm')
 DEBUG = re.compile(r'^(true|(\w+\s*::\s*)*gpu_debug_mode|\w+\s*(\.|->)\s*debug_mode)$')
-DECLARED = re.compile(r'((?:\b\w+\s+)*)bool\s+gpu_debug_mode\b')
+# Any declaration of gpu_debug_mode: type words before it, an initializer or
+# end after it.  A statement keyword before it is a use, not a declaration.
+DECLARED = re.compile(r'((?:\b[\w:<>]+\s+)+)gpu_debug_mode\s*(?=[{=;(\[])')
+NOT_TYPES = frozenset(('return', 'case', 'else', 'throw', 'co_return', 'co_yield', 'goto'))
 PROPERTY = 'SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN'
 
 
@@ -99,6 +102,11 @@ def function_body(text, pos):
 	return 0, len(text)
 
 
+def is_constexpr_bool(words):
+	"""Are the declaration's words those of a constexpr bool?"""
+	return 'constexpr' in words and 'bool' in words
+
+
 def asks_debug(text, value):
 	"""Does value ask for debug mode: true, gpu_debug_mode unless the file
 	declares it other than constexpr, or a configuration's debug_mode
@@ -109,7 +117,8 @@ def asks_debug(text, value):
 	if value.split('::')[-1].strip() == 'gpu_debug_mode':
 		# Declared here, it must be a constant; declared elsewhere (a
 		# header), it is taken as the constant it is meant to be.
-		return all('constexpr' in m.group(1).split() for m in DECLARED.finditer(text))
+		return all(is_constexpr_bool(m.group(1).split()) for m in DECLARED.finditer(text)
+			if not NOT_TYPES.intersection(m.group(1).split()))
 	return True
 
 
