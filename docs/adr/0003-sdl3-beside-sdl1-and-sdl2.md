@@ -1,6 +1,7 @@
 # 3. SDL3 beside SDL1.2 and SDL2: old names plus SDL3 branches
 
 Date: 2026-10-20. Status: accepted.
+Amended 2026-10-23 (owner, decided 2026-10-22): the renderer is chosen at startup, not switched at run time.
 
 ## Context
 
@@ -20,8 +21,10 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
 - Repeated or long divergences call helpers in `dcx::sdl` (`common/sdl/dxx-sdl.h`, the header
   through which fork code includes SDL; upstream code keeps its own `<SDL*.h>` includes).
 - Depth is added only where it pays off, in fork code: mouse motion with a fraction accumulator,
-  fullscreen and window handling, and a window/surface module that owns the GL context and hands
-  the window to SDL_GPU for the runtime renderer switch.
+  fullscreen and window handling, and a window/surface module that chooses the renderer at
+  startup: it creates the SDL_GPU device first and falls back to GL with a logged reason, then
+  creates the window (`SDL_WINDOW_OPENGL` for GL, no graphics flag for SDL_GPU, which claims it);
+  `docs/agents/sdl-window.md` section 2.
 - A lint checks that every chain with an SDL2 branch has an SDL3 or `>= 2` branch, instead of an
   `#else #error` in all 129 chains: `tools/dev/check_sdl_arms.py`, `check.sh`'s `sdl_arms` step,
   with the chains not yet ported counted per file, each with a reason, in
