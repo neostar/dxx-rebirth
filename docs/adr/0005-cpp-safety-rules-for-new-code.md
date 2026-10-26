@@ -2,6 +2,8 @@
 
 Date: 2026-10-21. Status: accepted.
 Amended by ADR 6: the check tier splits into the 5-minute merge gate (`check.sh --gate`) and the nightly full run.
+Amended 2026-10-23 (owner): the rtrace tests and GPU programs run in the check tier; `leaks-exclude`; `sdl_wrap_gpu.h`; the foreground-app scan.
+Amended from #24's fix rounds: the GPU validation gate's scans, as built.
 
 ## Context
 
@@ -25,7 +27,7 @@ hardened demo and endurance runs, GCC `-fanalyzer` on the fork C files).
 - No unchecked casts: no C-style casts, `reinterpret_cast`, `const_cast` or `static_cast`
   downcasts. A `static_cast` from SDL's `void *` happens only in the one wrapper layer that turns
   SDL userdata into a type; SDL's `void *` goes no further. The wrapper layer is the fork files
-  named `sdl_wrap*` (`sdl_wrap.cpp`, `sdl_wrap.h`, `sdl_wrap_audio.cpp`), and a check enforces it.
+  named `sdl_wrap*` (`sdl_wrap.cpp`, `sdl_wrap.h`, `sdl_wrap_audio.cpp`, `sdl_wrap_gpu.h`), and a check enforces it.
 - Domain values are `enum class` with an explicit underlying type or strong types
   (`valptridx`), never bare integers.
 - Fixed collections are `std::array` or `enumerated_array`, views `std::span`; no raw arrays and
@@ -98,17 +100,29 @@ validation (`MTL_DEBUG_LAYER=1`), Metal shader validation (Level 2 below) and th
 validation layer (errors, warnings, performance warnings; synchronization and thread safety,
 Level 2 below). Neither SDL nor the layer changes the exit status (spike #55, K4), so the
 wrapper scans the output and fails on any validation message, and on a run whose validation was
-not active. Until the fork has GPU code (#24), headless probes in the gate self-test prove it on
-Metal natively and on lavapipe in the container.
+not active: it requires one `sdlgpu: debug mode on` line (`sdlgpu::device` logs it) for each
+`SDL_GPU Driver:` line, since SDL prints nothing that tells debug mode on Metal. Headless probes
+in the gate self-test prove the wrapper on Metal natively and on lavapipe in the container.
 `check.sh`'s `gpu_gate` step (`tools/dev/gpu_debug_mode.py`) scans every C, C++ and
 Objective-C(++) source outside `third_party/`, game code included, with comments stripped: a
 device is created as `SDL_CreateGPUDevice(formats, DEBUG, name)`, or by
 `SDL_CreateGPUDeviceWithProperties` in a function that also sets
 `SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN` to `DEBUG` with `SDL_SetBooleanProperty`, where
-`DEBUG` is `true` or the constant `gpu_debug_mode` (namespace-qualified or not), which a release
-build may define `false` to turn validation off. Any other `SDL_CreateGPUDevice*` fails as
-unknown. The step also fails on a GPU program `check.sh` runs outside the wrapper; its `gpu_tests` step runs every program
-`tools/dev/gpu-programs` registers through `gpu-validate.sh`.
+`DEBUG` is `true`, a configuration's `.debug_mode` or `->debug_mode` field
+(`sdlgpu::config::debug_mode` defaults to true), or the constant `gpu_debug_mode`
+(namespace-qualified or not), which a release build may define `false` to turn validation off. A
+`gpu_debug_mode` declared in the scanned file must be `constexpr bool`: a local copied from run time
+configuration fails. Any other `SDL_CreateGPUDevice*` fails as unknown. The step also fails on a GPU
+program `check.sh` runs outside the wrapper (`tools/dev/gpu_wrapper.py`, which checks the programs
+`tools/dev/gpu-programs` lists). The `gpu_tests` step builds every program
+`tools/dev/gpu-programs` registers with `sdl3=1` and runs it through `gpu-validate.sh` on macOS
+(Linux: SKIP until #25).
+
+**The game is a foreground app**: SDL's background-app hint belongs to a test's or tool's
+`main()`. `gpu_gate` fails game code naming `SDL_MAC_BACKGROUND_APP` (the macro
+`SDL_HINT_MAC_BACKGROUND_APP` or its string), and the R1 step (`foreground_game`) fails when the
+built game binary holds the string, which catches a hint that reaches the game through a macro or
+a library.
 
 **The check tier's budget** was 10 minutes per leg, measured on 2026-10-21 (M1 Max): the container
 leg of `ci.sh --clean` took 307 s (shell tests 223 s, unit tests 34 s, sanitizer build and tests
@@ -118,10 +132,15 @@ Raised to 15 minutes on 2026-10-21 (owner's decision): with #2, #9, #23 and the 
 container leg reached 548-651 s on a quiet machine, its shell tests alone 396-450 s; running the
 shell tests in parallel is the follow-up that brings the leg back down.
 
-**The rtrace tests** are #19's to provide: it must add `tools/dev/rtrace-tests.sh`, which takes
-the build profile and a wrapper command (`rtrace-tests.sh asan no-window.sh`, `rtrace-tests.sh dev
-no-window.sh leaks.sh`) and runs every rtrace test built by that profile through it. Until then
-`check.sh`'s sanitizer and leaks steps print a SKIP naming that script.
+**The rtrace tests** run through `tools/dev/rtrace-tests.sh`, which takes the build profile and a
+wrapper command (`rtrace-tests.sh asan no-window.sh`, `rtrace-tests.sh dev no-window.sh leaks.sh`)
+and runs every rtrace test built by that profile through it. `check.sh`'s sanitizer and leaks steps
+run them on macOS; on Linux they are a SKIP pending the SDL 2/3 container decision.
+
+**Leak exclusions.** `leaks.sh` honours `tools/dev/leaks-exclude`: one line per program and
+symbol, with a reason. An entry names a symbol of a system framework, never one the program
+defines (a usage error), and a program whose entries excluded no leak in a checked run is stale
+and fails.
 
 **Justified exceptions** are inline only, `// NOLINT(check): reason` or
 `// NOLINTNEXTLINE(check): reason`; `format.sh` fails on a NOLINT without a check list and a
