@@ -100,8 +100,11 @@ fi
 # Print what changed path $1 adds to the merge gate (ADR 6's table): game
 # (the gate alone), tools (shellcheck and the shell tests of the changed
 # scripts), gpu (check.sh --gpu: the GPU programs under gpu-validate.sh,
-# on Metal; for the SDL_GPU device's sources, sdl_wrap_gpu.h, gpu-programs
-# and gpu-validate.sh), container (the container leg), or full (the full
+# on Metal; for the SDL_GPU device's sources and the headers they include
+# (common/render's device, readback, caps and render_device, common/sdl),
+# SConstruct and shaders (test-sdlgpu's registration and pipelines), the
+# SDL3 pin (deps.sh, toolchain.pins), gpu-programs, gpu-validate.sh and
+# vk_layer_settings.txt), container (the container leg), or full (the full
 # run, which holds gpu).  An
 # image input or fork build flag in tools/dev adds both tools and
 # container; a path no line maps runs the full run.
@@ -110,15 +113,20 @@ path_classes()
 	case $1 in
 	common/render/sdlgpu*|common/render/unittest/sdlgpu*|common/sdl/sdl_wrap_gpu.h)
 		echo game gpu ;;
-	tools/dev/gpu-programs|tools/dev/gpu-validate.sh) echo tools gpu ;;
+	common/render/device.h|common/render/readback.h|common/render/caps.h|\
+	common/render/render_device.h|common/sdl/*)
+		echo game gpu ;;
+	tools/dev/gpu-programs|tools/dev/gpu-validate.sh|tools/dev/vk_layer_settings.txt) echo tools gpu ;;
+	tools/dev/deps.sh|tools/dev/toolchain.pins) echo tools container gpu ;;
 	common/*|similar/*|d1x-rebirth/*|d2x-rebirth/*) echo game ;;
-	tools/dev/deps.sh|tools/dev/env.sh|tools/dev/toolchain.pins|tools/dev/requirements.*|\
+	tools/dev/env.sh|tools/dev/requirements.*|\
 	tools/dev/container/*|tools/dev/build.sh|tools/dev/site-*.py|tools/dev/fork_warnings.py|\
 	tools/dev/hardening.py|tools/dev/hardening-exit.h|tools/dev/upstream_begin.h|\
 	tools/dev/upstream_end.h|tools/dev/fork-dirs)
 		echo tools container ;;
 	tools/dev/*|docs/agents/*) echo tools ;;
-	SConstruct|site_scons/*|shaders/*) echo container ;;
+	SConstruct|shaders/*) echo container gpu ;;
+	site_scons/*) echo container ;;
 	*) echo full ;;
 	esac
 }
