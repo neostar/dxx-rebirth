@@ -1042,8 +1042,10 @@ void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 
 	if (tmap_drawer_ptr == draw_tmap) {
 		const auto gltexture{ogl_bindbmtex(bm, 0)};
-		if (!gltexture) [[unlikely]]
-			/* `gltexture` will only be `nullptr` if a game data file is missing. */
+		if (!gltexture || !gltexture->handle) [[unlikely]]
+			/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
+			 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
+			 * no slot without a texture. */
 			return;
 		texture = ogl_texture_slot(*gltexture);
 		wrap = render::wrap::repeat;
@@ -1093,14 +1095,21 @@ void _g3_draw_tmap_2(grs_canvas &canvas, const std::span<g3_draw_tmap_point *con
 	_g3_draw_tmap(canvas, pointlist, uvl_list.data(), light_rgb.data(), bmbot, tmap_drawer_ptr);//draw the bottom texture first.. could be optimized with multitexturing..
 	r_tpolyc++;
 	const auto gltexture{ogl_bindbmtex(bm, 1)};
-	if (!gltexture) [[unlikely]]
-		/* `gltexture` will only be `nullptr` if a game data file is missing. */
+	if (!gltexture || !gltexture->handle) [[unlikely]]
+		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
+		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
+		 * no slot without a texture. */
 		return;
 
 	const GLfloat alpha = (canvas.cv_fade_level >= GR_FADE_OFF)
 		? 1.0
 		: (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
 	const bool no_lighting{bm.get_flag_mask(BM_FLAG_NO_LIGHTING) != 0};
+	/* The cast below relies on both enums numbering the turns alike. */
+	static_assert(std::to_underlying(texture2_rotation_low::Normal) == std::to_underlying(render::uv_rotation::none));
+	static_assert(std::to_underlying(texture2_rotation_low::_1) == std::to_underlying(render::uv_rotation::quarter));
+	static_assert(std::to_underlying(texture2_rotation_low::_2) == std::to_underlying(render::uv_rotation::half));
+	static_assert(std::to_underlying(texture2_rotation_low::_3) == std::to_underlying(render::uv_rotation::three_quarters));
 	const auto rotation{static_cast<render::uv_rotation>(std::to_underlying(orient))};
 	std::array<render::vertex, MAX_POINTS_PER_POLY> vertices;
 
@@ -1131,8 +1140,10 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, const fix iwidth,
 	r_bitmapc++;
 
 	const auto gltexture{ogl_bindbmtex(bm, 0)};
-	if (!gltexture) [[unlikely]]
-		/* `gltexture` will only be `nullptr` if a game data file is missing. */
+	if (!gltexture || !gltexture->handle) [[unlikely]]
+		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
+		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
+		 * no slot without a texture. */
 		return;
 
 	const auto width = fixmul(iwidth, Matrix_scale.x);
