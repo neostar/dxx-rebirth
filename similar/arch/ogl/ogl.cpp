@@ -1452,13 +1452,6 @@ void ogl_create_device()
 			OGL_BINDTEXTURE(tex->handle);
 			ogl_texwrap(tex, wrap == render::wrap::repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE);
 		},
-		.build_perspective = [](const render::perspective &p) {
-#if DXX_USE_OGLES
-			perspective(p.fovy, p.aspect, p.z_near, p.z_far);
-#else
-			gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
-#endif
-		},
 		.max_anisotropy = ogl_maxanisotropy,
 	})};
 	/* A device of the same GL context keeps the textures, as upstream did

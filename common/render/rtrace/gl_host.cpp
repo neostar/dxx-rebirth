@@ -234,10 +234,6 @@ gl_host::gl_host(const extent target)
 	                      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mode);
 	                      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, mode);
                       },
-                  .build_perspective =
-                      [](const render::perspective &p) {
-	                      gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
-                      },
                   .max_anisotropy = context_max_anisotropy(),
               }}
 {}

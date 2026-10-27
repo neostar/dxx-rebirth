@@ -14,9 +14,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -184,7 +186,6 @@ std::string text_of(const GLubyte *const gl_text)
 /* The state shadow's GL calls (gl::ops), each as the front end made it. */
 struct gl_calls
 {
-	const std::function<void(const render::perspective &)> &build_perspective;
 	static void enable(const gl::capability c, const bool on)
 	{
 		if (on)
@@ -221,9 +222,30 @@ struct gl_calls
 	{
 		glLoadIdentity();
 	}
-	void perspective(const render::perspective &p) const
+	/* Multiplies the current matrix by the perspective's: gluPerspective,
+	 * or GLES's replacement for it, which also sets
+	 * glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST) and
+	 * glDepthMask(GL_TRUE); the shadow runs it on every rebuild of a
+	 * perspective projection.  Nothing else calls glDepthMask, so the mask it
+	 * sets is the one every draw wants; the shadow must track the mask once
+	 * a draw state turns writes off.
+	 */
+	static void perspective(const render::perspective &p)
 	{
-		build_perspective(p);
+#if DXX_USE_OGLES
+		glMatrixMode(GL_PROJECTION);
+		glLoadIdentity();
+		const double ymax{p.z_near * std::tan(p.fovy * std::numbers::pi / 360.0)};
+		const double ymin{-ymax};
+		glFrustumf(static_cast<GLfloat>(ymin * p.aspect), static_cast<GLfloat>(ymax * p.aspect),
+		           static_cast<GLfloat>(ymin), static_cast<GLfloat>(ymax),
+		           static_cast<GLfloat>(p.z_near), static_cast<GLfloat>(p.z_far));
+		glMatrixMode(GL_MODELVIEW);
+		glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
+		glDepthMask(GL_TRUE);
+#else
+		gluPerspective(p.fovy, p.aspect, p.z_near, p.z_far);
+#endif
 	}
 	/* As ogl_stereo_frame shifts the projection for an eye.  It selects the
 	 * projection matrix itself: GLES's replacement for gluPerspective leaves
@@ -276,7 +298,7 @@ gl_device::gl_device(const render::caps &c, gl_front_end front_end)
 void gl_device::draw(const draw_call &call)
 {
 	/* The state first, also for a call with no vertices (gl_device.h). */
-	gl_calls gl{.build_perspective = front_end_.build_perspective};
+	gl_calls gl;
 	shadow_.apply(gl, call);
 	const bool textured{call.texture != texture_slot::none};
 	if (textured)
