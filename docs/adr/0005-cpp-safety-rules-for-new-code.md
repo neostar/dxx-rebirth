@@ -102,7 +102,7 @@ Level 2 below). Neither SDL nor the layer changes the exit status (spike #55, K4
 wrapper scans the output and fails on any validation message, and on a run whose validation was
 not active: it requires one `sdlgpu: debug mode on` line (`sdlgpu::device` logs it) for each
 `SDL_GPU Driver:` line, since SDL prints nothing that tells debug mode on Metal. The one exception
-(#26, owner's decision pending): while `toolchain.pins` pins SDL3 3.4.18, the Metal API warnings
+(#26, owner's decision 2026-10-27): while `toolchain.pins` pins SDL3 3.4.18, the Metal API warnings
 that SDL's own Metal backend makes, which no program avoids (every pipeline bind resets the
 pipeline's rasterizer and depth state, "redundant set<State>."; every pass starts with a
 full-target viewport, "previous setViewport was unused."), each an exact title and message pair,
