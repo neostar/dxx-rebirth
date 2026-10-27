@@ -20,21 +20,36 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   changes are excluded. Its verdict is the one that counts. Nothing is pushed to a registry.
 - **No GitHub CI.** A GitHub mirror only on the owner's explicit go.
 - **One manual D3D12 workflow** (amended 2026-10-27, #49): `.github/workflows/d3d12-check.yml`.
-  D3D12 needs a real Windows runtime, and the local Wine leg has none: vkd3d-proton translates
-  D3D12 to Vulkan and Wine has no D3D12 debug layer. The workflow cross-builds `rtrace-gpu.exe`
-  with MinGW-w64 on `ubuntu-latest` (`tools/dev/windows.sh build`, its own pinned Dockerfile in
-  `tools/dev/windows/`, built on the runner, never pushed), then runs R3 on `windows-latest`
-  (`tools/dev/rtrace-d3d12.sh`): the synthetic traces must log GL's pinned frame hash lines on
-  D3D12 with the debug layer on and no validation message, and the log names the adapter SDL
-  picked.
-  - **Trigger**: `workflow_dispatch` only. The orchestrator starts it by hand when the D3D12 path
-    changes (SDL3's D3D12 backend, the DXIL shaders, `sdlgpu_device`); it never runs on push,
-    pull request or schedule. `check.sh`'s workflows step allows exactly this file and fails when
-    it gains any other trigger.
+  D3D12 needs a real Windows runtime with the D3D12 debug layer; Wine has neither (vkd3d-proton
+  translates D3D12 to Vulkan). The workflow cross-builds `rtrace-gpu.exe` with MinGW-w64 on
+  `ubuntu-latest` (`tools/dev/windows.sh build`, its own pinned Dockerfile in `tools/dev/windows/`,
+  built on the runner, never pushed), then replays the synthetic traces on `windows-latest`
+  (`tools/dev/rtrace-d3d12.sh`).
+  - **Pass condition**: the run fails on any D3D12 debug-layer message; on SDL's "Validation layers
+    enabled" line missing; on GPU-based validation not confirmed in the log; on a trace that does
+    not render all its frames; on an adapter other than WARP (Microsoft Basic Render Driver).
+  - **Record, not compare**: WARP's frame hash lines go to the `d3d12-frame-hashes` artifact and
+    the log, for #37's FLIP compare. WARP rounds UNORM ties differently from a GPU, so equality
+    with GL's hashes is the wrong test.
+  - **GPU-based validation**: WARP renders correct pixels with wrong barriers; only the debug layer
+    with GPU-based validation catches them. SDL 3.4.18 never calls `SetEnableGPUBasedValidation`,
+    so on Windows `rtrace-gpu.exe` calls it through `ID3D12Debug1` before SDL creates the device,
+    when `DXX_D3D12_GPU_VALIDATION=1` (the script sets it) and logs one line saying it is on. That
+    SDL's device inherits the setting is an inference; the run fails without the line, and its
+    log is the evidence.
+  - **Wine** (`tools/dev/windows.sh wine`, local) is a smoke test: the exe runs, SDL picks D3D12
+    and every trace renders all its frames. No hash compare, no validation requirement.
+  - **Trigger**: `workflow_dispatch` only, started by hand when the D3D12 path changes (SDL3's
+    D3D12 backend, the DXIL shaders, `sdlgpu_device`); never on push, pull request or schedule.
+    `check.sh`'s workflows step allows exactly this file and fails when it gains any other
+    trigger. `workflow_dispatch` needs the file on the default branch, so `sdl-gpu-port` is the
+    fork's default branch and `master` stays a pure upstream mirror. Actions stay off between
+    runs: for each run, enable Actions, disable every inherited upstream workflow, dispatch once,
+    disable Actions again.
   - **Limits**: synthetic traces only, so licensed game data never reaches GitHub. WARP is
-    Microsoft's software rasterizer, not a hardware driver: a pass says nothing of NVIDIA, AMD or
-    Intel drivers, swapchains or present. It holds no merge (ADR 6); its run is evidence on the
-    ticket that changed the D3D12 path.
+    Microsoft's software rasterizer: a pass says nothing of NVIDIA, AMD or Intel drivers,
+    swapchains or present. It holds no merge (ADR 6); its run is evidence on the ticket that
+    changed the D3D12 path.
 - **Secret scanning is local too** (owner decision 2026-10-21): no GitHub workflow. The layers
   are ADR 5's pre-commit and pre-push tiers (gitleaks at the pinned version, failing without it;
   pre-push catches a commit made with `--no-verify`), the full-history scan in every `ci.sh` run,

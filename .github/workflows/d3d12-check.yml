@@ -1,7 +1,11 @@
 # The manual D3D12 check (#49, ADR 4): R3, the committed synthetic traces
 # replayed by rtrace-gpu, on a real D3D12 runtime (WARP on windows-latest)
-# with the D3D12 debug layer on.  Fails on a frame hash that is not GL's
-# pinned line (tools/dev/rtrace-pins.sh) and on any validation message.
+# with the D3D12 debug layer and GPU-based validation on.  Fails on any
+# validation message, a missing "Validation layers enabled" line, GPU-based
+# validation not confirmed in the log, a trace that does not render all its
+# frames, and an adapter other than WARP.  WARP's frame hash lines are
+# recorded in the d3d12-frame-hashes artifact (for the FLIP compare of #37),
+# not compared.
 # Started by hand only, by the orchestrator when the D3D12 path changes:
 # workflow_dispatch is its one trigger, and tools/dev/check.sh fails on any
 # other.  Synthetic traces only: no game data reaches GitHub.
@@ -68,6 +72,13 @@ jobs:
             "Graphics Tools: installed in $([int]$took.TotalSeconds) s"
           }
           if (-not (Test-Path $dll)) { throw "no $dll after installing Graphics Tools" }
-      - name: R3 on D3D12 (WARP), debug layer on
+      - name: R3 on D3D12 (WARP), debug layer and GPU-based validation on
         shell: bash
-        run: tools/dev/rtrace-d3d12.sh out
+        run: tools/dev/rtrace-d3d12.sh --hashes d3d12-frame-hashes.txt out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: d3d12-frame-hashes
+          path: d3d12-frame-hashes.txt
+          if-no-files-found: warn
+          retention-days: 30
