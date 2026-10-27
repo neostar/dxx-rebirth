@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/dev/rtrace-d3d12.sh's verdicts on a fake rtrace-gpu.exe that prints
-# what SDL's D3D12 backend prints and logs given frame hash
+# what SDL's D3D12 backend and rtrace-gpu print and logs given frame hash
 # lines; the manual GitHub workflow (d3d12-check.yml) and windows.sh wine
 # run the real one.
 # Single quotes hold scripts expanded by the shells they are written for.
@@ -15,12 +15,13 @@ d3d12_lines='INFO: Validation layers enabled, expect debug level performance!
 INFO: SDL_GPU Driver: D3D12
 INFO: D3D12 Adapter: Microsoft Basic Render Driver
 INFO: D3D12 Driver: 10.0.26100.1
-INFO: sdlgpu: debug mode on'
+INFO: sdlgpu: debug mode on
+rtrace-gpu: D3D12 GPU-based validation on'
 
 # Make a directory holding a fake rtrace-gpu.exe and print its path.  The
 # fake prints $FAKE_OUT (default: the D3D12 lines above) with CR LF line
-# ends, as SDL's log on Windows, records its trace and SDL_GPU_DRIVER in
-# calls.log beside it, and writes the trace's
+# ends, as SDL's log on Windows, records its trace, SDL_GPU_DRIVER and
+# DXX_D3D12_GPU_VALIDATION in calls.log beside it, and writes the trace's
 # pinned lines (or $FAKE_LINES, | between lines, when set; their hashes
 # replaced by $FAKE_HASH, when set) to its log, CR LF
 # too.
@@ -31,7 +32,7 @@ fake_build()
 	cat > "$d/rtrace-gpu.exe" <<'EOF'
 #!/usr/bin/env bash
 here=$(cd "$(dirname "$0")" && pwd)
-echo "${1##*/} ${SDL_GPU_DRIVER-unset}" >> "$here/calls.log"
+echo "${1##*/} ${SDL_GPU_DRIVER-unset} ${DXX_D3D12_GPU_VALIDATION-unset}" >> "$here/calls.log"
 printf '%s\n' "${FAKE_OUT-$D3D12_LINES}" | sed 's/$/\r/'
 case ${1##*/} in
 	sample.rtr) lines=$PIN_SAMPLE ;;
@@ -62,9 +63,10 @@ check()
 }
 
 # Test that a build that renders every frame of every synthetic trace on
-# D3D12 on WARP, with the debug layer on, passes, naming the adapter, and
-# that each trace ran with SDL_GPU_DRIVER asking for D3D12.
-test_warp_run_passes()
+# D3D12 on WARP, with the debug layer and GPU-based validation on, passes,
+# naming the adapter, and that each trace ran with SDL_GPU_DRIVER asking
+# for D3D12 and the program asked for GPU-based validation.
+test_warp_run_with_validation_passes()
 {
 	local d out
 	d=$(fake_build)
@@ -72,9 +74,9 @@ test_warp_run_passes()
 	assert_contains "$out" "rtrace-d3d12: adapter: Microsoft Basic Render Driver"
 	assert_contains "$out" "rtrace-d3d12: passed"
 	assert_contains "$out" "status 0"
-	assert_eq "$(cat "$d/calls.log")" "sample.rtr direct3d12
-overbright.rtr direct3d12
-flash.rtr direct3d12"
+	assert_eq "$(cat "$d/calls.log")" "sample.rtr direct3d12 1
+overbright.rtr direct3d12 1
+flash.rtr direct3d12 1"
 }
 
 # Test that the frame hash lines are recorded, not compared: every trace's
@@ -142,6 +144,20 @@ test_other_adapter_driver_or_no_adapter_fails()
 	assert_contains "$out" "status 1"
 	out=$(FAKE_OUT="${d3d12_lines/INFO: D3D12 Adapter: Microsoft Basic Render Driver/}" check "$d")
 	assert_contains "$out" "rtrace-d3d12: the sample trace named no D3D12 adapter"
+	assert_contains "$out" "status 1"
+}
+
+# Test that a run whose GPU-based validation is not confirmed fails: no
+# line, or the program's line that it could not be enabled.
+test_gpu_based_validation_not_confirmed_fails()
+{
+	local d out
+	d=$(fake_build)
+	out=$(FAKE_OUT="${d3d12_lines/rtrace-gpu: D3D12 GPU-based validation on/}" check "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace did not confirm GPU-based validation"
+	assert_contains "$out" "status 1"
+	out=$(FAKE_OUT="${d3d12_lines/rtrace-gpu: D3D12 GPU-based validation on/rtrace-gpu: D3D12 GPU-based validation could not be enabled: no ID3D12Debug1}" check "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace did not confirm GPU-based validation"
 	assert_contains "$out" "status 1"
 }
 

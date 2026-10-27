@@ -15,8 +15,10 @@
 # Each run (the GitHub run, WARP) goes through gpu-validate.sh,
 # which fails it on any SDL warning or error (the D3D12 debug layer's
 # messages among them) and when SDL's "Validation layers enabled" line is
-# missing.  The adapter must be WARP (Microsoft Basic
-# Render Driver).  Every trace must render all its frames: one frame
+# missing.  DXX_D3D12_GPU_VALIDATION=1 asks rtrace-gpu.exe for GPU-based
+# validation (SDL 3.4.18 never enables it); the run fails unless its log has
+# rtrace-gpu's line saying it is on.  The adapter must be WARP (Microsoft
+# Basic Render Driver).  Every trace must render all its frames: one frame
 # hash line each, in order.  The lines are recorded in FILE (default
 # d3d12-frame-hashes.txt), one `TRACE INDEX WxH HASH` per line, and printed,
 # for the FLIP compare of #37; they are not compared with GL's, because WARP
@@ -52,8 +54,8 @@ trap 'rm -rf "$tmp"' EXIT
 check()
 {
 	local trace=$1 name=$2 frames=$3 out=$tmp/$2 driver adapter lines i ok=1 shape
-	"$dev_dir/gpu-validate.sh" ${launch[@]+"${launch[@]}"} "$exe" "$trace" "$out.log" \
-		> "$out.out" 2>&1 || ok=0
+	DXX_D3D12_GPU_VALIDATION=1 "$dev_dir/gpu-validate.sh" \
+		${launch[@]+"${launch[@]}"} "$exe" "$trace" "$out.log" > "$out.out" 2>&1 || ok=0
 	cat "$out.out"
 	driver=$(sed -n 's/.*SDL_GPU Driver: //p' "$out.out" | head -n 1)
 	adapter=$(sed -n 's/.*D3D12 Adapter: //p' "$out.out" | head -n 1)
@@ -66,6 +68,10 @@ check()
 		ok=0
 	elif [[ $adapter != "$warp" ]]; then
 		echo "rtrace-d3d12: the $name trace ran on $adapter, not on WARP ($warp)" >&2
+		ok=0
+	fi
+	if ! grep -qx 'rtrace-gpu: D3D12 GPU-based validation on' "$out.out"; then
+		echo "rtrace-d3d12: the $name trace did not confirm GPU-based validation" >&2
 		ok=0
 	fi
 	# One line per frame, in order: `INDEX WxH HASH`.
