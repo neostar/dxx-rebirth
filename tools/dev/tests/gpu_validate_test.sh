@@ -49,12 +49,16 @@ Validation Performance Warning: [ BestPractices-x ] slow")" "status 1"
 }
 
 # Test that a Metal shader validation report, which names the shader
-# function it stopped, fails a run that exits 0.
+# function it stopped (macOS 26 says "kernel function", 27 "compute
+# function"), fails a run that exits 0.
 test_metal_shader_validation_report_fails()
 {
 	assert_contains "$(validate "$metal
 Invalid device store at offset 4096, executing kernel function: \"plant_main\"
 buffer: <unnamed>, length:16, resident:Read Write")" "probe: 1 from the driver's validation layer
+status 1"
+	assert_contains "$(validate "$metal
+Invalid Metal usage: Invalid store in 'device' or 'constant' address space at offset 4096, executing compute function: \"plant_main\"")" "probe: 1 from the driver's validation layer
 status 1"
 }
 

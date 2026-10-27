@@ -17,7 +17,8 @@
 # then fails with exit status 1, naming the source, on:
 #   - SDL's GPU debug mode: a WARNING, ERROR or CRITICAL log line;
 #   - the driver's validation layer: Metal's "... Validation" reports,
-#     Metal shader validation's "... executing kernel function: ..." ones,
+#     Metal shader validation's "... executing kernel|compute function: ..."
+#     ones (macOS 27 says "compute"),
 #     the Vulkan layer's "Validation Error/Warning" messages;
 #   - no SDL_GPU device, or its validation not active (on Vulkan, the
 #     layer's status must list synchronization validation and no disables,

@@ -1,7 +1,7 @@
 // A headless SDL_GPU compute dispatch (no window) whose Metal shader writes
 // past the end of its 16-byte storage buffer: only Metal shader validation
 // (MTL_SHADER_VALIDATION) sees it, inside the shader.
-// gate gpumetal: executing kernel function
+// gate gpumetal: function: "plant_main"
 #include <SDL3/SDL.h>
 #include <cstdio>
 
