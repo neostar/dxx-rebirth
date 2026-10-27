@@ -81,7 +81,10 @@ class d_event_mouse_moved : public d_event
 public:
 #if SDL_MAJOR_VERSION == 1
 #define SDL_MOUSE_MOVE_INT_TYPE	Sint16
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
+/* SDL3 reports motion as float; mouse_motion_handler truncates it to whole
+ * pixels until #43 adds the fraction accumulator.
+ */
 #define SDL_MOUSE_MOVE_INT_TYPE	Sint32
 #endif
 	const SDL_MOUSE_MOVE_INT_TYPE dx, dy;

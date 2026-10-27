@@ -23,3 +23,30 @@
 #if SDL_MAJOR_VERSION == 3 && !defined(SDL_ENABLE_OLD_NAMES)
 #error "SDL3 builds need SDL_ENABLE_OLD_NAMES on the command line (ADR 3); configure with sdl3=1"
 #endif
+
+#if SDL_MAJOR_VERSION == 3
+
+namespace dcx::sdl {
+
+/* SDL3 split SDL_ShowCursor(SDL_ENABLE / SDL_DISABLE / SDL_QUERY) in three
+ * (migration guide, SDL_mouse.h): SDL_ShowCursor(), SDL_HideCursor() and
+ * SDL_CursorVisible().  Upstream's mouse code calls these helpers in its
+ * SDL3 branches.
+ */
+inline void show_cursor(const bool show)
+{
+	if (show)
+		SDL_ShowCursor();
+	else
+		SDL_HideCursor();
+}
+
+[[nodiscard]]
+inline bool cursor_visible()
+{
+	return SDL_CursorVisible();
+}
+
+}
+
+#endif

@@ -12,6 +12,9 @@
 
 #include <string.h>
 #include <SDL.h>
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/dxx-sdl.h"
+#endif
 
 #include "maths.h"
 #include "timer.h"
@@ -58,7 +61,11 @@ void mouse_init(void)
 
 void mouse_close(void)
 {
+#if SDL_MAJOR_VERSION == 3
+	sdl::show_cursor(true);
+#else
 	SDL_ShowCursor(SDL_ENABLE);
+#endif
 }
 
 namespace {
@@ -138,10 +145,14 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 
 	const auto now = timer_query();
 	const auto button = button_remap[button_idx];
-	const auto mbe_state = mbe->state;
 	Mouse.cursor_time = now;
 
+#if SDL_MAJOR_VERSION == 3
+	const bool pressed = mbe->down;
+#else
+	const auto mbe_state = mbe->state;
 	const auto pressed = mbe_state != SDL_RELEASED;
+#endif
 	if (pressed) {
 		highest_result = maybe_send_z_move(button);
 	}
@@ -158,11 +169,20 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *const mme)
 {
 	Mouse.cursor_time = timer_query();
+#if SDL_MAJOR_VERSION == 3
+	/* Whole pixels only: the fraction accumulator is #43's. */
+	const auto xrel{static_cast<Sint32>(mme->xrel)};
+	const auto yrel{static_cast<Sint32>(mme->yrel)};
+	Mouse.x += xrel;
+	Mouse.y += yrel;
+	const d_event_mouse_moved event{event_type::mouse_moved, xrel, yrel, 0};
+#else
 	Mouse.x += mme->xrel;
 	Mouse.y += mme->yrel;
 	
 	// z handled in mouse_button_handler
 	const d_event_mouse_moved event{event_type::mouse_moved, mme->xrel, mme->yrel, 0};
+#endif
 	
 	//con_printf(CON_DEBUG, "Sending event event_type::mouse_moved, relative motion %d,%d,%d",
 	//		   event.dx, event.dy, event.dz);
@@ -173,7 +193,14 @@ void mouse_flush()	// clears all mice events...
 {
 //	event_poll();
 	static_cast<flushable_mouseinfo &>(Mouse) = {};
+#if SDL_MAJOR_VERSION == 3
+	float x{}, y{};
+	SDL_GetMouseState(&x, &y); // necessary because polling only gives us the delta.
+	Mouse.x = static_cast<int>(x);
+	Mouse.y = static_cast<int>(y);
+#else
 	SDL_GetMouseState(&Mouse.x, &Mouse.y); // necessary because polling only gives us the delta.
+#endif
 }
 
 //========================================================================
@@ -217,8 +244,13 @@ template <bool noactivate>
 static void mouse_change_cursor()
 {
 	Mouse.cursor_enabled = (!noactivate && !CGameArg.CtlNoMouse && !CGameArg.CtlNoCursor);
+#if SDL_MAJOR_VERSION == 3
+	if (!Mouse.cursor_enabled)
+		sdl::show_cursor(false);
+#else
 	if (!Mouse.cursor_enabled)
 		SDL_ShowCursor(SDL_DISABLE);
+#endif
 }
 
 }
@@ -238,8 +270,16 @@ void mouse_cursor_autohide()
 {
 	static fix64 hidden_time = 0;
 
+#if SDL_MAJOR_VERSION == 3
+	const auto is_showing = sdl::cursor_visible();
+	/* SDL3 dropped SDL_ENABLE and SDL_DISABLE with SDL_ShowCursor's
+	 * argument: carry whether to show the cursor.
+	 */
+	bool show;
+#else
 	const auto is_showing = SDL_ShowCursor(SDL_QUERY);
 	int result;
+#endif
 	if (Mouse.cursor_enabled)
 	{
 		const auto now = timer_query();
@@ -250,22 +290,38 @@ void mouse_cursor_autohide()
 			if (recent_cursor_time)
 				return;
 			hidden_time = now;
+#if SDL_MAJOR_VERSION == 3
+			show = false;
+#else
 			result = SDL_DISABLE;
+#endif
 		}
 		else
 		{
 			if (!(recent_cursor_time && hidden_time + (F1_0/2) < now))
 				return;
+#if SDL_MAJOR_VERSION == 3
+			show = true;
+#else
 			result = SDL_ENABLE;
+#endif
 		}
 	}
 	else
 	{
 		if (!is_showing)
 			return;
+#if SDL_MAJOR_VERSION == 3
+		show = false;
+#else
 		result = SDL_DISABLE;
+#endif
 	}
+#if SDL_MAJOR_VERSION == 3
+	sdl::show_cursor(show);
+#else
 	SDL_ShowCursor(result);
+#endif
 }
 
 }
