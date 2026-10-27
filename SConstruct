@@ -5134,7 +5134,7 @@ class DXXArchive(DXXCommon):
 			'common/sdl/unittest/frame_pacer.cpp',
 			)),
 		*((RuntimeTest('test-macos-defaults', (
-			'common/sdl/unittest/macos_defaults.cpp',
+			'common/sdl/unittest/macos_defaults.mm',
 			'common/sdl/macos_defaults.mm',
 			), use_default_libs=True),) if sys.platform == 'darwin' else ()),
 		RuntimeTest('test-frame-hash', (
