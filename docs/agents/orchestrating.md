@@ -16,9 +16,8 @@ repository; its header lists them).
   Researcher") in `issue-tracker.md`. Give the goal; the exact state (branch, base commit,
   what is done and proven); pointers to read first (the issue, ADRs, spike findings,
   `conventions.md`) rather than copied text; the time box; and the report you want back. A fix
-  round's brief lists each review finding with its file:line. For SDL, SDL_GPU, Vulkan and D3D12
-  facts, point at the pinned mirror in the main clone (`docs/reference/`, by absolute path:
-  worktrees lack it) and the research docs `docs/agents/sdl-*.md`.
+  round's brief lists each review finding with its file:line. Ground it in its lane: name the
+  docs "Grounding a brief" in `domain.md` lists, and ask the report to say which it opened.
 - **Agents at once**: at most two implementer agents (fix rounds included); reviewers and research
   runs may run beside them.
 - **Models**: agents run on Sonnet. Opus (`model: "opus"`) runs the full review of game code and
