@@ -15,6 +15,7 @@
 
 #include "common/render/sdlgpu_device.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -388,6 +389,118 @@ BOOST_AUTO_TEST_CASE(sample_trace_frames_match_gl)
 	BOOST_TEST(done.has_value());
 	const std::vector<std::uint64_t> gl{0x86388f1d5003af2au, 0x9f40fbb36ef64325u};
 	BOOST_TEST(hashes == gl, boost::test_tools::per_element());
+}
+
+/* Test that the transfer ring grows on a GPU: after a small frame that is
+ * presented and not waited for, a frame of 2000 quads (432 000 bytes of
+ * vertices, past the first 64 KiB) draws its first and last quads where
+ * they belong, with still one transfer and one vertex buffer, and a small
+ * frame after it keeps their size.
+ */
+BOOST_AUTO_TEST_CASE(transfer_ring_grows_and_keeps_its_size)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	d->clear({.color = true, .depth = true});
+	const quad small{{{0, 0, 1, 1}}};
+	d->draw(small.call);
+	d->present();
+	const auto first{d->upload_buffer_sizes()};
+	BOOST_TEST(first.vertices == 65536u);
+	d->clear({.color = true, .depth = true});
+	std::vector<std::unique_ptr<quad>> quads;
+	for (int i{0}; i != 1999; ++i)
+		quads.push_back(std::make_unique<quad>(std::array<float, 4>{{1, 0, 0, 1}}));
+	quads.push_back(std::make_unique<quad>(std::array<float, 4>{{0, 1, 0, 1}}, 0.5f));
+	for (const auto &q : quads)
+		d->draw(q->call);
+	const auto rgb{drawing(*d)};
+	const std::span<const std::uint8_t> all{rgb};
+	BOOST_TEST(pixels_other_than(all.first(all.size() / 2), {{0, 255, 0}}) == 0u);
+	BOOST_TEST(pixels_other_than(all.subspan(all.size() / 2), {{255, 0, 0}}) == 0u);
+	BOOST_TEST(ledger->counts().buffers == 2u);
+	const auto grown{d->upload_buffer_sizes()};
+	BOOST_TEST(grown.vertices == 524288u);
+	BOOST_TEST(grown.transfer == 524288u);
+	d->clear({.color = true, .depth = true});
+	d->draw(small.call);
+	d->present();
+	BOOST_TEST((d->upload_buffer_sizes() == grown));
+	BOOST_TEST(ledger->counts().buffers == 2u);
+	BOOST_TEST(pixels_other_than(drawing(*d), {{0, 0, 255}}) == 0u);
+}
+
+/* Test that front culling culls counter-clockwise faces, GL's front faces:
+ * the quad wound counter-clockwise draws nothing, the same quad wound
+ * clockwise draws.
+ */
+BOOST_AUTO_TEST_CASE(front_culling_culls_counter_clockwise)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const quad ccw{{{1, 0, 0, 1}}, 0, {.cull = render::cull::front}};
+	d->draw(ccw.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), clear_rgb) == 0u);
+	quad cw{{{1, 0, 0, 1}}, 0, {.cull = render::cull::front}};
+	std::ranges::reverse(cw.vertices);
+	d->draw(cw.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), {{255, 0, 0}}) == 0u);
+}
+
+namespace {
+
+/* A quad over the whole target at depth z (the game's 2D ortho maps z to
+ * GL's window depth (1 - z) / 2), in colour rgba, with depth mode m.
+ */
+struct depth_quad : quad
+{
+	depth_quad(const std::array<float, 4> &rgba, const float z, const render::depth m)
+	    : quad{rgba, 0, {.depth = m}}
+	{
+		for (auto &v : vertices)
+			v.pos[2] = z;
+	}
+};
+
+}
+
+/* Test that test_and_write keeps the nearer of two draws, whichever comes
+ * last, and lets a draw at equal depth pass (LEQUAL), in both halves of
+ * the depth range.
+ */
+BOOST_AUTO_TEST_CASE(depth_test_keeps_the_nearer)
+{
+	for (const float near_z : {0.5f, -0.2f})
+	{
+		BOOST_TEST_CONTEXT("near z " << near_z)
+		{
+			const float far_z{near_z - 0.4f};
+			auto d{sdlgpu::device::create(test_config(target))};
+			d->clear({.color = true, .depth = true});
+			const depth_quad near_red{{{1, 0, 0, 1}}, near_z, render::depth::test_and_write};
+			const depth_quad far_green{{{0, 1, 0, 1}}, far_z, render::depth::test_and_write};
+			d->draw(near_red.call);
+			d->draw(far_green.call);
+			BOOST_TEST(pixels_other_than(drawing(*d), {{255, 0, 0}}) == 0u);
+			const depth_quad equal_blue{{{0, 0, 1, 1}}, near_z, render::depth::test_and_write};
+			d->draw(equal_blue.call);
+			BOOST_TEST(pixels_other_than(drawing(*d), {{0, 0, 255}}) == 0u);
+		}
+	}
+}
+
+/* Test that a draw with depth off writes no depth: a farther draw with
+ * test_and_write after it still passes against the cleared depth.
+ */
+BOOST_AUTO_TEST_CASE(depth_off_writes_no_depth)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const depth_quad near_red{{{1, 0, 0, 1}}, 0.5f, render::depth::off};
+	const depth_quad far_green{{{0, 1, 0, 1}}, -0.5f, render::depth::test_and_write};
+	d->draw(near_red.call);
+	d->draw(far_green.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), {{0, 255, 0}}) == 0u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

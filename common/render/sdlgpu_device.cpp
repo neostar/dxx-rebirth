@@ -842,4 +842,9 @@ std::string device::driver() const
 	return name ? name : "";
 }
 
+device::buffer_sizes device::upload_buffer_sizes() const
+{
+	return {.transfer = state_->transfer_capacity, .vertices = state_->vertex_capacity};
+}
+
 }

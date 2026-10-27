@@ -178,6 +178,17 @@ class device final : public render::device
 	/* The driver SDL chose: metal, vulkan or direct3d12. */
 	[[nodiscard]]
 	std::string driver() const;
+	/* The transfer ring's and the vertex buffer's sizes in bytes, 0 before
+	 * the first frame with vertices.
+	 */
+	struct buffer_sizes
+	{
+		std::size_t transfer;
+		std::size_t vertices;
+		constexpr bool operator==(const buffer_sizes &) const = default;
+	};
+	[[nodiscard]]
+	buffer_sizes upload_buffer_sizes() const;
 };
 
 }
