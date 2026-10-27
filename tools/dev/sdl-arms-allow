@@ -27,7 +27,7 @@ similar/arch/sdl/init.cpp 2 -- SDL3 branches come with #44 (gamepad)
 similar/main/automap.cpp 1 -- SDL3 branches come with #41 (window events)
 similar/main/game.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/gamecntl.cpp 1 -- SDL3 branches come with #44 (gamepad)
-similar/main/inferno.cpp 2 -- SDL3 branches come with #40 (version report) and #41 (window events)
+similar/main/inferno.cpp 2 -- SDL3 branches come with #41 (window events); one chain nests in the SDL2 version report
 similar/main/kconfig.cpp 10 -- SDL3 branches come with #42-#44 (keyboard, mouse, gamepad)
 similar/main/menu.cpp 2 -- SDL3 branches come with #41 (window) and #46 (music options)
 similar/main/playsave.cpp 2 -- SDL3 branches come with #44 (gamepad)
