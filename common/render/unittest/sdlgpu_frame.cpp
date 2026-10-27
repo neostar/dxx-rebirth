@@ -203,6 +203,32 @@ BOOST_AUTO_TEST_CASE(pipeline_keys_fill_the_set_once)
 	BOOST_CHECK_THROW((void)sdlgpu::key_at(20), std::out_of_range);
 }
 
+/* Test that every sampler key, a filter, a wrap and whether the texture
+ * asks for anisotropy, has its own place in the sampler set and that
+ * sampler_key_at gives the key back.
+ */
+BOOST_AUTO_TEST_CASE(sampler_keys_fill_the_set_once)
+{
+	std::set<std::size_t> seen;
+	for (const auto f : {render::filter::nearest, render::filter::trilinear})
+		for (const auto w : {render::wrap::clamp, render::wrap::repeat})
+			for (const bool a : {false, true})
+			{
+				const sdlgpu::sampler_key k{.filter = f, .wrap = w, .anisotropic = a};
+				const auto i{sdlgpu::index_of(k)};
+				BOOST_TEST(i < sdlgpu::sampler_set_size);
+				BOOST_TEST((sdlgpu::sampler_key_at(i) == k));
+				seen.insert(i);
+			}
+	BOOST_TEST(seen.size() == 8u);
+	BOOST_CHECK_THROW((void)sdlgpu::sampler_key_at(8), std::out_of_range);
+	BOOST_CHECK_THROW(
+	    (void)sdlgpu::index_of(sdlgpu::sampler_key{.filter = static_cast<render::filter>(2),
+		                                           .wrap = render::wrap::clamp,
+		                                           .anisotropic = false}),
+	    std::out_of_range);
+}
+
 /* Test that the pipeline cache is keyed by the draw state's blend, depth
  * and cull: states differing in alpha reference, wrap or line width share
  * a pipeline, and a state differing in blend does not.

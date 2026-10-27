@@ -7,8 +7,8 @@
 
 /*
  * The SDL_GPU adapter's frame logic, without SDL (research #71, Design):
- * the frame record, the pipeline cache key, the bind cache, the upload
- * plan, and the GPU command seam they drive.  sdlgpu_device.cpp gives the
+ * the frame record, the pipeline and sampler keys, the bind cache, the
+ * upload plan, and the GPU command seam they drive.  sdlgpu_device.cpp gives the
  * seam its SDL_GPU adapter; the tests give it a counting fake, so that the
  * SDL calls a frame makes are counted without a GPU.
  */
@@ -77,6 +77,49 @@ constexpr pipeline_key key_at(const std::size_t i)
 	return {.blend = static_cast<render::blend>(i / (depth_count * cull_count)),
 	        .depth = static_cast<render::depth>(i / cull_count % depth_count),
 	        .cull = static_cast<render::cull>(i % cull_count)};
+}
+
+/* What selects a sampler of the closed sampler set: the texture's filter
+ * and whether it asks for anisotropy (texture_desc), and the draw's wrap.
+ * The device builds the set at creation, one sampler per key, the filters
+ * as ogl_loadtexture sets them per texture and the wrap as the front end
+ * sets it per draw.
+ */
+struct sampler_key
+{
+	render::filter filter{render::filter::nearest};
+	render::wrap wrap{render::wrap::clamp};
+	bool anisotropic{false};
+	constexpr bool operator==(const sampler_key &) const = default;
+};
+
+inline constexpr std::size_t filter_count{2};
+inline constexpr std::size_t wrap_count{2};
+/* The closed sampler set: one sampler per key, built at creation. */
+inline constexpr std::size_t sampler_set_size{filter_count * wrap_count * 2};
+
+/* The key's place in the sampler set, below sampler_set_size.  Throws
+ * std::out_of_range on an enum value outside its members.
+ */
+[[nodiscard]]
+constexpr std::size_t index_of(const sampler_key &k)
+{
+	const std::size_t f{std::to_underlying(k.filter)};
+	const std::size_t w{std::to_underlying(k.wrap)};
+	if (f >= filter_count || w >= wrap_count)
+		throw std::out_of_range("sdlgpu: a sampler outside the sampler set");
+	return (f * wrap_count + w) * 2 + (k.anisotropic ? 1 : 0);
+}
+
+/* The key at index i of the sampler set: index_of's inverse. */
+[[nodiscard]]
+constexpr sampler_key sampler_key_at(const std::size_t i)
+{
+	if (i >= sampler_set_size)
+		throw std::out_of_range("sdlgpu: past the sampler set");
+	return {.filter = static_cast<render::filter>(i / (wrap_count * 2)),
+	        .wrap = static_cast<render::wrap>(i / 2 % wrap_count),
+	        .anisotropic = i % 2 != 0};
 }
 
 /* The vertex stage's uniforms (b0, space1): projection, then modelview. */

@@ -263,19 +263,36 @@ texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
 	return {d, SDL_CreateGPUTexture(d, &info), &l, "SDL_CreateGPUTexture"};
 }
 
+/* The sampler of key as ogl_loadtexture sets a texture's filters
+ * (gl_device.cpp's upload): nearest, with anisotropy nearest between
+ * mipmaps; trilinear; anisotropy only where the probe found it.
+ */
 [[nodiscard]]
-sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l,
-                              const SDL_GPUSamplerAddressMode address, const device_caps &caps)
+sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const sampler_key &key,
+                              const device_caps &caps)
 {
+	const bool anisotropic{key.anisotropic && caps.common.anisotropic};
+	const auto address{key.wrap == render::wrap::repeat ? SDL_GPU_SAMPLERADDRESSMODE_REPEAT
+	                                                    : SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE};
 	SDL_GPUSamplerCreateInfo info{};
-	info.min_filter = SDL_GPU_FILTER_LINEAR;
-	info.mag_filter = SDL_GPU_FILTER_LINEAR;
-	info.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+	if (key.filter == render::filter::nearest)
+	{
+		info.min_filter = SDL_GPU_FILTER_NEAREST;
+		info.mag_filter = SDL_GPU_FILTER_NEAREST;
+		info.mipmap_mode =
+		    anisotropic ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+	}
+	else
+	{
+		info.min_filter = SDL_GPU_FILTER_LINEAR;
+		info.mag_filter = SDL_GPU_FILTER_LINEAR;
+		info.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+	}
 	info.address_mode_u = address;
 	info.address_mode_v = address;
 	info.address_mode_w = address;
-	info.max_anisotropy = caps.max_anisotropy;
-	info.enable_anisotropy = caps.common.anisotropic;
+	info.max_anisotropy = anisotropic ? caps.max_anisotropy : 1.f;
+	info.enable_anisotropy = anisotropic;
 	info.max_lod = 1000.f;
 	return {d, SDL_CreateGPUSampler(d, &info), &l, "SDL_CreateGPUSampler"};
 }
@@ -501,7 +518,7 @@ class sdl_commands final : public commands
 		SDL_GPUTexture *color;
 		SDL_GPUTexture *depth;
 		SDL_GPUTexture *white;
-		SDL_GPUSampler *clamp;
+		const std::array<sampler_handle, sampler_set_size> &samplers;
 		SDL_FColor clear_color;
 	};
 
@@ -614,7 +631,8 @@ class sdl_commands final : public commands
 	}
 	void bind_untextured() override
 	{
-		const SDL_GPUTextureSamplerBinding binding{.texture = r_.white, .sampler = r_.clamp};
+		const SDL_GPUTextureSamplerBinding binding{
+		    .texture = r_.white, .sampler = r_.samplers[index_of(sampler_key{})].get()};
 		SDL_BindGPUFragmentSamplers(pass_, 0, &binding, 1);
 	}
 	void push_vertex_uniforms(const vertex_uniforms &u) override
@@ -649,7 +667,8 @@ struct device::state
 	/* A copy of the colour target as the last present left it. */
 	texture_handle presented;
 	texture_handle white;
-	std::array<sampler_handle, 2> samplers;
+	/* The closed sampler set, indexed by sampler_key. */
+	std::array<sampler_handle, sampler_set_size> samplers;
 	std::vector<pipeline_handle> pipelines;
 	std::chrono::nanoseconds pipeline_time{};
 	/* The transfer ring and the vertex buffer, made by the first frame
@@ -679,7 +698,7 @@ struct device::state
 		                                .color = color.get(),
 		                                .depth = depth.get(),
 		                                .white = white.get(),
-		                                .clamp = samplers[0].get(),
+		                                .samplers = samplers,
 		                                .clear_color = {.r = unit(cfg.clear_rgba[0]),
 		                                                .g = unit(cfg.clear_rgba[1]),
 		                                                .b = unit(cfg.clear_rgba[2]),
@@ -720,8 +739,8 @@ std::unique_ptr<device> device::create(const config &c)
 	s->presented = create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, c.target);
 	s->white = create_white(d, l);
 	s->record = sdlgpu::frame{c.target};
-	s->samplers = {create_sampler(d, l, SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, s->caps),
-	               create_sampler(d, l, SDL_GPU_SAMPLERADDRESSMODE_REPEAT, s->caps)};
+	for (std::size_t i{0}; i != sampler_set_size; ++i)
+		s->samplers.at(i) = create_sampler(d, l, sampler_key_at(i), s->caps);
 	s->pipeline_time = build_pipelines(d, l, s->caps, s->pipelines);
 	const device_caps caps{s->caps};
 	return std::make_unique<device>(passkey{}, caps, std::move(s));

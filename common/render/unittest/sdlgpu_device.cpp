@@ -207,8 +207,8 @@ BOOST_AUTO_TEST_CASE(read_pixels_checks_its_buffer)
 	BOOST_TEST(outside == zero, boost::test_tools::per_element());
 }
 
-/* Test that the device holds its closed pipeline set, its samplers and its
- * two targets while it lives, and nothing of any kind after it is gone,
+/* Test that the device holds its closed pipeline and sampler sets and its
+ * targets while it lives, and nothing of any kind after it is gone,
  * also after readbacks (the resource-leak gate, #56).
  */
 BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
@@ -217,7 +217,7 @@ BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
 	const auto ledger{d->ledger()};
 	const auto live{ledger->counts()};
 	BOOST_TEST(live.pipelines == sdlgpu::pipeline_set_size);
-	BOOST_TEST(live.samplers == 2u);
+	BOOST_TEST(live.samplers == sdlgpu::sampler_set_size);
 	/* Colour, depth, the presented copy and the white texture. */
 	BOOST_TEST(live.textures == 4u);
 	/* The shaders are released once the pipeline set is built. */
