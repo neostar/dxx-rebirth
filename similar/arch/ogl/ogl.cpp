@@ -643,28 +643,24 @@ namespace dcx {
 
 void g3_draw_line(const g3_draw_line_context &context, const g3_draw_line_point &p0, const g3_draw_line_point &p1)
 {
-	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY> cs;
-	OGL_DISABLE(TEXTURE_2D);
+	/* GL's culling must keep equal to the ambient state's (gl_state.h,
+	 * invariant (a)): the state shadow may believe culling off already
+	 * after ogl_start_frame turned it on behind its back.
+	 */
 	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
-	std::array<GLfloat, 6> vertices = {{
-		f2glf(p0.p3_vec.x), f2glf(p0.p3_vec.y), -f2glf(p0.p3_vec.z),
-		f2glf(p1.p3_vec.x), f2glf(p1.p3_vec.y), -f2glf(p1.p3_vec.z)
+	const auto &c{context.color_array};
+	const std::array<render::vertex, 2> vertices{{
+		{.pos = {{f2glf(p0.p3_vec.x), f2glf(p0.p3_vec.y), -f2glf(p0.p3_vec.z)}}, .rgba = {{c[0], c[1], c[2], c[3]}}, .uv = {{0, 0}}},
+		{.pos = {{f2glf(p1.p3_vec.x), f2glf(p1.p3_vec.y), -f2glf(p1.p3_vec.z)}}, .rgba = {{c[4], c[5], c[6], c[7]}}, .uv = {{0, 0}}},
 	}};
-	glVertexPointer(3, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, context.color_array.data());
-	glDrawArrays(GL_LINES, 0, 2);
+	/* In the ambient line width: GL's, which glDrawArrays drew with before
+	 * the render device.
+	 */
+	ogl_device().draw(ogl_ambient().call(render::topology::lines, vertices));
 }
 
 namespace {
-
-static void ogl_drawcircle(const unsigned nsides, const unsigned type, GLfloat *const vertices)
-{
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(2, GL_FLOAT, 0, vertices);
-	glDrawArrays(type, 0, nsides);
-	glDisableClientState(GL_VERTEX_ARRAY);
-}
 
 static std::unique_ptr<GLfloat[]> circle_array_init(const unsigned nsides)
 {
@@ -718,8 +714,8 @@ static std::vector<render::vertex> ogl_circle_vertices(const std::span<const GLf
 /* Draws vertices as t through the render device in the ambient state,
  * moved by glTranslatef(translate) and glScalef(scale) from the identity
  * modelview, with line_width for lines.  The code not yet drawing through
- * the device expects the identity modelview the game draws 2D with, which
- * glPopMatrix restored before; an empty draw in the ambient state restores
+ * the device expects the identity modelview the game draws 2D and 3D with,
+ * which glPopMatrix restored before; an empty draw in the ambient state restores
  * it now, through the state shadow, so the shadow knows the modelview GL
  * holds (popping it behind the shadow's back would leave the shadow
  * believing the moved one is current, and skip it on the next such draw).
@@ -911,9 +907,10 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 			secondary_lva[2] = circle_array_init_2(16, 2.0, 0.0, 2.0, -8.0);
 		secondary_circle(secondary_lva[2].get(), secondary != 4 ? dark_lca : bright_lca);
 	}
-	/* The code not yet drawing through the device draws lines this wide.
-	 * An empty line draw sets it through the state shadow, so the shadow
-	 * knows GL's width and sets twice it again for the next reticle.
+	/* Other lines draw this wide, and ogl_start_frame sets this width with
+	 * glLineWidth behind the state shadow's back.  An empty line draw sets
+	 * it through the shadow, so the shadow knows GL's width and sets twice
+	 * it again for the next reticle.
 	 */
 	auto &ambient{ogl_ambient()};
 	ambient.line_width = linedotscale;
@@ -925,24 +922,11 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
  */
 void g3_draw_sphere(grs_canvas &canvas, const g3_draw_sphere_point &pnt, fix rad, const uint8_t c)
 {
-	int i;
 	const float scale = (static_cast<float>(canvas.cv_bitmap.bm_w) / canvas.cv_bitmap.bm_h);
-	std::array<GLfloat, 20 * 4> color_array;
-	const auto color_r{CPAL2Tr(c)};
-	const auto color_g{CPAL2Tg(c)};
-	const auto color_b{CPAL2Tb(c)};
-	for (i = 0; i < 20*4; i += 4)
-	{
-		color_array[i] = color_r;
-		color_array[i+1] = color_g;
-		color_array[i+2] = color_b;
-		color_array[i+3] = 1.0;
-	}
-	OGL_DISABLE(TEXTURE_2D);
+	const std::array<float, 4> rgba{{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), 1.0}};
 	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
-	glPushMatrix();
-	glTranslatef(f2glf(pnt.p3_vec.x),f2glf(pnt.p3_vec.y),-f2glf(pnt.p3_vec.z));
+	const std::array<float, 3> translate{{f2glf(pnt.p3_vec.x), f2glf(pnt.p3_vec.y), -f2glf(pnt.p3_vec.z)}};
 	GLfloat gl1, gl2;
 	if (scale >= 1)
 	{
@@ -956,14 +940,11 @@ void g3_draw_sphere(grs_canvas &canvas, const g3_draw_sphere_point &pnt, fix rad
 		gl1 = f2glf(rad/scale);
 		gl2 = f2glf(rad);
 	}
-	glScalef(gl1, gl2, f2glf(rad));
+	const std::array<float, 3> scale_xyz{{gl1, gl2, f2glf(rad)}};
 	if(!sphere_va)
 		sphere_va = circle_array_init(20);
-	glEnableClientState(GL_COLOR_ARRAY);
-	glColorPointer(4, GL_FLOAT, 0, color_array.data());
-	ogl_drawcircle(20, GL_TRIANGLE_FAN, sphere_va.get());
-	glDisableClientState(GL_COLOR_ARRAY);
-	glPopMatrix();
+	const auto vertices{ogl_circle_vertices(std::span<const GLfloat>(sphere_va.get(), 20 * 2), rgba)};
+	ogl_draw_moved(render::topology::fan, vertices, translate, scale_xyz, ogl_ambient().line_width);
 }
 
 int gr_ucircle(grs_canvas &canvas, const fix xc1, const fix yc1, const fix r1, const uint8_t c)
