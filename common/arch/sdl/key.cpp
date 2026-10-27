@@ -19,7 +19,7 @@
 
 #include <SDL.h>
 #include <SDL_version.h>
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 #include <SDL_keycode.h>
 #endif
 
@@ -156,7 +156,7 @@ constexpr std::array<key_props, 256> key_properties = {{
 { "",       255,    SDLK_UNKNOWN                 },
 { "",       255,    SDLK_UNKNOWN                 },
 { "PAUSE",  255,    SDLK_PAUSE         },
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 #define SDLK_WORLD_0	SDLK_UNKNOWN
 #define SDLK_WORLD_1	SDLK_UNKNOWN
 #define SDLK_WORLD_2	SDLK_UNKNOWN
@@ -483,15 +483,23 @@ void pressed_keys::update(const std::size_t keycode, const uint8_t down)
 
 window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 {
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 	if (!keyd_repeat && kevent->repeat)
 		return window_event_result::ignored;
 #endif
 	// Read SDLK symbol and state
+#if SDL_MAJOR_VERSION == 3
+	const auto event_keysym = kevent->key;
+#else
 	const auto event_keysym = kevent->keysym.sym;
+#endif
 	if (event_keysym == SDLK_UNKNOWN)
 		return window_event_result::ignored;
+#if SDL_MAJOR_VERSION == 3
+	const auto key_state = kevent->down;
+#else
 	const auto key_state = (kevent->state != SDL_RELEASED);
+#endif
 
 	// fill the unicode frame-related unicode buffer 
 	if (key_state)
@@ -500,6 +508,8 @@ window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 		const auto sym = kevent->keysym.unicode;
 #elif SDL_MAJOR_VERSION == 2
 		const auto sym = kevent->keysym.sym;
+#elif SDL_MAJOR_VERSION == 3
+		const auto sym = kevent->key;
 #endif
 		if (sym > 31 && sym < 255)
 		{
@@ -565,11 +575,16 @@ void key_init()
 
 namespace {
 
+#if SDL_MAJOR_VERSION == 3
+/* SDL_GetKeyboardState returns an array of bool in SDL3. */
+static void restore_sticky_key(const bool *keystate, const unsigned i)
+#else
 static void restore_sticky_key(const uint8_t *keystate, const unsigned i)
+#endif
 {
 #if SDL_MAJOR_VERSION == 1
 	const auto ki = key_properties[i].sym;
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	const auto ki{i};
 #endif
 	const auto v = keystate[ki];	// do not flush status of sticky keys
@@ -588,7 +603,7 @@ void key_flush()
 #if SDL_MAJOR_VERSION == 1
 	const auto &keystate = SDL_GetKeyState(nullptr);
 #define DXX_SDL_STICKY_KEYS	{KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLOCK}
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	const auto &keystate = SDL_GetKeyboardState(nullptr);
 #define DXX_SDL_STICKY_KEYS	{SDL_SCANCODE_CAPSLOCK, SDL_SCANCODE_SCROLLLOCK, SDL_SCANCODE_NUMLOCKCLEAR}
 #endif

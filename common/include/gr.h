@@ -250,7 +250,11 @@ struct RAII_SDL_Surface
 	{
 		static void operator()(SDL_Surface *s)
 		{
+#if SDL_MAJOR_VERSION == 3
+			SDL_DestroySurface(s);
+#else
 			SDL_FreeSurface(s);
+#endif
 		}
 	};
 	std::unique_ptr<SDL_Surface, deleter> surface;

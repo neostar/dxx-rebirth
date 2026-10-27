@@ -29,7 +29,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <SDL_version.h>
 #if SDL_MAJOR_VERSION == 1
 #include <SDL_keysym.h>
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 #include <SDL_keyboard.h>
 #endif
 #include "pstypes.h"
@@ -229,7 +229,7 @@ struct key_props
 	unsigned char ascii_value;
 #if SDL_MAJOR_VERSION == 1
 	SDLKey sym;
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	SDL_Keycode sym;
 #endif
 };
