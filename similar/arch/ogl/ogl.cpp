@@ -1453,7 +1453,7 @@ void harness_log_frame_hash()
 	}()};
 #if DXX_USE_STEREOSCOPIC_RENDER
 	if (VR_stereo == StereoFormat::QuadBuffers)
-		UserError("DXX_DBG_FRAMEHASH: quad-buffer stereo is not hashed, only one eye would be");
+		UserError("%s", "DXX_DBG_FRAMEHASH: quad-buffer stereo is not hashed, only one eye would be");
 #endif
 	const frame_size size{.width = grd_curscreen->get_screen_width(), .height = grd_curscreen->get_screen_height()};
 	static std::vector<std::uint8_t> pixels;
