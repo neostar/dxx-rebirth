@@ -47,6 +47,23 @@ BOOST_AUTO_TEST_CASE(gl_caps_anisotropy_above_one)
 	BOOST_TEST(render::gl_caps(16.0f).anisotropic);
 }
 
+/* Test that quad-buffer stereo is a cap of a desktop GL context with
+ * stereo buffers only, and copy_region of any desktop GL context.
+ */
+BOOST_AUTO_TEST_CASE(gl_caps_stereo_needs_desktop_gl_with_stereo_buffers)
+{
+	const auto caps_of{[](const bool stereo_buffers, const bool desktop) {
+		return render::gl_caps(
+		    {.max_anisotropy = 0.f, .stereo_buffers = stereo_buffers, .desktop = desktop});
+	}};
+	BOOST_TEST(caps_of(true, true).quad_buffer_stereo);
+	BOOST_TEST(!caps_of(false, true).quad_buffer_stereo);
+	BOOST_TEST(!caps_of(true, false).quad_buffer_stereo);
+	BOOST_TEST(caps_of(false, true).copy_region);
+	BOOST_TEST(!caps_of(true, false).copy_region);
+	BOOST_TEST(!render::gl_caps(16.0f).quad_buffer_stereo);
+}
+
 namespace {
 
 /* A device that supports the depth formats and sample counts given, kept

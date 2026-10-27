@@ -318,6 +318,31 @@ std::size_t gl_device::texture_count() const
 	return names_.size();
 }
 
+void gl_device::select_eye(const eye e)
+{
+	if (!caps().quad_buffer_stereo)
+		return device::select_eye(e);
+#if !DXX_USE_OGLES
+	glDrawBuffer(e == eye::left ? GL_BACK_LEFT : GL_BACK_RIGHT);
+#endif
+}
+
+void gl_device::copy_region(const copy_rect &rect, const bool from_left_eye)
+{
+	if (!caps().copy_region || (from_left_eye && !caps().quad_buffer_stereo))
+		return device::copy_region(rect, from_left_eye);
+#if !DXX_USE_OGLES
+	if (from_left_eye)
+	{
+		glReadBuffer(GL_BACK_LEFT);
+		glDrawBuffer(GL_BACK_RIGHT);
+	}
+	glWindowPos2i(rect.dest_x, rect.dest_y);
+	glCopyPixels(rect.src_x, rect.src_y, static_cast<GLsizei>(rect.size.width),
+	             static_cast<GLsizei>(rect.size.height), GL_COLOR);
+#endif
+}
+
 void gl_device::clear(const clear_targets targets)
 {
 	GLbitfield bits{0};

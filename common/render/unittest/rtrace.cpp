@@ -648,3 +648,30 @@ BOOST_AUTO_TEST_CASE(direct_draw_after_moved_draw_is_not_moved)
 	BOOST_TEST((column(rgb, target.width / 4) == std::array<std::uint8_t, 3>{{0, 255, 0}}));
 	BOOST_TEST((column(rgb, target.width * 3 / 4) == std::array<std::uint8_t, 3>{{255, 0, 0}}));
 }
+
+/* Test that copy_region copies the rectangle of the target to another
+ * place: the top half, red, copied over the bottom half, which was cleared,
+ * leaves every pixel red.  Copying between eyes needs a stereo context, which
+ * this one is not: it throws, as does selecting an eye.
+ */
+BOOST_AUTO_TEST_CASE(copy_region_copies_a_rectangle_and_guards_its_caps)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	BOOST_TEST(d.caps().copy_region);
+	BOOST_TEST(!d.caps().quad_buffer_stereo);
+	d.clear({.color = true, .depth = true});
+	const quad top_half{red, 0.5f};
+	d.draw(top_half.call);
+	const std::int32_t half{static_cast<std::int32_t>(target.height / 2)};
+	const render::copy_rect up_to_down{
+	    .src_x = 0,
+	    .src_y = half,
+	    .dest_x = 0,
+	    .dest_y = 0,
+	    .size = {.width = target.width, .height = target.height / 2}};
+	d.copy_region(up_to_down, false);
+	BOOST_TEST(every_pixel_is(drawing(d), {{255, 0, 0}}));
+	BOOST_CHECK_THROW(d.copy_region(up_to_down, true), std::logic_error);
+	BOOST_CHECK_THROW(d.select_eye(render::eye::right), std::logic_error);
+}

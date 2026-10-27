@@ -132,6 +132,12 @@ class gl_device final : public device
 	 */
 	void read_pixels(read_source source, const read_rect &rect, pixel_format format,
 	                 std::span<std::uint8_t> pixels) override;
+	/* glDrawBuffer(GL_BACK_LEFT or GL_BACK_RIGHT), as the stereo frames did. */
+	void select_eye(eye e) override;
+	/* glWindowPos2i and glCopyPixels, after glReadBuffer(GL_BACK_LEFT) and
+	 * glDrawBuffer(GL_BACK_RIGHT) when from_left_eye.
+	 */
+	void copy_region(const copy_rect &rect, bool from_left_eye) override;
 };
 
 }

@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <span>
+#include <stdexcept>
 
 #include "common/render/caps.h"
 #include "common/render/readback.h"
@@ -33,6 +34,26 @@ struct clear_targets
 	bool color;
 	bool depth;
 	constexpr bool operator==(const clear_targets &) const = default;
+};
+
+/* An eye of quad-buffer stereo. */
+enum class eye : std::uint8_t
+{
+	left,
+	right,
+};
+
+/* A rectangle of the target copied to another place of it, in pixels with
+ * the origin at the bottom left (as viewport).
+ */
+struct copy_rect
+{
+	std::int32_t src_x;
+	std::int32_t src_y;
+	std::int32_t dest_x;
+	std::int32_t dest_y;
+	render::extent size;
+	constexpr bool operator==(const copy_rect &) const = default;
 };
 
 /* All calls run on the thread that created the device.  The caps are data
@@ -63,6 +84,24 @@ class device
 	 */
 	virtual void read_pixels(read_source source, const read_rect &rect, pixel_format format,
 	                         std::span<std::uint8_t> pixels) = 0;
+	/* Sends the draws that follow to the eye's buffers.  Needs
+	 * caps().quad_buffer_stereo; throws std::logic_error without it.
+	 */
+	virtual void select_eye(eye e)
+	{
+		(void)e;
+		throw std::logic_error("device::select_eye: no quad_buffer_stereo cap");
+	}
+	/* Copies rect of the target; with from_left_eye, from the left eye's
+	 * buffer to the right eye's.  Needs caps().copy_region (and
+	 * quad_buffer_stereo for from_left_eye); throws std::logic_error without
+	 * them.
+	 */
+	virtual void copy_region(const copy_rect &rect, bool from_left_eye)
+	{
+		(void)rect, (void)from_left_eye;
+		throw std::logic_error("device::copy_region: no copy_region cap");
+	}
 	[[nodiscard]]
 	const render::caps &caps() const
 	{
