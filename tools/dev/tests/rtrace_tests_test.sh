@@ -6,14 +6,15 @@ source "$(dirname "$0")/lib.sh"
 
 # Make a directory holding tools/dev/rtrace-tests.sh, a fake build.sh, a
 # pass-through no-window.sh, a stand-in sample and fake programs, and print
-# its path.  The fake build.sh writes
+# its path, with a stand-in overbright trace.  The fake build.sh writes
 # build/<profile>/config.log naming $FAKE_SDL (default SDL2) and, for the
 # programs, fails when FAKE_BUILD_FAIL=1 and else installs them.  The fake
 # test-rtrace writes the passing report line unless FAKE_NO_REPORT=1; the
 # fake rtrace logs the sample's two lines, frame 0's as $FAKE_FRAME0 when
 # set, run 2 an extra line when FAKE_DIFFER=1, and fails on the frameless
 # trace (on its header unless FAKE_FRAMELESS_OTHER=1) unless
-# FAKE_FRAMELESS_PASSES=1; either sleeps $FAKE_SLEEP s, test-rtrace in a
+# FAKE_FRAMELESS_PASSES=1, and on the overbright trace its two lines,
+# frame 0's as $FAKE_OVERBRIGHT0 when set; either sleeps $FAKE_SLEEP s, test-rtrace in a
 # child whose pid it writes to test-rtrace.child.  With FAKE_GPU=1 it also
 # installs a fake rtrace-gpu in build/<profile>-sdl3/common, which prints
 # the driver line of $FAKE_GPU_DRIVER (default Metal) and logs the sample's
@@ -25,6 +26,8 @@ make_rtrace_repo()
 	r=$(make_scratch) || die "make_scratch failed"
 	mkdir -p "$r/tools/dev" "$r/fakes" "$r/common/render/rtrace/synthetic"
 	printf 'a stand-in for the sample trace\n' > "$r/common/render/rtrace/synthetic/sample.rtr"
+	printf 'a stand-in for the overbright trace\n' \
+		> "$r/common/render/rtrace/synthetic/overbright.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -73,6 +76,10 @@ if [[ $1 == *no-frames.rtr && ${FAKE_FRAMELESS_PASSES-} != 1 ]]; then
 	[[ ${FAKE_FRAMELESS_OTHER-} == 1 ]] && { echo "rtrace: $1: bad magic header" >&2; exit 1; }
 	echo "rtrace: $1: no frame presented" >&2
 	exit 1
+fi
+if [[ $1 == *overbright.rtr ]]; then
+	printf '%s\n' "${FAKE_OVERBRIGHT0:-0 64x48 5d1b6b445fb7f05a}" '1 64x48 418a435cc9c67e56' > "$2"
+	exit 0
 fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 [[ ${FAKE_DIFFER-} == 1 && $2 == *run2.log ]] && echo extra >> "$2"
@@ -227,6 +234,19 @@ test_rtrace_gpu_logs_the_pinned_lines()
 		rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 	assert_contains "$out" "SKIP rtrace-gpu (dev): driver Vulkan"
+}
+
+# Test that rtrace logging other lines than the overbright trace's pins
+# fails, naming the trace.
+test_overbright_lines_are_pinned()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_OVERBRIGHT0='0 64x48 2222222222222222' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the overbright trace:"
+	assert_contains "$out" "0 64x48 2222222222222222"
 }
 
 run_tests --parallel

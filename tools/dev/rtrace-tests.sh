@@ -9,10 +9,11 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample trace to compare with its writer, its report written to a file
-#   and read back;
+#   sample and overbright traces to compare with their writers, its report
+#   written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
+# - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, through
@@ -54,6 +55,19 @@ limit=${RTRACE_TEST_TIMEOUT:-300}
 # 0, the shaded triangle, as Apple's GL draws it (M1 Max, macOS 26.7).
 expected=('0 64x48 86388f1d5003af2a' '1 64x48 9f40fbb36ef64325')
 sample=$root/common/render/rtrace/synthetic/sample.rtr
+# The overbright trace's lines (#27), as Apple's GL draws them (M1 Max,
+# macOS 26.7).
+expected_overbright=('0 64x48 5d1b6b445fb7f05a' '1 64x48 418a435cc9c67e56')
+overbright=$root/common/render/rtrace/synthetic/overbright.rtr
+
+# Whether log $1 holds exactly the two lines $2 and $3.
+logs_lines()
+{
+	local lines
+	[[ -s $1 ]] || return 1
+	mapfile -t lines < "$1"
+	[[ ${#lines[@]} -eq 2 && ${lines[0]} == "$2" && ${lines[1]} == "$3" ]]
+}
 
 # Print process $1 and all its descendants, one pid a line.
 tree_pids()
@@ -115,7 +129,7 @@ rc=0
 # The replay tests.
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
-	--report_sink="$report" -- "$sample"; then
+	--report_sink="$report" -- "$sample" "$overbright"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -143,6 +157,16 @@ if [[ -s $tmp/run1.log && -s $tmp/run2.log ]] && cmp -s "$tmp/run1.log" "$tmp/ru
 	fi
 else
 	echo "rtrace-tests: the two runs of rtrace logged different or no frame hashes" >&2
+	rc=1
+fi
+# rtrace on the overbright trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$overbright" \
+	"$tmp/overbright.log"; then
+	echo "rtrace-tests: rtrace on the overbright trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/overbright.log" "${expected_overbright[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the overbright trace:" >&2
+	cat "$tmp/overbright.log" >&2
 	rc=1
 fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,

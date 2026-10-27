@@ -344,20 +344,41 @@ BOOST_AUTO_TEST_CASE(malformed_trace_reports_its_error_after_its_frames)
 	BOOST_TEST(o.frames.front().frame == 0u);
 }
 
+namespace {
+
+/* The bytes of the committed trace the i-th argument after `--` names:
+ * tools/dev/rtrace-tests.sh passes the sample's, then the overbright
+ * trace's.
+ */
+[[nodiscard]]
+bytes committed_trace(const std::size_t i)
+{
+	const auto &suite{boost::unit_test::framework::master_test_suite()};
+	BOOST_REQUIRE_MESSAGE(suite.argc == 3,
+	                      "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT");
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
+	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
+	std::ifstream in{args[i], std::ios::binary};
+	BOOST_REQUIRE(in.good());
+	return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+}
+
+}
+
 /* Test that the committed sample trace is the writer's: its bytes are what
- * sample_trace() writes.  tools/dev/rtrace-tests.sh passes its path after
- * `--`.
+ * sample_trace() writes.
  */
 BOOST_AUTO_TEST_CASE(sample_trace_is_the_writers)
 {
-	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE_MESSAGE(suite.argc == 2, "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE");
-	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
-	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
-	std::ifstream in{args[1], std::ios::binary};
-	BOOST_REQUIRE(in.good());
-	const bytes committed{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-	BOOST_TEST((committed == render::rtrace::sample_trace()));
+	BOOST_TEST((committed_trace(1) == render::rtrace::sample_trace()));
+}
+
+/* Test that the committed overbright trace is the writer's: its bytes are
+ * what overbright_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(overbright_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(2) == render::rtrace::overbright_trace()));
 }
 
 /* Test that a textured draw samples the texture of its own slot, not the
