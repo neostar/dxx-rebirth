@@ -369,20 +369,21 @@ static void ogl_texture_stats(grs_canvas &canvas)
 }
 
 /* The texture of bm, uploaded if it holds none; the render device binds it
- * when a draw uses its slot.
+ * when a draw uses its slot.  nullptr when there is nothing to draw: only if
+ * a game data file is missing is `gltexture` nullptr, or holds no GL texture
+ * (a stale entry, as after ogl_smash_texture_list_internal); the device draws
+ * no slot without a texture.
  */
 [[nodiscard]]
-static auto ogl_loaded_bmtex(grs_bitmap &bm, const bool edgepad)
+static ogl_texture *ogl_loaded_bmtex(grs_bitmap &bm, const bool edgepad)
 {
 	if (bm.gltexture==NULL || bm.gltexture->handle<=0)
 		ogl_loadbmtexture(bm, edgepad);
 	const auto gltexture{bm.gltexture};
-	if (gltexture) [[likely]]
-	{
-		/* `gltexture` will only be `nullptr` if a game data file is missing. */
-		gltexture->numrend++;
-	}
-	return gltexture;
+	if (!gltexture) [[unlikely]]
+		return nullptr;
+	gltexture->numrend++;
+	return gltexture->handle ? gltexture : nullptr;
 }
 
 //gltexture MUST be bound first
@@ -962,10 +963,7 @@ void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 
 	if (tmap_drawer_ptr == draw_tmap) {
 		const auto gltexture{ogl_loaded_bmtex(bm, 0)};
-		if (!gltexture || !gltexture->handle) [[unlikely]]
-			/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
-			 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
-			 * no slot without a texture. */
+		if (!gltexture) [[unlikely]]
 			return;
 		texture = ogl_texture_slot(*gltexture);
 		wrap = render::wrap::repeat;
@@ -1015,10 +1013,7 @@ void _g3_draw_tmap_2(grs_canvas &canvas, const std::span<g3_draw_tmap_point *con
 	_g3_draw_tmap(canvas, pointlist, uvl_list.data(), light_rgb.data(), bmbot, tmap_drawer_ptr);//draw the bottom texture first.. could be optimized with multitexturing..
 	r_tpolyc++;
 	const auto gltexture{ogl_loaded_bmtex(bm, 1)};
-	if (!gltexture || !gltexture->handle) [[unlikely]]
-		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
-		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
-		 * no slot without a texture. */
+	if (!gltexture) [[unlikely]]
 		return;
 
 	const GLfloat alpha = (canvas.cv_fade_level >= GR_FADE_OFF)
@@ -1060,10 +1055,7 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, const fix iwidth,
 	r_bitmapc++;
 
 	const auto gltexture{ogl_loaded_bmtex(bm, 0)};
-	if (!gltexture || !gltexture->handle) [[unlikely]]
-		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
-		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
-		 * no slot without a texture. */
+	if (!gltexture) [[unlikely]]
 		return;
 
 	const auto width = fixmul(iwidth, Matrix_scale.x);
@@ -1767,10 +1759,7 @@ void ogl_ubitmapm_cs(grs_canvas &canvas, const int entry_x, const int entry_y, c
 			: entry_dh);
 
 	const auto gltexture{ogl_loaded_bmtex(bm, 0)};
-	if (!gltexture || !gltexture->handle) [[unlikely]]
-		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
-		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
-		 * no slot without a texture. */
+	if (!gltexture) [[unlikely]]
 		return;
 
 	const auto vertices{render::blit_vertices(
