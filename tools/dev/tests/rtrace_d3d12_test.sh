@@ -15,8 +15,10 @@ d3d12_lines='INFO: Validation layers enabled, expect debug level performance!
 INFO: SDL_GPU Driver: D3D12
 INFO: D3D12 Adapter: Microsoft Basic Render Driver
 INFO: D3D12 Driver: 10.0.26100.1
-INFO: sdlgpu: debug mode on
-rtrace-gpu: D3D12 GPU-based validation on'
+rtrace-gpu: D3D12 GPU-based validation requested
+rtrace-gpu: D3D12 debug layer startup options: GPU-Based Validation: Enabled
+rtrace-gpu: D3D12 GPU-based validation confirmed on SDL'"'"'s device
+INFO: sdlgpu: debug mode on'
 # What a run under Wine prints: no debug layer, no GPU-based validation
 # asked for, and a Vulkan device behind D3D12.
 wine_lines='WARNING: Validation layers not found, continuing without validation
@@ -30,7 +32,7 @@ INFO: sdlgpu: debug mode on'
 # DXX_D3D12_GPU_VALIDATION in calls.log beside it, and writes the trace's
 # pinned lines (or $FAKE_LINES, | between lines, when set; their hashes
 # replaced by $FAKE_HASH, when set) to its log, CR LF
-# too.
+# too.  With $FAKE_SLEEP set it hangs that many seconds first.
 fake_build()
 {
 	local d
@@ -40,6 +42,7 @@ fake_build()
 here=$(cd "$(dirname "$0")" && pwd)
 echo "${1##*/} ${SDL_GPU_DRIVER-unset} ${DXX_D3D12_GPU_VALIDATION-unset}" >> "$here/calls.log"
 printf '%s\n' "${FAKE_OUT-$D3D12_LINES}" | sed 's/$/\r/'
+[[ -z ${FAKE_SLEEP-} ]] || sleep "$FAKE_SLEEP"
 case ${1##*/} in
 	sample.rtr) lines=$PIN_SAMPLE ;;
 	overbright.rtr) lines=$PIN_OVERBRIGHT ;;
@@ -153,17 +156,40 @@ test_other_adapter_driver_or_no_adapter_fails()
 	assert_contains "$out" "status 1"
 }
 
-# Test that a run whose GPU-based validation is not confirmed fails: no
-# line, or the program's line that it could not be enabled.
+# Test that a run whose GPU-based validation is not confirmed from SDL's
+# device fails: requested only (the program's own line), no startup options
+# line, the old self-reported line, or the program's line that it could
+# not be enabled.
 test_gpu_based_validation_not_confirmed_fails()
+{
+	local d out confirmed options requested form
+	d=$(fake_build)
+	confirmed="rtrace-gpu: D3D12 GPU-based validation confirmed on SDL's device"
+	options='rtrace-gpu: D3D12 debug layer startup options: GPU-Based Validation: Enabled'
+	requested='rtrace-gpu: D3D12 GPU-based validation requested'
+	for form in "${d3d12_lines/$confirmed/}" "${d3d12_lines/$options/}" \
+		"${d3d12_lines/$confirmed/rtrace-gpu: D3D12 GPU-based validation on}" \
+		"${d3d12_lines/$confirmed/ $confirmed}" \
+		"${d3d12_lines/$requested/rtrace-gpu: D3D12 GPU-based validation could not be enabled: no ID3D12Debug1}"; do
+		[[ $form == *"could not be enabled"* ]] && form=${form/$confirmed/} && form=${form/$options/}
+		out=$(FAKE_OUT=$form check "$d")
+		assert_contains "$out" "rtrace-d3d12: the sample trace did not confirm GPU-based validation on SDL's device"
+		assert_contains "$out" "status 1"
+		assert_not_contains "$out" "rtrace-d3d12: passed"
+	done
+}
+
+# Test that a hung run fails as a timeout, naming the trace and the limit
+# (DXX_D3D12_TIMEOUT seconds, default 300), in both modes.
+test_hung_run_times_out()
 {
 	local d out
 	d=$(fake_build)
-	out=$(FAKE_OUT="${d3d12_lines/rtrace-gpu: D3D12 GPU-based validation on/}" check "$d")
-	assert_contains "$out" "rtrace-d3d12: the sample trace did not confirm GPU-based validation"
+	out=$(FAKE_SLEEP=30 DXX_D3D12_TIMEOUT=1 check "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace timed out after 1 s"
 	assert_contains "$out" "status 1"
-	out=$(FAKE_OUT="${d3d12_lines/rtrace-gpu: D3D12 GPU-based validation on/rtrace-gpu: D3D12 GPU-based validation could not be enabled: no ID3D12Debug1}" check "$d")
-	assert_contains "$out" "rtrace-d3d12: the sample trace did not confirm GPU-based validation"
+	out=$(FAKE_OUT=$wine_lines FAKE_SLEEP=30 DXX_D3D12_TIMEOUT=1 check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace timed out after 1 s"
 	assert_contains "$out" "status 1"
 }
 
@@ -249,6 +275,10 @@ test_usage_and_missing_build()
 	assert_contains "$(check '')" "status 2"
 	assert_contains "$(check --bogus "$d")" "status 2"
 	assert_contains "$(check --hashes)" "status 2"
+	assert_contains "$(check --smoke --hashes "$d/h.txt" "$d")" "status 2"
+	assert_contains "$(check --hashes "$d/h.txt" --smoke "$d")" "status 2"
+	assert_contains "$(DXX_D3D12_TIMEOUT=0 check "$d")" "status 2"
+	assert_contains "$(DXX_D3D12_TIMEOUT=x check "$d")" "status 2"
 	assert_contains "$(check "$d")" "rtrace-d3d12: no rtrace-gpu.exe in $d"
 	assert_contains "$(check "$d")" "status 1"
 	assert_contains "$(check --smoke "$d")" "status 1"

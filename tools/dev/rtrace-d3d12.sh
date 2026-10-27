@@ -11,14 +11,18 @@
 # are a platform's: the logs' CRs are dropped, nothing else.  Prints
 # `rtrace-d3d12: passed` (`smoke test passed`) and exits 0 when every trace
 # passes; 1 otherwise; 2 on a usage error.  Runs in Git Bash on Windows (the
-# workflow d3d12-check.yml), which ends a hung run by its job's timeout.
+# workflow d3d12-check.yml).  Each run has DXX_D3D12_TIMEOUT seconds
+# (default 300) under timeout(1), then a KILL 10 s later; one that runs
+# out fails as a timeout.
 #
 # Default (the GitHub run, WARP): each run goes through gpu-validate.sh,
 # which fails it on any SDL warning or error (the D3D12 debug layer's
 # messages among them) and when SDL's "Validation layers enabled" line is
 # missing.  DXX_D3D12_GPU_VALIDATION=1 asks rtrace-gpu.exe for GPU-based
-# validation (SDL 3.4.18 never enables it); the run fails unless its log has
-# rtrace-gpu's line saying it is on.  The adapter must be WARP (Microsoft
+# validation (SDL 3.4.18 never enables it) and to confirm it from SDL's
+# device; the run fails unless its log has rtrace-gpu's line `rtrace-gpu:
+# D3D12 GPU-based validation confirmed on SDL's device` and the debug
+# layer's startup options it read that from.  The adapter must be WARP (Microsoft
 # Basic Render Driver).  Every trace must render all its frames: one frame
 # hash line each, in order.  The lines are recorded in FILE (default
 # d3d12-frame-hashes.txt), one `TRACE INDEX WxH HASH` per line, and printed,
@@ -34,10 +38,13 @@ root=$(cd "$dev_dir/../.." && pwd)
 usage() { echo "usage: $0 [--hashes FILE | --smoke] DIR [LAUNCHER...]" >&2; exit 2; }
 smoke=0
 hashes=d3d12-frame-hashes.txt
+hashes_given=
+limit=${DXX_D3D12_TIMEOUT:-300}
+[[ $limit =~ ^[1-9][0-9]*$ ]] || usage
 while [[ $# -gt 0 ]]; do
 	case $1 in
-		--smoke) smoke=1; shift ;;
-		--hashes) [[ $# -ge 2 && -n $2 ]] || usage; hashes=$2; shift 2 ;;
+		--smoke) [[ -z $hashes_given ]] || usage; smoke=1; shift ;;
+		--hashes) [[ $# -ge 2 && -n $2 && $smoke -eq 0 ]] || usage; hashes=$2; hashes_given=1; shift 2 ;;
 		-*) usage ;;
 		*) break ;;
 	esac
@@ -48,6 +55,7 @@ shift
 launch=("$@")
 exe=$dir/rtrace-gpu.exe
 [[ -f $exe ]] || { echo "rtrace-d3d12: no rtrace-gpu.exe in $dir" >&2; exit 1; }
+command -v timeout >/dev/null || { echo "rtrace-d3d12: no timeout(1) on PATH" >&2; exit 1; }
 source "$dev_dir/rtrace-pins.sh"
 export SDL_GPU_DRIVER=direct3d12
 warp="Microsoft Basic Render Driver"
@@ -60,16 +68,22 @@ trap 'rm -rf "$tmp"' EXIT
 # Run on trace $1, named $2, which must render $3 frames.
 check()
 {
-	local trace=$1 name=$2 frames=$3 out=$tmp/$2 driver adapter lines i ok=1 shape
+	local trace=$1 name=$2 frames=$3 out=$tmp/$2 driver adapter lines i ok=1 shape rc
 	if [[ $smoke -eq 1 ]]; then
-		SDL_LOGGING='gpu=info,*=warn' "${launch[@]+"${launch[@]}"}" "$exe" "$trace" "$out.log" \
-			2>&1 | tr -d '\r' > "$out.out"
-		[[ ${PIPESTATUS[0]} -eq 0 ]] || ok=0
+		SDL_LOGGING='gpu=info,*=warn' timeout -k 10 "$limit" \
+			"${launch[@]+"${launch[@]}"}" "$exe" "$trace" "$out.log" > "$out.raw" 2>&1
+		rc=$?
+		tr -d '\r' < "$out.raw" > "$out.out"
 	else
-		DXX_D3D12_GPU_VALIDATION=1 "$dev_dir/gpu-validate.sh" \
-			${launch[@]+"${launch[@]}"} "$exe" "$trace" "$out.log" > "$out.out" 2>&1 || ok=0
+		DXX_D3D12_GPU_VALIDATION=1 timeout -k 10 "$limit" "$dev_dir/gpu-validate.sh" \
+			${launch[@]+"${launch[@]}"} "$exe" "$trace" "$out.log" > "$out.out" 2>&1
+		rc=$?
 	fi
+	[[ $rc -eq 0 ]] || ok=0
 	cat "$out.out"
+	if [[ $rc -eq 124 || $rc -eq 137 ]]; then
+		echo "rtrace-d3d12: the $name trace timed out after $limit s (status $rc)" >&2
+	fi
 	driver=$(sed -n 's/.*SDL_GPU Driver: //p' "$out.out" | head -n 1)
 	adapter=$(sed -n 's/.*D3D12 Adapter: //p' "$out.out" | head -n 1)
 	[[ -n $adapter ]] && echo "rtrace-d3d12: adapter: $adapter"
@@ -84,8 +98,9 @@ check()
 			echo "rtrace-d3d12: the $name trace ran on $adapter, not on WARP ($warp)" >&2
 			ok=0
 		fi
-		if ! grep -qx 'rtrace-gpu: D3D12 GPU-based validation on' "$out.out"; then
-			echo "rtrace-d3d12: the $name trace did not confirm GPU-based validation" >&2
+		if ! grep -q '^rtrace-gpu: D3D12 debug layer startup options: ' "$out.out" ||
+			! grep -qx "rtrace-gpu: D3D12 GPU-based validation confirmed on SDL's device" "$out.out"; then
+			echo "rtrace-d3d12: the $name trace did not confirm GPU-based validation on SDL's device" >&2
 			ok=0
 		fi
 	fi
