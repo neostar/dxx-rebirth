@@ -507,6 +507,15 @@ step_sdl_arms()
 	python3 "$dev_dir/check_sdl_arms.py" "$root"
 }
 
+# GL stays behind the render device (ADR 2): the text pass (--fast) counts the
+# GL calls in every C and C++ source outside the GL adapter and the platform
+# code, and fails on a call tools/dev/gl-calls-pending does not name
+# (check_gl_calls.py).
+step_gl_text()
+{
+	python3 "$dev_dir/check_gl_calls.py" text "$root"
+}
+
 # Run every GPU program tools/dev/gpu-programs registers under
 # gpu-validate.sh (and no-window.sh), after building them: each is a
 # build/dev-sdl3 program, built with build.sh's sdl3=1.  macOS only, on
@@ -706,7 +715,7 @@ step_sdl3_link()
 
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
-	workflows commit_sizes test_git gpu_gate sdl_arms shell_tests)
+	workflows commit_sizes test_git gpu_gate sdl_arms gl_text shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests
 	sdl3_link)
 # The merge gate's steps (ADR 6), with r1 run beside them.

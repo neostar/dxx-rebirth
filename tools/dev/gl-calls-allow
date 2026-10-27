@@ -1,0 +1,13 @@
+# Where a call of a GL function is allowed (check_gl_calls.py): one regex per
+# line, searched in the call's path from the repository root.  Everything
+# else asks the render device (ADR 2).
+
+# The GL adapter.
+^common/render/gl_device\.cpp$
+# What the adapter's tests and the rtrace tool create a GL context with.
+^common/render/rtrace/gl_host\.cpp$
+# The tests that check the adapter by the pixels it draws.
+^common/render/unittest/rtrace\.cpp$
+# The platform's GL: loading the library, its extensions, fences.
+^common/arch/ogl/
+^common/include/(loadgl|ogl_sync|ogl_extensions)\.h$
