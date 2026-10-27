@@ -1062,7 +1062,7 @@ test_fast_allows_the_manual_d3d12_workflow()
   workflow_dispatch:
     inputs:
       note:
-        type: string' 'on: workflow_dispatch' '"on": workflow_dispatch'; do
+        type: string' 'on: workflow_dispatch'; do
 		printf '%s\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n' \
 			"$on" > "$r/.github/workflows/d3d12-check.yml"
 		out=$("$r/tools/dev/check.sh" --fast 2>&1)
@@ -1071,13 +1071,18 @@ test_fast_allows_the_manual_d3d12_workflow()
 }
 
 # Test that the fast subset fails when the D3D12 workflow gains any trigger
-# but workflow_dispatch, or has a trigger list it cannot read.
+# but workflow_dispatch, has a trigger list it cannot read, or spells a
+# top-level key any other way than bare (a quoted, escaped, tagged or
+# complex `on` key among them).
 test_fast_fails_on_d3d12_workflow_with_another_trigger()
 {
-	local r up fork out rc on
+	local r up fork out rc on d='on: workflow_dispatch
+'
 	read -r r up fork < <(make_forked_dev_repo)
 	[[ -n $fork ]] || die "make_forked_dev_repo failed"
 	mkdir -p "$r/.github/workflows"
+	# The last five follow a good `on:` with another spelling of the key,
+	# which YAML reads as the same key.
 	for on in 'on:
   workflow_dispatch:
   push:' 'on:
@@ -1087,7 +1092,9 @@ test_fast_fails_on_d3d12_workflow_with_another_trigger()
 		'on: {workflow_dispatch: {}, push: {}}' 'on:
   workflow_dispatch:
 on: push' 'true:
-  push:' 'name: no trigger'; do
+  push:' 'name: no trigger' '"on": workflow_dispatch' \
+		"$d"'"o\x6e": push' "$d"'? on
+: push' "$d"'!!str on: push' "$d"'"on"   : push' "$d"'on : push'; do
 		printf '%s\njobs:\n  a:\n    runs-on: ubuntu-latest\n' "$on" \
 			> "$r/.github/workflows/d3d12-check.yml"
 		out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?

@@ -122,21 +122,28 @@ step_stale_hashes()
 # The one fork workflow ADR 4 allows: the manual D3D12 check (#49).
 manual_workflow=.github/workflows/d3d12-check.yml
 
-# Whether workflow file $1's triggers are workflow_dispatch alone: one
-# top-level `on:` key (quoted, or YAML 1.1's `true`, too), whose value is
-# `workflow_dispatch` on its line or a block whose keys, at its first
-# indent, are workflow_dispatch only.  Any other form, a flow list or map
-# among them, fails: the check reads YAML only this far.
+# Whether workflow file $1's triggers are workflow_dispatch alone.  Every
+# top-level line but a comment must be one of a workflow's keys, bare and
+# followed by `:` and a space or the line's end (an allowlist: a quoted,
+# escaped, tagged or complex key, or `on :`, fails, so no other spelling of
+# `on` slips past).  There is one `on:`, whose value is `workflow_dispatch`
+# on its line or a block whose keys, at its first indent, are
+# workflow_dispatch only.  Any other form, a flow list or map among them,
+# fails: the check reads YAML only this far.
 only_workflow_dispatch()
 {
-	awk -v q="'" '
+	awk '
 		function strip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
 		/^[ \t]*(#|$)/ { next }
 		/^[^ \t]/ {
 			inon = 0
+			if ($0 !~ /^(name|run-name|on|permissions|env|defaults|concurrency|jobs):( |$)/) {
+				bad++
+				next
+			}
 			key = $0
 			sub(/:.*/, "", key)
-			if (key == "on" || key == "\"on\"" || key == q "on" q || key == "true") {
+			if (key == "on") {
 				ons++
 				value = strip(substr($0, index($0, ":") + 1))
 				sub(/^[ \t]+/, "", value)
