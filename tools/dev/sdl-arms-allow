@@ -2,7 +2,7 @@
 # or >= 2 branch, for tools/dev/check_sdl_arms.py (ADR 3):
 #   <path> <count> -- <reason>
 # A slice that adds a file's SDL3 branches lowers its count or drops it.
-common/arch/sdl/event.cpp 6 -- SDL3 branches come with #41-#43 (window, keyboard and mouse events)
+common/arch/sdl/event.cpp 6 -- SDL3 branches come with #44 (gamepad events) and #41 (window events)
 common/arch/sdl/gamecontroller.cpp 1 -- SDL3 branches come with #44 (gamepad)
 common/arch/sdl/joy.cpp 4 -- SDL3 branches come with #44 (joystick)
 common/arch/sdl/key.cpp 7 -- SDL3 branches come with #42 (keyboard)
@@ -29,6 +29,6 @@ similar/main/game.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/gamecntl.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/inferno.cpp 2 -- SDL3 branches come with #41 (window events); one chain nests in the SDL2 version report
 similar/main/kconfig.cpp 10 -- SDL3 branches come with #42-#44 (keyboard, mouse, gamepad)
-similar/main/menu.cpp 2 -- SDL3 branches come with #41 (window) and #46 (music options)
+similar/main/menu.cpp 2 -- SDL3 branches come with #46 (music options)
 similar/main/playsave.cpp 2 -- SDL3 branches come with #44 (gamepad)
 similar/main/titles.cpp 1 -- SDL3 branches come with #44 (gamepad)

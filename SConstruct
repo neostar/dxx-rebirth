@@ -5133,6 +5133,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-pacer', (
 			'common/sdl/unittest/frame_pacer.cpp',
 			)),
+		RuntimeTest('test-link-stub', (
+			'common/sdl/unittest/link_stub.cpp',
+			)),
 		*((RuntimeTest('test-macos-defaults', (
 			'common/sdl/unittest/macos_defaults.mm',
 			'common/sdl/macos_defaults.mm',
