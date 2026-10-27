@@ -12,6 +12,7 @@
 #       directories) and matches `glFoo(`, `gluFoo(` and the front end's
 #       OGL_ENABLE, OGL_DISABLE and OGL_BINDTEXTURE macros.  It sees every
 #       preprocessor branch of every file, also those a build leaves out.
+#       A ROOT with no such source fails.
 #   python3 check_gl_calls.py clang ROOT BUILD_DIR CLANG_QUERY [ALLOW [PENDING]]
 #       The precise pass (check.sh): clang-query on every translation unit of
 #       BUILD_DIR/compile_commands.json (build/dev) lists the calls of a
@@ -55,7 +56,7 @@ HIT = re.compile(r'^(.+?):(\d+):(\d+): note: "root" binds here$')
 SUMMARY = re.compile(r'^(\d+) match(?:es)?\.$')
 ERROR = re.compile(r': (?:fatal )?error: ')
 TEXT_CALL = re.compile(r'\bglu?[A-Z]\w*\s*\(|\bOGL_(?:ENABLE|DISABLE|BINDTEXTURE)\s*\(')
-SOURCE = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx', '.m', '.mm')
+SOURCE = ('.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx', '.tcc', '.m', '.mm')
 SKIP_DIRS = ('third_party', 'traces')
 
 
@@ -93,8 +94,9 @@ def strip_text(text):
 
 
 def text_hits(root):
-	"""Return {(path, line, column)} of the GL calls the text pass sees."""
-	hits = set()
+	"""Return ({(path, line, column)} of the GL calls the text pass sees, the
+	number of sources it read)."""
+	hits, sources = set(), 0
 	for directory, subdirs, names in os.walk(root):
 		subdirs[:] = [d for d in subdirs
 			if not d.startswith(('.', 'build')) and not (directory == root and d in SKIP_DIRS)]
@@ -102,12 +104,13 @@ def text_hits(root):
 			if not name.endswith(SOURCE):
 				continue
 			path = os.path.join(directory, name)
+			sources += 1
 			with open(path, encoding='utf-8', errors='replace') as f:
 				text = strip_text(f.read())
 			for number, line in enumerate(text.split('\n'), 1):
 				for m in TEXT_CALL.finditer(line):
 					hits.add((path, number, m.start() + 1))
-	return hits
+	return hits, sources
 
 
 def tool_arguments(clang_query):
@@ -245,7 +248,9 @@ def main(argv):
 			return 0
 		found, problems = clang_hits(root, build_dir, clang_query)
 	else:
-		found = text_hits(root)
+		found, sources = text_hits(root)
+		if not sources:
+			problems.append(f'no C or C++ source under {root}: wrong ROOT?')
 	outside, pending = compare(root, found, allow_path, pending_path, problems)
 	for p in problems[:20]:
 		print(f'gl_calls: {p}', file=sys.stderr)

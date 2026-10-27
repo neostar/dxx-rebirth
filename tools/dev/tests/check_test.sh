@@ -28,9 +28,11 @@ make_dev_repo()
 		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$DEV_DIR/check_gl_calls.py" "$r/tools/dev/"
 	# The real allowlist names upstream files the throwaway repository lacks.
 	: > "$r/tools/dev/sdl-arms-allow"
-	# Nor does it hold the GL calls the real lists allow.
+	# Nor does it hold the GL calls the real lists allow, or any source but
+	# one with none, which the text pass needs to read.
 	: > "$r/tools/dev/gl-calls-allow"
 	: > "$r/tools/dev/gl-calls-pending"
+	printf 'int main(void) { return 0; }\n' > "$r/main.c"
 	# It builds no GPU programs: the tests register their own.
 	grep '^#' "$DEV_DIR/gpu-programs" > "$r/tools/dev/gpu-programs"
 	# It holds no rtrace programs either: a stub SKIPs their tests.

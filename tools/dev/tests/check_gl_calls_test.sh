@@ -247,6 +247,22 @@ test_text_pass_counts_calls_and_ignores_text_that_is_not_code()
 	assert_contains "$out" "allows 3 but has 2: lower it"
 }
 
+# Test that a text pass that finds no C or C++ source fails, as from a
+# wrong ROOT, and that it reads the .tcc templates as sources.
+test_text_pass_fails_without_sources_and_reads_tcc()
+{
+	local t out rc
+	t=$(make_text_tree) || die "make_text_tree failed"
+	rm "$t/main.cpp"
+	out=$(run_text "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no C or C++ source under "
+	printf 'void f() { glFlush(); }\n' > "$t/valptridx.tcc"
+	out=$(run_text "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "1 GL call(s) outside the GL adapter in valptridx.tcc (pending 0)"
+}
+
 # Test that a bad command line is a usage error.
 test_bad_usage_is_an_error()
 {
