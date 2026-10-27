@@ -562,8 +562,6 @@ void gr_toggle_fullscreen()
 #endif
 		glMatrixMode(GL_MODELVIEW);
 		glLoadIdentity();//clear matrix
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		ogl_record_2d_state();
 		ogl_create_device();
 		ogl_smash_texture_list_internal();//if we are or were fullscreen, changing vid mode will invalidate current textures
@@ -601,8 +599,6 @@ static void ogl_init_state(void)
 #endif
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();//clear matrix
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	ogl_record_2d_state();
 	gr_palette_step_up(0,0,0);//in case its left over from in game
 

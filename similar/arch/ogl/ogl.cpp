@@ -1234,10 +1234,6 @@ bool ogl_ubitblt(unsigned w,unsigned h,unsigned dx,unsigned dy, unsigned sx, uns
  */
 void ogl_toggle_depth_test(int enable)
 {
-	if (enable)
-		glEnable(GL_DEPTH_TEST);
-	else
-		glDisable(GL_DEPTH_TEST);
 	ogl_ambient().depth = enable ? render::depth::test_and_write : render::depth::off;
 }
 
@@ -1246,28 +1242,20 @@ void ogl_toggle_depth_test(int enable)
  */
 void ogl_set_blending(const gr_blend cv_blend_func)
 {
-	GLenum s, d;
 	render::blend b;
 	switch (cv_blend_func)
 	{
 		case gr_blend::additive_a:
-			s = GL_SRC_ALPHA;
-			d = GL_ONE;
 			b = render::blend::additive_a;
 			break;
 		case gr_blend::additive_c:
-			s = GL_ONE;
-			d = GL_ONE;
 			b = render::blend::additive_c;
 			break;
 		case gr_blend::normal:
 		default:
-			s = GL_SRC_ALPHA;
-			d = GL_ONE_MINUS_SRC_ALPHA;
 			b = render::blend::normal;
 			break;
 	}
-	glBlendFunc(s, d);
 	ogl_ambient().blend_function = b;
 }
 
@@ -1284,13 +1272,6 @@ void ogl_start_frame(grs_canvas &canvas)
 	glClearColor(0.0, 0.0, 0.0, 0.0);
 
 	glLineWidth(linedotscale);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GEQUAL, render::default_alpha_ref);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
 
 	ogl_device().clear({.color = false, .depth = true});
 	glEnable(GL_CULL_FACE);
@@ -1409,16 +1390,11 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 
 void ogl_set_alpha_ref(const float ref)
 {
-	glAlphaFunc(GL_GEQUAL, ref);
 	ogl_ambient().alpha_ref = ref;
 }
 
 void ogl_enable_blending(const bool enable)
 {
-	if (enable)
-		glEnable(GL_BLEND);
-	else
-		glDisable(GL_BLEND);
 	ogl_ambient().blending = enable;
 }
 
@@ -1501,7 +1477,6 @@ void ogl_end_frame(void){
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();//clear matrix
 	glDisable(GL_CULL_FACE);
-	glDisable(GL_DEPTH_TEST);
 	auto &ambient{ogl_ambient()};
 	ambient.cull = render::cull::none;
 	ambient.depth = render::depth::off;
