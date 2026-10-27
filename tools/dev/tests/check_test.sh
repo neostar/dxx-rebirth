@@ -240,7 +240,7 @@ exit 0\n' > "$r/tools/dev/build.sh"
 # Test that the full checks time each step and fail, naming the budget,
 # when they take longer than the check tier's budget (ADR 5), here
 # DXX_CHECK_BUDGET=-1 s; the fast subset keeps no budget, and the
-# default budget is 900 s.
+# default budget is 1200 s.
 test_full_fails_over_its_budget()
 {
 	local r out rc
@@ -254,7 +254,7 @@ test_full_fails_over_its_budget()
 	out=$(DXX_CHECK_BUDGET=-1 "$r/tools/dev/check.sh" --fast 2>&1)
 	assert_not_contains "$out" "budget"
 	out=$(env -u DXX_CHECK_BUDGET "$r/tools/dev/check.sh" 2>&1)
-	assert_contains "$out" ", budget 900 s"
+	assert_contains "$out" ", budget 1200 s"
 }
 
 # Test that the fast subset runs shellcheck on scripts in the fork
