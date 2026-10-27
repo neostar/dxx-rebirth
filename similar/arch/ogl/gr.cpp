@@ -970,29 +970,15 @@ namespace dcx {
 
 void ogl_upixelc(const grs_bitmap &cv_bitmap, unsigned x, unsigned y, const color_palette_index c)
 {
-	std::array<GLfloat, 2> vertices = {{
-		(x + cv_bitmap.bm_x) / static_cast<float>(last_width),
-		static_cast<GLfloat>(1.0 - (y + cv_bitmap.bm_y) / static_cast<float>(last_height))
-	}};
-	const auto color_r{CPAL2Tr(c)};
-	const auto color_g{CPAL2Tg(c)};
-	const auto color_b{CPAL2Tb(c)};
-	GLfloat color_array[] = {
-		color_r, color_g, color_b, 1.0,
-		color_r, color_g, color_b, 1.0,
-		color_r, color_g, color_b, 1.0,
-		color_r, color_g, color_b, 1.0,
-	};
-
-	OGL_DISABLE(TEXTURE_2D);
-	glPointSize(linedotscale);
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-	glVertexPointer(2, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array);
-	glDrawArrays(GL_POINTS, 0, 1);
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
+	const std::array<render::vertex, 1> vertices{{{
+		.pos = {{(x + cv_bitmap.bm_x) / static_cast<float>(last_width), static_cast<GLfloat>(1.0 - (y + cv_bitmap.bm_y) / static_cast<float>(last_height)), 0}},
+		.rgba = {{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), 1.0}},
+		.uv = {{0, 0}},
+	}}};
+	/* A point is linedotscale wide, as glPointSize set it before each. */
+	auto call{ogl_ambient().call(render::topology::points, vertices)};
+	call.state.line_width = linedotscale;
+	ogl_device().draw(call);
 }
 
 color_palette_index ogl_ugpixel(const grs_bitmap &bitmap, unsigned x, unsigned y)
@@ -1012,15 +998,10 @@ color_palette_index ogl_ugpixel(const grs_bitmap &bitmap, unsigned x, unsigned y
 
 void ogl_urect(grs_canvas &canvas, const int left, const int top, const int right, const int bot, const color_palette_index c)
 {
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-
 	const GLfloat xo{(left + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width)};
 	const GLfloat xf{(right + 1 + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width)};
 	const GLfloat yo{1.0f - (top + canvas.cv_bitmap.bm_y) / static_cast<float>(last_height)};
 	const GLfloat yf{1.0f - (bot + 1 + canvas.cv_bitmap.bm_y) / static_cast<float>(last_height)};
-
-	OGL_DISABLE(TEXTURE_2D);
 
 	const auto color_r{CPAL2Tr(c)};
 	const auto color_g{CPAL2Tg(c)};
@@ -1032,26 +1013,14 @@ void ogl_urect(grs_canvas &canvas, const int left, const int top, const int righ
 			: 1.0f - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0f)
 	};
 
-	std::array<GLfloat, 16> color_array;
-	color_array[0] = color_array[4] = color_array[8] = color_array[12] = color_r;
-	color_array[1] = color_array[5] = color_array[9] = color_array[13] = color_g;
-	color_array[2] = color_array[6] = color_array[10] = color_array[14] = color_b;
-	color_array[3] = color_array[7] = color_array[11] = color_array[15] = color_a;
-
-	std::array<GLfloat, 8> vertices;
-	vertices[0] = xo;
-	vertices[1] = yo;
-	vertices[2] = xo;
-	vertices[3] = yf;
-	vertices[4] = xf;
-	vertices[5] = yf;
-	vertices[6] = xf;
-	vertices[7] = yo;
-	glVertexPointer(2, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.data());
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);//replaced GL_QUADS
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
+	const std::array<float, 4> rgba{{color_r, color_g, color_b, color_a}};
+	const std::array<render::vertex, 4> vertices{{
+		{.pos = {{xo, yo, 0}}, .rgba = rgba, .uv = {{0, 0}}},
+		{.pos = {{xo, yf, 0}}, .rgba = rgba, .uv = {{0, 0}}},
+		{.pos = {{xf, yf, 0}}, .rgba = rgba, .uv = {{0, 0}}},
+		{.pos = {{xf, yo, 0}}, .rgba = rgba, .uv = {{0, 0}}},
+	}};
+	ogl_device().draw(ogl_ambient().call(render::topology::fan, vertices));//replaced GL_QUADS
 }
 
 void ogl_ulinec(grs_canvas &canvas, const int left, const int top, const int right, const int bot, const int c)
@@ -1061,38 +1030,18 @@ void ogl_ulinec(grs_canvas &canvas, const int left, const int top, const int rig
 		? 1.0
 		: 1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0);
 
-	const auto color_r{CPAL2Tr(c)};
-	const auto color_g{CPAL2Tg(c)};
-	const auto color_b{CPAL2Tb(c)};
-	GLfloat color_array[] = {
-		color_r, color_g, color_b, fade_alpha,
-		color_r, color_g, color_b, fade_alpha,
-		color_r, color_g, color_b, 1.0,
-		color_r, color_g, color_b, fade_alpha
-	};
+	const std::array<float, 4> rgba{{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), fade_alpha}};
 
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-	
 	xo = (left + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width);
 	xf = (right + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width);
 	yo = 1.0 - (top + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height);
 	yf = 1.0 - (bot + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height);
- 
-	OGL_DISABLE(TEXTURE_2D);
 
-	std::array<GLfloat, 4> vertices = {{
-		xo,
-		yo,
-		xf,
-		yf,
+	const std::array<render::vertex, 2> vertices{{
+		{.pos = {{xo, yo, 0}}, .rgba = rgba, .uv = {{0, 0}}},
+		{.pos = {{xf, yf, 0}}, .rgba = rgba, .uv = {{0, 0}}},
 	}};
-
-	glVertexPointer(2, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array);
-	glDrawArrays(GL_LINES, 0, 2);
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
+	ogl_device().draw(ogl_ambient().call(render::topology::lines, vertices));
 }
 
 static GLfloat last_r, last_g, last_b;

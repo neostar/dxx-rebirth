@@ -690,6 +690,72 @@ static std::unique_ptr<GLfloat[]> circle_array_init_2(const unsigned nsides, con
 	return vertices;
 }
 
+/* The vertices of a flat 2D primitive: x, y pairs at z 0 with four colour
+ * floats each, as glVertexPointer(2, ...) and glColorPointer(4, ...) took
+ * them before the render device.
+ */
+template <std::size_t N>
+static std::array<render::vertex, N> ogl_vertices_2d(const std::span<const GLfloat, 2 * N> xy, const std::span<const GLfloat, 4 * N> rgba)
+{
+	std::array<render::vertex, N> vertices;
+	for (std::size_t i{0}; i != N; ++i)
+		vertices[i] = {.pos = {{xy[2 * i], xy[2 * i + 1], 0}}, .rgba = {{rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]}}, .uv = {{0, 0}}};
+	return vertices;
+}
+
+/* The vertices of a circle of sides from xy (x, y pairs) in one colour, as
+ * glColor4f gave them before the render device.
+ */
+static std::vector<render::vertex> ogl_circle_vertices(const std::span<const GLfloat> xy, const std::array<float, 4> &rgba)
+{
+	std::vector<render::vertex> vertices;
+	vertices.reserve(xy.size() / 2);
+	for (std::size_t i{0}; i + 1 < xy.size(); i += 2)
+		vertices.push_back({.pos = {{xy[i], xy[i + 1], 0}}, .rgba = rgba, .uv = {{0, 0}}});
+	return vertices;
+}
+
+/* Draws vertices as t through the render device in the ambient state,
+ * moved by glTranslatef(translate) and glScalef(scale) from the identity
+ * modelview, with line_width for lines.  The code not yet drawing through
+ * the device expects the identity modelview the game draws 2D with, which
+ * glPopMatrix restored before; an empty draw in the ambient state restores
+ * it now, through the state shadow, so the shadow knows the modelview GL
+ * holds (popping it behind the shadow's back would leave the shadow
+ * believing the moved one is current, and skip it on the next such draw).
+ */
+static void ogl_draw_moved(const render::topology t, const std::span<const render::vertex> vertices, const std::array<float, 3> &translate, const std::array<float, 3> &scale, const float line_width)
+{
+	auto call{ogl_ambient().call(t, vertices)};
+	call.transforms.modelview = render::translate_scale{.translate = translate, .scale = scale};
+	call.state.line_width = line_width;
+	auto &device{ogl_device()};
+	device.draw(call);
+	device.draw(ogl_ambient().call(render::topology::fan, {}));
+}
+
+/* Where the vertex reticle draws: its modelview recipe and the width of
+ * its lines.
+ */
+struct reticle_place
+{
+	std::array<float, 3> translate;
+	std::array<float, 3> scale;
+	float line_width;
+};
+
+/* Draws N vertices of the reticle as t: x, y pairs from xy and four colour
+ * floats each from rgba.  Throws std::length_error when either holds fewer.
+ */
+template <std::size_t N>
+static void ogl_draw_reticle_part(const reticle_place &place, const render::topology t, const std::span<const GLfloat> xy, const std::span<const GLfloat> rgba)
+{
+	if (xy.size() < 2 * N || rgba.size() < 4 * N) [[unlikely]]
+		throw std::length_error("ogl_draw_reticle_part: fewer coordinates than vertices");
+	const auto vertices{ogl_vertices_2d<N>(xy.first<2 * N>(), rgba.first<4 * N>())};
+	ogl_draw_moved(t, vertices, place.translate, place.scale, place.line_width);
+}
+
 }
 
 void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int secondary, int color, int alpha, int size_offs)
@@ -721,9 +787,8 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 		dark_lca[i+3] = ret_dark_rgba[3];
 	}
 
-	glPushMatrix();
-	glTranslatef((canvas.cv_bitmap.bm_w / 2 + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width), 1.0 - (canvas.cv_bitmap.bm_h / 2 + canvas.cv_bitmap.bm_y) / static_cast<float>(last_height), 0);
-
+	const std::array<float, 3> translate{{(canvas.cv_bitmap.bm_w / 2 + canvas.cv_bitmap.bm_x) / static_cast<float>(last_width), static_cast<float>(1.0 - (canvas.cv_bitmap.bm_h / 2 + canvas.cv_bitmap.bm_y) / static_cast<float>(last_height)), 0}};
+	std::array<float, 3> scale_xyz;
 	{
 		float gl1, gl2, gl3;
 	if (scale >= 1)
@@ -740,19 +805,16 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 		gl2 = f2glf(size);
 		gl3 = gl2;
 	}
-		glScalef(gl1, gl2, gl3);
+		scale_xyz = {{gl1, gl2, gl3}};
 	}
 
-	glLineWidth(linedotscale*2);
-	OGL_DISABLE(TEXTURE_2D);
 	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
+	const reticle_place place{.translate = translate, .scale = scale_xyz, .line_width = linedotscale * 2.f};
 	
 	//cross
 	std::array<GLfloat, 8 * 4> cross_lca;
-	GLfloat *cross_lca_ptr;
+	std::span<const GLfloat> cross_lca_span;
 	if (cross)
 	{
 		for (uint_fast32_t i = 0; i != cross_lca.size(); i += 8)
@@ -766,25 +828,22 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 			cross_lca[i+6] = ret_rgba[2];
 			cross_lca[i+7] = ret_rgba[3];
 		}
-		cross_lca_ptr = cross_lca.data();
+		cross_lca_span = cross_lca;
 	}
 	else
 	{
-		cross_lca_ptr = dark_lca.data();
+		cross_lca_span = dark_lca;
 	}
-	glColorPointer(4, GL_FLOAT, 0, cross_lca_ptr);
-
 	static const std::array<GLfloat, 8 * 2> cross_lva{{
 		-4.0, 2.0, -2.0, 0, -3.0, -4.0, -2.0, -3.0, 4.0, 2.0, 2.0, 0, 3.0, -4.0, 2.0, -3.0,
 	}};
-	glVertexPointer(2, GL_FLOAT, 0, cross_lva.data());
-	glDrawArrays(GL_LINES, 0, 8);
+	ogl_draw_reticle_part<8>(place, render::topology::lines, cross_lva, cross_lca_span);
 	
 	std::array<GLfloat, 4 * 4> primary_lca0;
-	GLfloat *lca0_data;
+	std::span<const GLfloat> lca0_data;
 	//left primary bar
 	if(primary == 0)
-		lca0_data = dark_lca.data();
+		lca0_data = dark_lca;
 	else
 	{
 		primary_lca0[0] = primary_lca0[4] = ret_rgba[0];
@@ -795,9 +854,8 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 		primary_lca0[9] = primary_lca0[13] = ret_dark_rgba[1];
 		primary_lca0[10] = primary_lca0[14] = ret_dark_rgba[2];
 		primary_lca0[11] = primary_lca0[15] = ret_dark_rgba[3];
-		lca0_data = primary_lca0.data();
+		lca0_data = primary_lca0;
 	}
-	glColorPointer(4, GL_FLOAT, 0, lca0_data);
 	static const std::array<GLfloat, 4 * 2> primary_lva0{{
 		-5.5, -5.0, -6.5, -7.5, -10.0, -7.0, -10.0, -8.7
 	}};
@@ -810,13 +868,12 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 	static const std::array<GLfloat, 4 * 2> primary_lva3{{
 		10.0, -7.0, 10.0, -8.7, 15.0, -8.5, 15.0, -9.5
 	}};
-	glVertexPointer(2, GL_FLOAT, 0, primary_lva0.data());
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	ogl_draw_reticle_part<4>(place, render::topology::strip, primary_lva0, lca0_data);
 
 	std::array<GLfloat, 4 * 4> primary_lca1;
-	GLfloat *lca1_data;
+	std::span<const GLfloat> lca1_data;
 	if(primary != 2)
-		lca1_data = dark_lca.data();
+		lca1_data = dark_lca;
 	else
 	{
 		primary_lca1[8] = primary_lca1[12] = ret_rgba[0];
@@ -827,45 +884,40 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 		primary_lca1[1] = primary_lca1[5] = ret_dark_rgba[1];
 		primary_lca1[2] = primary_lca1[6] = ret_dark_rgba[2];
 		primary_lca1[3] = primary_lca1[7] = ret_dark_rgba[3];
-		lca1_data = primary_lca1.data();
+		lca1_data = primary_lca1;
 	}
-	glColorPointer(4, GL_FLOAT, 0, lca1_data);
-	glVertexPointer(2, GL_FLOAT, 0, primary_lva1.data());
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	ogl_draw_reticle_part<4>(place, render::topology::strip, primary_lva1, lca1_data);
 	//right primary bar
-	glColorPointer(4, GL_FLOAT, 0, lca0_data);
-	glVertexPointer(2, GL_FLOAT, 0, primary_lva2.data());
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	glColorPointer(4, GL_FLOAT, 0, lca1_data);
-	glVertexPointer(2, GL_FLOAT, 0, primary_lva3.data());
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	ogl_draw_reticle_part<4>(place, render::topology::strip, primary_lva2, lca0_data);
+	ogl_draw_reticle_part<4>(place, render::topology::strip, primary_lva3, lca1_data);
 	
-	GLfloat *secondary_lva_ptr;
+	/* Each secondary circle holds 16 sides (circle_array_init_2). */
+	const auto secondary_circle{[&place](const GLfloat *const xy, const std::span<const GLfloat> rgba) {
+		ogl_draw_reticle_part<16>(place, render::topology::line_loop, std::span<const GLfloat>(xy, 16 * 2), rgba);
+	}};
 	if (secondary<=2){
 		//left secondary
-		glColorPointer(4, GL_FLOAT, 0, (secondary != 1 ? dark_lca : bright_lca).data());
 		if(!secondary_lva[0])
 			secondary_lva[0] = circle_array_init_2(16, 2.0, -10.0, 2.0, -2.0);
-		ogl_drawcircle(16, GL_LINE_LOOP, secondary_lva[0].get());
+		secondary_circle(secondary_lva[0].get(), secondary != 1 ? dark_lca : bright_lca);
 		//right secondary
-		glColorPointer(4, GL_FLOAT, 0, (secondary != 2 ? dark_lca : bright_lca).data());
 		if(!secondary_lva[1])
 			secondary_lva[1] = circle_array_init_2(16, 2.0, 10.0, 2.0, -2.0);
-		secondary_lva_ptr = secondary_lva[1].get();
+		secondary_circle(secondary_lva[1].get(), secondary != 2 ? dark_lca : bright_lca);
 	}
 	else {
 		//bottom/middle secondary
-		glColorPointer(4, GL_FLOAT, 0, (secondary != 4 ? dark_lca : bright_lca).data());
 		if(!secondary_lva[2])
 			secondary_lva[2] = circle_array_init_2(16, 2.0, 0.0, 2.0, -8.0);
-		secondary_lva_ptr = secondary_lva[2].get();
+		secondary_circle(secondary_lva[2].get(), secondary != 4 ? dark_lca : bright_lca);
 	}
-	ogl_drawcircle(16, GL_LINE_LOOP, secondary_lva_ptr);
-	
-	//glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
-	glPopMatrix();
-	glLineWidth(linedotscale);
+	/* The code not yet drawing through the device draws lines this wide.
+	 * An empty line draw sets it through the state shadow, so the shadow
+	 * knows GL's width and sets twice it again for the next reticle.
+	 */
+	auto &ambient{ogl_ambient()};
+	ambient.line_width = linedotscale;
+	ogl_device().draw(ambient.call(render::topology::lines, {}));
 }
 
 /*
@@ -917,42 +969,38 @@ void g3_draw_sphere(grs_canvas &canvas, const g3_draw_sphere_point &pnt, fix rad
 int gr_ucircle(grs_canvas &canvas, const fix xc1, const fix yc1, const fix r1, const uint8_t c)
 {
 	int nsides;
-	OGL_DISABLE(TEXTURE_2D);
-	glColor4f(CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), (canvas.cv_fade_level >= GR_FADE_OFF)?1.0:1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
-	glPushMatrix();
-	glTranslatef(
-	             (f2fl(xc1) + canvas.cv_bitmap.bm_x + 0.5) / static_cast<float>(last_width),
-	             1.0 - (f2fl(yc1) + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height),0);
-	glScalef(f2fl(r1) / last_width, f2fl(r1) / last_height, 1.0);
+	const std::array<float, 4> rgba{{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), static_cast<float>((canvas.cv_fade_level >= GR_FADE_OFF)?1.0:1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0))}};
+	const std::array<float, 3> translate{{
+	             static_cast<float>((f2fl(xc1) + canvas.cv_bitmap.bm_x + 0.5) / static_cast<float>(last_width)),
+	             static_cast<float>(1.0 - (f2fl(yc1) + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height)),0}};
+	const std::array<float, 3> scale{{f2fl(r1) / last_width, f2fl(r1) / last_height, 1.0}};
 	nsides = 10 + 2 * static_cast<int>(M_PI * f2fl(r1) / 19);
 	if(!circle_va)
 	{
 		circle_va = circle_array_init(nsides);
 		circle_va_sides = nsides;
 	}
-	ogl_drawcircle(std::min<unsigned>(nsides, circle_va_sides), GL_LINE_LOOP, circle_va.get());
-	glPopMatrix();
+	const auto vertices{ogl_circle_vertices(std::span<const GLfloat>(circle_va.get(), 2 * std::min<unsigned>(nsides, circle_va_sides)), rgba)};
+	ogl_draw_moved(render::topology::line_loop, vertices, translate, scale, ogl_ambient().line_width);
 	return 0;
 }
 
 int gr_disk(grs_canvas &canvas, const fix x, const fix y, const fix r, const uint8_t c)
 {
 	int nsides;
-	OGL_DISABLE(TEXTURE_2D);
-	glColor4f(CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), (canvas.cv_fade_level >= GR_FADE_OFF) ? 1.0 : 1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
-	glPushMatrix();
-	glTranslatef(
-	             (f2fl(x) + canvas.cv_bitmap.bm_x + 0.5) / static_cast<float>(last_width),
-	             1.0 - (f2fl(y) + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height),0);
-	glScalef(f2fl(r) / last_width, f2fl(r) / last_height, 1.0);
+	const std::array<float, 4> rgba{{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), static_cast<float>((canvas.cv_fade_level >= GR_FADE_OFF) ? 1.0 : 1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0))}};
+	const std::array<float, 3> translate{{
+	             static_cast<float>((f2fl(x) + canvas.cv_bitmap.bm_x + 0.5) / static_cast<float>(last_width)),
+	             static_cast<float>(1.0 - (f2fl(y) + canvas.cv_bitmap.bm_y + 0.5) / static_cast<float>(last_height)),0}};
+	const std::array<float, 3> scale{{f2fl(r) / last_width, f2fl(r) / last_height, 1.0}};
 	nsides = 10 + 2 * static_cast<int>(M_PI * f2fl(r) / 19);
 	if(!disk_va)
 	{
 		disk_va = circle_array_init(nsides);
 		disk_va_sides = nsides;
 	}
-	ogl_drawcircle(std::min<unsigned>(nsides, disk_va_sides), GL_TRIANGLE_FAN, disk_va.get());
-	glPopMatrix();
+	const auto vertices{ogl_circle_vertices(std::span<const GLfloat>(disk_va.get(), 2 * std::min<unsigned>(nsides, disk_va_sides)), rgba)};
+	ogl_draw_moved(render::topology::fan, vertices, translate, scale, ogl_ambient().line_width);
 	return 0;
 }
 
