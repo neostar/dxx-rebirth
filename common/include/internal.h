@@ -30,6 +30,11 @@ extern int GL_TEXTURE_2D_enabled;
  * here.
  */
 render::ambient &ogl_ambient();
+/* Brings GL to the ambient state through an empty draw, for the code not yet
+ * drawing through the device (the bitmap and movie blits, #15): it reads
+ * GL's blend, alpha test, depth test, culling, viewport and matrices.
+ */
+void ogl_sync_gl_state();
 /* The render device of the current GL context, made by gr_set_mode. */
 render::device &ogl_device();
 /* Makes a render device for the GL context gr_set_mode just made or the GL

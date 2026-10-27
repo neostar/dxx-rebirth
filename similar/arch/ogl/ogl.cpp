@@ -1164,6 +1164,7 @@ bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw,
 			ogl_movie_frame = nullptr;
 		}
 	};
+	ogl_sync_gl_state();
 	ogl_client_states<bitblt_free_ogl_texture, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
 	ogl_texture &tex = std::get<0>(cs).t;
 	ogl_movie_frame = &tex;
@@ -1268,6 +1269,11 @@ void ogl_set_blending(const gr_blend cv_blend_func)
 	}
 	glBlendFunc(s, d);
 	ogl_ambient().blend_function = b;
+}
+
+void ogl_sync_gl_state()
+{
+	ogl_device().draw(ogl_ambient().call(render::topology::lines, {}));
 }
 
 void ogl_start_frame(grs_canvas &canvas)
@@ -1882,6 +1888,7 @@ void ogl_ubitmapm_cs(grs_canvas &canvas, int x, int y,int dw, int dh, grs_bitmap
 void ogl_ubitmapm_cs(grs_canvas &canvas, const int entry_x, const int entry_y, const int entry_dw, const int entry_dh, grs_bitmap &bm, const ogl_colors::array_type &color_array)
 {
 	GLfloat u1,u2,v1,v2;
+	ogl_sync_gl_state();
 	ogl_client_states<GLfloat, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
 	auto &xo = std::get<0>(cs);
 	const int adjusted_canvas_x = entry_x + canvas.cv_bitmap.bm_x;
@@ -1990,6 +1997,14 @@ bool ogl_ubitblt_cs(grs_canvas &canvas, int dw, int dh, int dx, int dy, int sx, 
 	auto &device{ogl_device()};
 	if (device.caps().copy_region)
 	{
+		/* The copy runs through GL's blend, alpha and depth tests, and
+		 * through its texturing, which the last blit left as it was: the sync
+		 * turns GL_TEXTURE_2D off, so put it back as it was.
+		 */
+		const auto texturing{GL_TEXTURE_2D_enabled};
+		ogl_sync_gl_state();
+		if (texturing == 1)
+			OGL_ENABLE(TEXTURE_2D);
 		device.copy_region({.src_x = sx, .src_y = sy, .dest_x = dx, .dest_y = dy, .size = {static_cast<uint32_t>(dw), static_cast<uint32_t>(dh)}},
 			VR_stereo == StereoFormat::QuadBuffers && device.caps().quad_buffer_stereo);
 	}
