@@ -5217,6 +5217,7 @@ class DXXArchive(DXXCommon):
 	# and the GL adapter on its hidden window.
 	_rtrace_sources = (
 		'common/render/rtrace/gl_host.cpp',
+		'common/render/rtrace/replay_file.cpp',
 		'common/render/replay.cpp',
 		'common/render/trace.cpp',
 		'common/render/gl_device.cpp',
