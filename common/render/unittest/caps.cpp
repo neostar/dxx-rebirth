@@ -185,7 +185,11 @@ sdlgpu::device_caps caps_with(const bool nearest_anisotropy)
 
 namespace dcx::render::sdlgpu {
 
-/* Lets BOOST_TEST print a sampler_choice it finds unequal. */
+/* Lets BOOST_TEST print a sampler_choice it finds unequal.  It sits in the
+ * type's namespace so that argument-dependent lookup finds it; the
+ * declaration first satisfies -Wmissing-declarations. */
+std::ostream &operator<<(std::ostream &o, const sampler_choice &c);
+
 std::ostream &operator<<(std::ostream &o, const sampler_choice &c)
 {
 	return o << "{linear " << c.linear << ", linear_mipmap " << c.linear_mipmap << ", anisotropic "
@@ -217,7 +221,7 @@ BOOST_AUTO_TEST_CASE(sampler_choice_over_every_combination)
 	constexpr sdlgpu::sampler_choice aniso_nearest{false, true, true};
 	constexpr sdlgpu::sampler_choice plain_trilinear{true, true, false};
 	constexpr sdlgpu::sampler_choice aniso_trilinear{true, true, true};
-	constexpr std::array rows{
+	constexpr std::array<row, 16> rows{{
 	    row{nearest, false, false, false, plain_nearest},
 	    row{nearest, false, false, true, plain_nearest},
 	    row{nearest, false, true, false, plain_nearest},
@@ -234,7 +238,7 @@ BOOST_AUTO_TEST_CASE(sampler_choice_over_every_combination)
 	    row{trilinear, true, false, true, plain_trilinear},
 	    row{trilinear, true, true, false, aniso_trilinear},
 	    row{trilinear, true, true, true, aniso_trilinear},
-	};
+	}};
 	for (const auto &r : rows)
 	{
 		auto caps{caps_with(r.nearest_anisotropy)};
