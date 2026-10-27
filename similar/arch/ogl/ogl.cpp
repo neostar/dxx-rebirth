@@ -142,6 +142,10 @@ static int ogl_rgba_internalformat = GL_RGBA8;
 static int ogl_rgb_internalformat = GL_RGB8;
 #endif
 static std::unique_ptr<GLfloat[]> sphere_va, circle_va, disk_va;
+/* The sides circle_va and disk_va were made with: later circles draw at
+ * most that many of them.
+ */
+static unsigned circle_va_sides, disk_va_sides;
 static std::array<std::unique_ptr<GLfloat[]>, 3> secondary_lva;
 static int r_polyc,r_tpolyc,r_bitmapc,r_ubitbltc;
 #define f2glf(x) (f2fl(x))
@@ -922,8 +926,11 @@ int gr_ucircle(grs_canvas &canvas, const fix xc1, const fix yc1, const fix r1, c
 	glScalef(f2fl(r1) / last_width, f2fl(r1) / last_height, 1.0);
 	nsides = 10 + 2 * static_cast<int>(M_PI * f2fl(r1) / 19);
 	if(!circle_va)
+	{
 		circle_va = circle_array_init(nsides);
-	ogl_drawcircle(nsides, GL_LINE_LOOP, circle_va.get());
+		circle_va_sides = nsides;
+	}
+	ogl_drawcircle(std::min<unsigned>(nsides, circle_va_sides), GL_LINE_LOOP, circle_va.get());
 	glPopMatrix();
 	return 0;
 }
@@ -940,8 +947,11 @@ int gr_disk(grs_canvas &canvas, const fix x, const fix y, const fix r, const uin
 	glScalef(f2fl(r) / last_width, f2fl(r) / last_height, 1.0);
 	nsides = 10 + 2 * static_cast<int>(M_PI * f2fl(r) / 19);
 	if(!disk_va)
+	{
 		disk_va = circle_array_init(nsides);
-	ogl_drawcircle(nsides, GL_TRIANGLE_FAN, disk_va.get());
+		disk_va_sides = nsides;
+	}
+	ogl_drawcircle(std::min<unsigned>(nsides, disk_va_sides), GL_TRIANGLE_FAN, disk_va.get());
 	glPopMatrix();
 	return 0;
 }
