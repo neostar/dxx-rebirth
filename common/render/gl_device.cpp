@@ -435,7 +435,10 @@ void gl_device::clear(const clear_targets targets)
 	if (targets.depth)
 		bits |= GLbitfield{GL_DEPTH_BUFFER_BIT};
 	if (bits != 0)
+	{
+		glClearColor(0.0, 0.0, 0.0, 0.0);
 		glClear(bits);
+	}
 }
 
 void gl_device::present()

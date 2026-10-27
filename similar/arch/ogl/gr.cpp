@@ -553,15 +553,6 @@ void gr_toggle_fullscreen()
 
 	if (gl_initialized) // update viewing values for menus
 	{
-		glMatrixMode(GL_PROJECTION);
-		glLoadIdentity();
-#if DXX_USE_OGLES
-		glOrthof(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#else
- 		glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#endif
-		glMatrixMode(GL_MODELVIEW);
-		glLoadIdentity();//clear matrix
 		ogl_record_2d_state();
 		ogl_create_device();
 		ogl_smash_texture_list_internal();//if we are or were fullscreen, changing vid mode will invalidate current textures
@@ -586,19 +577,8 @@ void gr_toggle_fullscreen()
 
 static void ogl_init_state(void)
 {
-	/* select clearing (background) color   */
-	glClearColor(0.0, 0.0, 0.0, 0.0);
-
+	/* The clearing (background) colour is the device's. */
 	/* initialize viewing values */
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-#if DXX_USE_OGLES
-	glOrthof(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#else
- 	glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#endif
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();//clear matrix
 	ogl_record_2d_state();
 	gr_palette_step_up(0,0,0);//in case its left over from in game
 

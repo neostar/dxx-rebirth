@@ -67,6 +67,43 @@ class recording_device final : public render::device
 
 }
 
+/* Test that starting a 3D frame clears depth alone, so the colour of the
+ * frame drawn so far stays, and sets the state of 3D draws.
+ */
+BOOST_AUTO_TEST_CASE(begin_3d_frame_clears_depth_only)
+{
+	recording_device d;
+	render::ambient a;
+	render::begin_3d_frame(d, a, 2.f);
+	BOOST_REQUIRE_EQUAL(d.calls.size(), 1u);
+	BOOST_TEST((std::get<render::clear_targets>(d.calls[0]) ==
+	            render::clear_targets{.color = false, .depth = true}));
+	BOOST_TEST((a.depth == render::depth::test_and_write));
+	BOOST_TEST((a.cull == render::cull::front));
+	BOOST_TEST(a.line_width == 2.f);
+	BOOST_TEST(a.alpha_test);
+}
+
+/* Test that the rear view's second 3D frame, started in the middle of the
+ * first, clears depth again and no colour, and ends in 2D state.
+ */
+BOOST_AUTO_TEST_CASE(rear_view_clears_depth_in_mid_frame)
+{
+	recording_device d;
+	render::ambient a;
+	render::begin_3d_frame(d, a, 1.f);
+	render::end_3d_frame(a);
+	render::begin_3d_frame(d, a, 1.f);
+	BOOST_REQUIRE_EQUAL(d.calls.size(), 2u);
+	for (const auto &c : d.calls)
+		BOOST_TEST((std::get<render::clear_targets>(c) ==
+		            render::clear_targets{.color = false, .depth = true}));
+	render::end_3d_frame(a);
+	BOOST_TEST((a.depth == render::depth::off));
+	BOOST_TEST((a.cull == render::cull::none));
+	BOOST_TEST((a.transforms.projection == render::projection{render::screen_ortho}));
+}
+
 /* Test that a palette step with no positive part darkens: 2.5 times its
  * magnitude, blended with palfx_neg.
  */
@@ -116,6 +153,9 @@ BOOST_AUTO_TEST_CASE(flash_draws_one_screen_quad_in_2d_state_and_restores_blend)
 {
 	recording_device d;
 	render::ambient a;
+	render::begin_3d_frame(d, a, 2.f);
+	render::end_3d_frame(a);
+	d.calls.clear();
 	a.blend_function = render::blend::additive_a;
 	a.blending = false;
 	render::draw_palette_flash(d, a,

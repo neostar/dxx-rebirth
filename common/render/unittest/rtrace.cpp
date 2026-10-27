@@ -24,8 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/render/ambient.h"
 #include "common/render/frame_setup.h"
-#include "common/render/moved_draw.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
@@ -469,8 +469,8 @@ BOOST_AUTO_TEST_CASE(ortho_matrix_is_gls)
 /* Test that the GL adapter applies the state of a draw with no vertices:
  * after a draw with a moved modelview, an empty draw with the identity
  * leaves GL's modelview matrix the identity, which the front end relies on
- * to restore the matrix the code not yet drawing through the device
- * expects (ogl_draw_moved).
+ * to bring GL to its ambient state for the code not yet drawing through the
+ * device (ogl_sync_gl_state).
  */
 BOOST_AUTO_TEST_CASE(empty_draw_applies_its_state)
 {
@@ -625,9 +625,10 @@ BOOST_AUTO_TEST_CASE(presented_reads_zero_before_a_present)
 }
 
 /* Test that a GL draw outside the device after a moved draw is not moved:
- * a quad over the whole target moved to its right half, then the left half
- * drawn with glDrawArrays as the code not yet drawing through the device
- * draws, leave the left half green and the right half red.
+ * a quad over the whole target moved to its right half, then the front
+ * end's sync (ogl_sync_gl_state), then the left half drawn with
+ * glDrawArrays as the code not yet drawing through the device draws, leave
+ * the left half green and the right half red.
  */
 BOOST_AUTO_TEST_CASE(direct_draw_after_moved_draw_is_not_moved)
 {
@@ -636,8 +637,11 @@ BOOST_AUTO_TEST_CASE(direct_draw_after_moved_draw_is_not_moved)
 	render::ambient a;
 	a.viewport = {.x = 0, .y = 0, .size = target};
 	const quad whole{red};
-	render::draw_moved(d, a, render::topology::fan, whole.vertices,
-	                   {.translate = {{0.5f, 0, 0}}, .scale = {{0.5f, 1, 1}}}, a.line_width);
+	auto moved{a.call(render::topology::fan, whole.vertices)};
+	moved.transforms.modelview =
+	    render::translate_scale{.translate = {{0.5f, 0, 0}}, .scale = {{0.5f, 1, 1}}};
+	d.draw(moved);
+	d.draw(a.call(render::topology::lines, {}));
 	const std::array<GLfloat, 8> left_half{{0, 0, 0.5f, 0, 0.5f, 1, 0, 1}};
 	glColor4f(0, 1, 0, 1);
 	glEnableClientState(GL_VERTEX_ARRAY);

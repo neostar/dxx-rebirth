@@ -23,6 +23,34 @@
 
 namespace dcx::render {
 
+/* Starts a 3D frame (ogl_start_frame): the state its draws use, then a depth
+ * clear of the whole target.  The rear view starts a second frame in the
+ * middle of the first, so its depth clear is a clear of depth alone, with
+ * the colour kept.  line_width is the width of one line pixel.
+ */
+inline void begin_3d_frame(device &d, ambient &a, const float line_width)
+{
+	a.blend_function = blend::normal;
+	a.blending = true;
+	a.alpha_ref = default_alpha_ref;
+	a.alpha_test = true;
+	a.line_width = line_width;
+	a.depth = depth::test_and_write;
+	a.cull = cull::front;
+	a.transforms = {view_perspective, identity{}};
+	d.clear({.color = false, .depth = true});
+}
+
+/* Ends a 3D frame (ogl_end_frame): the 2D state the menus and the HUD draw
+ * with.
+ */
+inline void end_3d_frame(ambient &a)
+{
+	a.cull = cull::none;
+	a.depth = depth::off;
+	a.transforms = {screen_ortho, identity{}};
+}
+
 /* The palette flash of one frame: the blend it draws a screen-sized quad
  * with, and that quad's colour.
  */

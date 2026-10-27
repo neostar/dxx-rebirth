@@ -58,8 +58,8 @@
 #include "gamefont.h"
 #include "byteutil.h"
 #include "internal.h"
+#include "common/render/frame_setup.h"
 #include "common/render/gl_device.h"
-#include "common/render/moved_draw.h"
 #include "common/render/overlay_uv.h"
 #include "common/render/palette_expand.h"
 #include "gauges.h"
@@ -227,27 +227,6 @@ static void ogl_loadbmtexture(grs_bitmap &bm, bool edgepad)
 }
 
 }
-
-#if DXX_USE_OGLES
-// Replacement for gluPerspective
-static void perspective(double fovy, double aspect, double zNear, double zFar)
-{
-	double xmin, xmax, ymin, ymax;
-
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-
-	ymax = zNear * tan(fovy * M_PI / 360.0);
-	ymin = -ymax;
-	xmin = ymin * aspect;
-	xmax = ymax * aspect;
-
-	glFrustumf(xmin, xmax, ymin, ymax, zNear, zFar);
-	glMatrixMode(GL_MODELVIEW);
-	glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);	
-	glDepthMask(GL_TRUE);
-}
-#endif
 
 namespace dcx {
 
@@ -694,15 +673,17 @@ static std::vector<render::vertex> ogl_circle_vertices(const std::span<const GLf
 
 /* Draws vertices as t through the render device in the ambient state,
  * moved by glTranslatef(translate) and glScalef(scale) from the identity
- * modelview, with line_width for lines, and restores the identity
- * modelview the game draws 2D and 3D with through the state shadow
- * (render::draw_moved; popping it behind the shadow's back would leave the
- * shadow believing the moved one is current, and skip it on the next such
- * draw).
+ * modelview, with line_width for lines.  The next draw call carries the
+ * ambient modelview and the state shadow sets it again; the code not yet
+ * drawing through the device reads GL's matrices only after
+ * ogl_sync_gl_state.
  */
 static void ogl_draw_moved(const render::topology t, const std::span<const render::vertex> vertices, const std::array<float, 3> &translate, const std::array<float, 3> &scale, const float line_width)
 {
-	render::draw_moved(ogl_device(), ogl_ambient(), t, vertices, {.translate = translate, .scale = scale}, line_width);
+	auto call{ogl_ambient().call(t, vertices)};
+	call.transforms.modelview = render::translate_scale{.translate = translate, .scale = scale};
+	call.state.line_width = line_width;
+	ogl_device().draw(call);
 }
 
 /* Where the vertex reticle draws: its modelview recipe and the width of
@@ -1244,40 +1225,20 @@ void ogl_set_blending(const gr_blend cv_blend_func)
 	ogl_ambient().blend_function = b;
 }
 
-void ogl_sync_gl_state()
-{
-	ogl_device().draw(ogl_ambient().call(render::topology::lines, {}));
-}
-
 void ogl_start_frame(grs_canvas &canvas)
 {
 	r_polyc=0;r_tpolyc=0;r_bitmapc=0;r_ubitbltc=0;
 
 	OGL_VIEWPORT(canvas.cv_bitmap.bm_x, canvas.cv_bitmap.bm_y, canvas.cv_bitmap.bm_w, canvas.cv_bitmap.bm_h);
-	glClearColor(0.0, 0.0, 0.0, 0.0);
+	/* The device sets GL to the state of a 3D frame on the next draw, and the
+	 * depth clear is also the rear view's, in mid-frame.
+	 */
+	render::begin_3d_frame(ogl_device(), ogl_ambient(), linedotscale);
+}
 
-
-	ogl_device().clear({.color = false, .depth = true});
-
-	glShadeModel(GL_SMOOTH);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();//clear matrix
-#if DXX_USE_OGLES
-	perspective(90.0,1.0,0.1,5000.0);   
-#else
-	gluPerspective(90.0,1.0,0.1,5000.0);
-#endif
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();//clear matrix
-	auto &ambient{ogl_ambient()};
-	ambient.blend_function = render::blend::normal;
-	ambient.blending = true;
-	ambient.alpha_ref = render::default_alpha_ref;
-	ambient.alpha_test = true;
-	ambient.line_width = linedotscale;
-	ambient.depth = render::depth::test_and_write;
-	ambient.cull = render::cull::front;
-	ambient.transforms = {render::view_perspective, render::identity{}};
+void ogl_sync_gl_state()
+{
+	ogl_device().draw(ogl_ambient().call(render::topology::lines, {}));
 }
 
 #if DXX_USE_STEREOSCOPIC_RENDER
@@ -1449,19 +1410,7 @@ bool ogl_bitmap_has_texture(const grs_bitmap &bm)
 
 void ogl_end_frame(void){
 	OGL_VIEWPORT(0, 0, grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height());
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();//clear matrix
-#if DXX_USE_OGLES
-	glOrthof(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#else
-	glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-#endif
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();//clear matrix
-	auto &ambient{ogl_ambient()};
-	ambient.cull = render::cull::none;
-	ambient.depth = render::depth::off;
-	ambient.transforms = {render::screen_ortho, render::identity{}};
+	render::end_3d_frame(ogl_ambient());
 }
 
 #if DXX_USE_DBG_HARNESS

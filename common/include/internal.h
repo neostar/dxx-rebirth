@@ -25,9 +25,9 @@ extern int linedotscale;
 extern int GL_TEXTURE_2D_enabled;
 
 /* The blend, alpha test and reference, depth test, culling, line width,
- * viewport and transforms the GL state holds, which draws through the render device are built from
- * (ADR 2).  Every change of that GL state outside the device records itself
- * here.
+ * viewport and transforms the game set last, which draws through the render
+ * device are built from (ADR 2).  The game's setters record a change here
+ * and make no GL call: the device sets GL on the next draw (gl_state.h).
  */
 render::ambient &ogl_ambient();
 /* Brings GL to the ambient state through an empty draw, for the code not yet
@@ -87,7 +87,6 @@ static inline void OGL_VIEWPORT(const unsigned x, const unsigned y, const unsign
 		last_width = w;
 		last_height = h;
 		const GLint gl_y = grd_curscreen->sc_canvas.cv_bitmap.bm_h-y-h;
-		glViewport(x,gl_y,w,h);
 		ogl_ambient().viewport = {static_cast<int32_t>(x), gl_y, {w, h}};
 	}
 }
