@@ -1,0 +1,73 @@
+# The manual D3D12 check (#49, ADR 4): R3, the committed synthetic traces
+# replayed by rtrace-gpu, on a real D3D12 runtime (WARP on windows-latest)
+# with the D3D12 debug layer on.  Fails on a frame hash that is not GL's
+# pinned line (tools/dev/rtrace-pins.sh) and on any validation message.
+# Started by hand only, by the orchestrator when the D3D12 path changes:
+# workflow_dispatch is its one trigger, and tools/dev/check.sh fails on any
+# other.  Synthetic traces only: no game data reaches GitHub.
+name: D3D12 check (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # The MinGW-w64 cross-build from source, in the pinned image
+    # (tools/dev/windows/Dockerfile), built here: no image is pushed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cross-build rtrace-gpu.exe
+        run: tools/dev/windows.sh build out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rtrace-gpu-win64
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  d3d12:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      # The scripts run in Git Bash: check them out with LF line ends.
+      - name: Check out with LF line ends
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rtrace-gpu-win64
+          path: out
+      - name: List the display adapters
+        shell: pwsh
+        run: Get-CimInstance Win32_VideoController | Format-List Name, DriverVersion, AdapterCompatibility
+      # The D3D12 debug layer (d3d12SDKLayers.dll) comes with Windows'
+      # Graphics Tools optional feature; without it SDL runs unvalidated
+      # and gpu-validate.sh fails the run.
+      - name: Install Graphics Tools (the D3D12 debug layer)
+        shell: pwsh
+        run: |
+          $dll = Join-Path $env:SystemRoot 'System32\d3d12SDKLayers.dll'
+          if (Test-Path $dll) {
+            'Graphics Tools: already installed'
+          } else {
+            $took = Measure-Command {
+              Add-WindowsCapability -Online -Name 'Tools.Graphics.DirectX~~~~0.0.1.0' | Out-Host
+            }
+            "Graphics Tools: installed in $([int]$took.TotalSeconds) s"
+          }
+          if (-not (Test-Path $dll)) { throw "no $dll after installing Graphics Tools" }
+      - name: R3 on D3D12 (WARP), debug layer on
+        shell: bash
+        run: tools/dev/rtrace-d3d12.sh out

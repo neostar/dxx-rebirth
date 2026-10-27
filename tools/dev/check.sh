@@ -119,15 +119,61 @@ step_stale_hashes()
 	return "$rc"
 }
 
+# The one fork workflow ADR 4 allows: the manual D3D12 check (#49).
+manual_workflow=.github/workflows/d3d12-check.yml
+
+# Whether workflow file $1's triggers are workflow_dispatch alone: one
+# top-level `on:` key (quoted, or YAML 1.1's `true`, too), whose value is
+# `workflow_dispatch` on its line or a block whose keys, at its first
+# indent, are workflow_dispatch only.  Any other form, a flow list or map
+# among them, fails: the check reads YAML only this far.
+only_workflow_dispatch()
+{
+	awk -v q="'" '
+		function strip(s) { sub(/[ \t]+#.*$/, "", s); sub(/[ \t]+$/, "", s); return s }
+		/^[ \t]*(#|$)/ { next }
+		/^[^ \t]/ {
+			inon = 0
+			key = $0
+			sub(/:.*/, "", key)
+			if (key == "on" || key == "\"on\"" || key == q "on" q || key == "true") {
+				ons++
+				value = strip(substr($0, index($0, ":") + 1))
+				sub(/^[ \t]+/, "", value)
+				if (value == "workflow_dispatch") ok++
+				else if (value == "") inon = 1
+				else bad++
+			}
+			next
+		}
+		inon {
+			line = strip($0)
+			match(line, /^[ \t]*/)
+			if (!indent) indent = RLENGTH
+			if (RLENGTH < indent) { bad++; next }
+			if (RLENGTH > indent) next
+			if (line ~ /^[ \t]*workflow_dispatch:$/) ok++
+			else bad++
+		}
+		END { exit !(ons == 1 && ok == 1 && !bad) }' "$1"
+}
+
 # Fail on any file under .github/workflows/ that upstream/master does not
-# have: the fork's CI is local (ADR 4), and GitHub must not run a workflow
-# of its own.  Without upstream/master the check is a SKIP.
+# have, but the manual D3D12 check: the fork's CI is local (ADR 4), and
+# GitHub must not run a workflow of its own, but by hand.  That one fails
+# when it has any trigger but workflow_dispatch.  Without upstream/master
+# the check is a SKIP.
 step_workflows()
 {
 	local f rc=0
 	need_upstream workflows || return 0
 	while IFS= read -r f; do
-		echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
+		if [[ $f == "$manual_workflow" ]]; then
+			only_workflow_dispatch "$root/$f" && continue
+			echo "$f: its only trigger must be workflow_dispatch (ADR 4)"
+		else
+			echo "$f: a GitHub workflow upstream does not have; the fork's CI is tools/dev/ci.sh"
+		fi
 		rc=1
 	done < <(comm -23 \
 		<(git -C "$root" ls-files -co --exclude-standard -- .github/workflows | sort -u) \

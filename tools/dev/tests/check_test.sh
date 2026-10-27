@@ -1049,6 +1049,54 @@ test_fast_fails_on_new_github_workflow()
 	assert_contains "$out" "failed: workflows"
 }
 
+# Test that the fast subset accepts the one fork workflow ADR 4 allows,
+# the manual D3D12 check, while workflow_dispatch is its only trigger.
+test_fast_allows_the_manual_d3d12_workflow()
+{
+	local r up fork out on
+	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
+	mkdir -p "$r/.github/workflows"
+	for on in 'on:
+  workflow_dispatch:' 'on:  # by hand only
+  workflow_dispatch:
+    inputs:
+      note:
+        type: string' 'on: workflow_dispatch' '"on": workflow_dispatch'; do
+		printf '%s\npermissions:\n  contents: read\njobs:\n  a:\n    runs-on: ubuntu-latest\n' \
+			"$on" > "$r/.github/workflows/d3d12-check.yml"
+		out=$("$r/tools/dev/check.sh" --fast 2>&1)
+		assert_eq "$?" 0 "$on: $out"
+	done
+}
+
+# Test that the fast subset fails when the D3D12 workflow gains any trigger
+# but workflow_dispatch, or has a trigger list it cannot read.
+test_fast_fails_on_d3d12_workflow_with_another_trigger()
+{
+	local r up fork out rc on
+	read -r r up fork < <(make_forked_dev_repo)
+	[[ -n $fork ]] || die "make_forked_dev_repo failed"
+	mkdir -p "$r/.github/workflows"
+	for on in 'on:
+  workflow_dispatch:
+  push:' 'on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:' 'on: push' 'on: [workflow_dispatch, pull_request]' \
+		'on: {workflow_dispatch: {}, push: {}}' 'on:
+  workflow_dispatch:
+on: push' 'true:
+  push:' 'name: no trigger'; do
+		printf '%s\njobs:\n  a:\n    runs-on: ubuntu-latest\n' "$on" \
+			> "$r/.github/workflows/d3d12-check.yml"
+		out=$("$r/tools/dev/check.sh" --fast 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$on: $out"
+		assert_contains "$out" ".github/workflows/d3d12-check.yml: its only trigger must be workflow_dispatch (ADR 4)"
+		assert_contains "$out" "failed: workflows"
+	done
+}
+
 # Test that the workflow check is a visible SKIP without upstream/master.
 test_fast_skips_workflow_check_without_upstream()
 {
