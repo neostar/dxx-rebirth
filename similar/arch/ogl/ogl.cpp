@@ -59,6 +59,7 @@
 #include "byteutil.h"
 #include "internal.h"
 #include "common/render/gl_device.h"
+#include "common/render/overlay_uv.h"
 #include "common/render/palette_expand.h"
 #include "gauges.h"
 #include "object.h"
@@ -978,20 +979,19 @@ void _g3_draw_poly(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const> pointlist, const g3s_uvl *const uvl_list, const g3s_lrgb *const light_rgb, grs_bitmap &bm, const tmap_drawer_type tmap_drawer_ptr)
 {
 	GLfloat color_alpha = 1.0;
+	render::texture_slot texture{render::texture_slot::none};
+	render::wrap wrap{render::wrap::clamp};
 
-	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY> cs;
 	if (tmap_drawer_ptr == draw_tmap) {
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-		OGL_ENABLE(TEXTURE_2D);
 		const auto gltexture{ogl_bindbmtex(bm, 0)};
 		if (!gltexture) [[unlikely]]
 			/* `gltexture` will only be `nullptr` if a game data file is missing. */
 			return;
-		ogl_texwrap(gltexture, GL_REPEAT);
+		texture = ogl_texture_slot(*gltexture);
+		wrap = render::wrap::repeat;
 		r_tpolyc++;
 		color_alpha = (canvas.cv_fade_level >= GR_FADE_OFF) ? 1.0 : (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
 	} else if (tmap_drawer_ptr == draw_tmap_flat) {
-		OGL_DISABLE(TEXTURE_2D);
 		/* for cloaked state faces */
 		color_alpha = 1.0 - (static_cast<GLfloat>(canvas.cv_fade_level) / static_cast<GLfloat>(NUM_LIGHTING_LEVELS));
 	} else {
@@ -999,56 +999,32 @@ void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 		return;
 	}
 
-	flatten_array<GLfloat, 3, MAX_POINTS_PER_POLY> vertices;
-	flatten_array<GLfloat, 4, MAX_POINTS_PER_POLY> color_array;
-	flatten_array<GLfloat, 2, MAX_POINTS_PER_POLY> texcoord_array;
+	std::array<render::vertex, MAX_POINTS_PER_POLY> vertices;
 
 	const auto nv = pointlist.size();
-	for (auto &&[point, light, uvl, vert, color, texcoord] : zip(
+	for (auto &&[point, light, uvl, v] : zip(
 			pointlist,
 			unchecked_partial_range(light_rgb, nv),
 			unchecked_partial_range(uvl_list, nv),
-			unchecked_partial_range(vertices.nested, nv),
-			unchecked_partial_range(color_array.nested, nv),
-			partial_range(texcoord_array.nested, nv)
+			partial_range(vertices, nv)
 		)
 	)
 	{
-		vert[0] = f2glf(point->p3_vec.x);
-		vert[1] = f2glf(point->p3_vec.y);
-		vert[2] = -f2glf(point->p3_vec.z);
-		color[3] = color_alpha;
+		v.pos = {{f2glf(point->p3_vec.x), f2glf(point->p3_vec.y), -f2glf(point->p3_vec.z)}};
 		if (tmap_drawer_ptr == draw_tmap_flat) {
-			color[0] = color[1] = color[2] = 0;
+			v.rgba = {{0, 0, 0, color_alpha}};
+			v.uv = {};
 		}
 		else
 		{
 			if (bm.get_flag_mask(BM_FLAG_NO_LIGHTING))
-			{
-				color[0] = color[1] = color[2] = 1.0;
-			}
+				v.rgba = {{1.0, 1.0, 1.0, color_alpha}};
 			else
-			{
-				color[0] = f2glf(light.r);
-				color[1] = f2glf(light.g);
-				color[2] = f2glf(light.b);
-			}
-			texcoord[0] = f2glf(uvl.u);
-			texcoord[1] = f2glf(uvl.v);
+				v.rgba = {{f2glf(light.r), f2glf(light.g), f2glf(light.b), color_alpha}};
+			v.uv = {{f2glf(uvl.u), f2glf(uvl.v)}};
 		}
 	}
-
-	glVertexPointer(3, GL_FLOAT, 0, vertices.flat.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.flat.data());
-	if (tmap_drawer_ptr == draw_tmap) {
-		glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array.flat.data());
-	}
-	
-	glDrawArrays(GL_TRIANGLE_FAN, 0, nv);
-	
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	ogl_device().draw(ogl_ambient().fan(std::span(vertices).first(nv), texture, wrap));
 }
 
 /*
@@ -1057,85 +1033,36 @@ void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 void _g3_draw_tmap_2(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const> pointlist, const std::span<const g3s_uvl, 4> uvl_list, const std::span<const g3s_lrgb, 4> light_rgb, grs_bitmap &bmbot, grs_bitmap &bm, const texture2_rotation_low orient, const tmap_drawer_type tmap_drawer_ptr)
 {
 	_g3_draw_tmap(canvas, pointlist, uvl_list.data(), light_rgb.data(), bmbot, tmap_drawer_ptr);//draw the bottom texture first.. could be optimized with multitexturing..
-	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
-	(void)cs;
 	r_tpolyc++;
-	OGL_ENABLE(TEXTURE_2D);
 	const auto gltexture{ogl_bindbmtex(bm, 1)};
 	if (!gltexture) [[unlikely]]
 		/* `gltexture` will only be `nullptr` if a game data file is missing. */
 		return;
-	ogl_texwrap(gltexture, GL_REPEAT);
 
-	flatten_array<GLfloat, 4, MAX_POINTS_PER_POLY> color_array;
-	{
-		const GLfloat alpha = (canvas.cv_fade_level >= GR_FADE_OFF)
-			? 1.0
-			: (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
-		auto &&color_range = unchecked_partial_range(color_array.nested, pointlist.size());
-		if (bm.get_flag_mask(BM_FLAG_NO_LIGHTING))
-		{
-			for (auto &e : color_range)
-			{
-				e[0] = e[1] = e[2] = 1.0;
-				e[3] = alpha;
-			}
-		}
-		else
-		{
-			for (auto &&[e, l] : zip(
-					color_range,
-					unchecked_partial_range(light_rgb, pointlist.size())
-				)
-			)
-			{
-				e[0] = f2glf(l.r);
-				e[1] = f2glf(l.g);
-				e[2] = f2glf(l.b);
-				e[3] = alpha;
-			}
-		}
-	}
-
-	flatten_array<GLfloat, 3, MAX_POINTS_PER_POLY> vertices;
-	flatten_array<GLfloat, 2, MAX_POINTS_PER_POLY> texcoord_array;
+	const GLfloat alpha = (canvas.cv_fade_level >= GR_FADE_OFF)
+		? 1.0
+		: (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
+	const bool no_lighting{bm.get_flag_mask(BM_FLAG_NO_LIGHTING) != 0};
+	const auto rotation{static_cast<render::uv_rotation>(std::to_underlying(orient))};
+	std::array<render::vertex, MAX_POINTS_PER_POLY> vertices;
 
 	const auto nv = pointlist.size();
-	for (auto &&[point, uvl, vert, texcoord] : zip(
+	for (auto &&[point, uvl, light, v] : zip(
 			pointlist,
 			unchecked_partial_range(uvl_list, nv),
-			unchecked_partial_range(vertices.nested, nv),
-			partial_range(texcoord_array.nested, nv)
+			unchecked_partial_range(light_rgb, nv),
+			partial_range(vertices, nv)
 		)
 	)
 	{
-		const GLfloat uf = f2glf(uvl.u), vf = f2glf(uvl.v);
-		switch(orient){
-			case texture2_rotation_low::_1:
-				texcoord[0] = 1.0 - vf;
-				texcoord[1] = uf;
-				break;
-			case texture2_rotation_low::_2:
-				texcoord[0] = 1.0 - uf;
-				texcoord[1] = 1.0 - vf;
-				break;
-			case texture2_rotation_low::_3:
-				texcoord[0] = vf;
-				texcoord[1] = 1.0 - uf;
-				break;
-			default:
-				texcoord[0] = uf;
-				texcoord[1] = vf;
-				break;
-		}
-		vert[0] = f2glf(point->p3_vec.x);
-		vert[1] = f2glf(point->p3_vec.y);
-		vert[2] = -f2glf(point->p3_vec.z);
+		v.pos = {{f2glf(point->p3_vec.x), f2glf(point->p3_vec.y), -f2glf(point->p3_vec.z)}};
+		if (no_lighting)
+			v.rgba = {{1.0, 1.0, 1.0, alpha}};
+		else
+			v.rgba = {{f2glf(light.r), f2glf(light.g), f2glf(light.b), alpha}};
+		v.uv = render::overlay_uv({{f2glf(uvl.u), f2glf(uvl.v)}}, rotation);
 	}
-	glVertexPointer(3, GL_FLOAT, 0, vertices.flat.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.flat.data());
-	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array.flat.data());
-	glDrawArrays(GL_TRIANGLE_FAN, 0, nv);
+	ogl_device().draw(ogl_ambient().fan(std::span(vertices).first(nv), ogl_texture_slot(*gltexture), render::wrap::repeat));
 }
 
 /*
@@ -1144,81 +1071,51 @@ void _g3_draw_tmap_2(grs_canvas &canvas, const std::span<g3_draw_tmap_point *con
 void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, const fix iwidth, const fix iheight, grs_bitmap &bm)
 {
 	r_bitmapc++;
-	
-	ogl_client_states<int, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
-	auto &i = std::get<0>(cs);
 
-	OGL_ENABLE(TEXTURE_2D);
 	const auto gltexture{ogl_bindbmtex(bm, 0)};
 	if (!gltexture) [[unlikely]]
 		/* `gltexture` will only be `nullptr` if a game data file is missing. */
 		return;
-	ogl_texwrap(gltexture, GL_CLAMP_TO_EDGE);
 
 	const auto width = fixmul(iwidth, Matrix_scale.x);
 	const auto height = fixmul(iheight, Matrix_scale.y);
 	constexpr unsigned point_count = 4;
-	struct fvertex_t
-	{
-		GLfloat x, y, z;
-	};
-	struct fcolor_t
-	{
-		GLfloat r, g, b, a;
-	};
-	struct ftexcoord_t
-	{
-		GLfloat u, v;
-	};
-	std::array<fvertex_t, point_count> vertices;
-	std::array<fcolor_t, point_count> color_array;
-	std::array<ftexcoord_t, point_count> texcoord_array;
+	std::array<render::vertex, point_count> vertices;
 	const auto &&rpv{vm_vec_build_rotated(vm_vec_build_sub(pos, View_position), View_matrix)};
 	const auto bmglu = bm.gltexture->u;
 	const auto bmglv = bm.gltexture->v;
-	const auto alpha = canvas.cv_fade_level >= GR_FADE_OFF ? 1.0 : (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
+	const GLfloat alpha = canvas.cv_fade_level >= GR_FADE_OFF ? 1.0 : (1.0 - static_cast<float>(canvas.cv_fade_level) / (static_cast<float>(GR_FADE_LEVELS) - 1.0));
 	const auto vert_z = -f2glf(rpv.z);
-	for (i=0;i<4;i++){
+	for (unsigned i = 0; i < point_count; i++){
+		auto &v = vertices[i];
 		auto pv = rpv;
 		switch (i){
 			case 0:
-				texcoord_array[i].u = 0.0;
-				texcoord_array[i].v = 0.0;
+				v.uv = {{0.0, 0.0}};
 				pv.x+=-width;
 				pv.y+=height;
 				break;
 			case 1:
-				texcoord_array[i].u = bmglu;
-				texcoord_array[i].v = 0.0;
+				v.uv = {{bmglu, 0.0}};
 				pv.x+=width;
 				pv.y+=height;
 				break;
 			case 2:
-				texcoord_array[i].u = bmglu;
-				texcoord_array[i].v = bmglv;
+				v.uv = {{bmglu, bmglv}};
 				pv.x+=width;
 				pv.y+=-height;
 				break;
 			case 3:
-				texcoord_array[i].u = 0.0;
-				texcoord_array[i].v = bmglv;
+				v.uv = {{0.0, bmglv}};
 				pv.x+=-width;
 				pv.y+=-height;
 				break;
 		}
 
-		color_array[i].r = 1.0;
-		color_array[i].g = 1.0;
-		color_array[i].b = 1.0;
-		color_array[i].a = alpha;
-		vertices[i].x = f2glf(pv.x);
-		vertices[i].y = f2glf(pv.y);
-		vertices[i].z = vert_z;
+		v.rgba = {{1.0, 1.0, 1.0, alpha}};
+		v.pos = {{f2glf(pv.x), f2glf(pv.y), vert_z}};
 	}
-	glVertexPointer(3, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.data());
-	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array.data());
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4); // Replaced GL_QUADS
+	ogl_device().draw(ogl_ambient().fan(vertices, ogl_texture_slot(*gltexture), render::wrap::clamp));
 }
 
 /*
