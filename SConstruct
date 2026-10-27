@@ -5171,6 +5171,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-render-ambient', (
 			'common/render/unittest/ambient.cpp',
 			)),
+		RuntimeTest('test-frame-setup', (
+			'common/render/unittest/frame_setup.cpp',
+			)),
 		RuntimeTest('test-transform-matrix', (
 			'common/render/unittest/transform_matrix.cpp',
 			)),

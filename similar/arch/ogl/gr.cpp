@@ -47,6 +47,7 @@
 #include "args.h"
 #include "physfsx.h"
 #include "internal.h"
+#include "common/render/frame_setup.h"
 #include "common/render/gl_device.h"
 #include "console.h"
 #include "config.h"
@@ -1043,55 +1044,8 @@ static int do_pal_step;
 
 void ogl_do_palfx(void)
 {
-	OGL_DISABLE(TEXTURE_2D);
-
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_COLOR_ARRAY);
-
-	GLfloat alast_r = last_r;
-	GLfloat alast_g = last_g;
-	GLfloat alast_b = last_b;
-	
-	if (!do_pal_step) {
-		return;
-	}
-	else if (last_r <= 0 && last_g <= 0 && last_b <= 0) 
-	{
-		// scale negative effect by 2.5 to match D1/D2 on GL
-		// also make values positive to actually have an effect
-		alast_r = last_r * -2.5;
-		alast_g = last_g * -2.5;
-		alast_b = last_b * -2.5;
-		
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_ZERO,GL_ONE_MINUS_SRC_COLOR);
-	} 
-	else
-	{
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_ONE,GL_ONE);
-	}
-
-	GLfloat color_array[] = { 
-		alast_r, alast_g, alast_b, 1.0,
-		alast_r, alast_g, alast_b, 1.0,
-		alast_r, alast_g, alast_b, 1.0,
-		alast_r, alast_g, alast_b, 1.0
-	};
-
-	std::array<GLfloat, 8> vertices = {{
-		0, 0, 0, 1, 1, 1, 1, 0
-	}};
-	glVertexPointer(2, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array);
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);//replaced GL_QUADS
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	auto &ambient{ogl_ambient()};
-	ambient.blend_function = render::blend::normal;
-	ambient.blending = true;
+	if (const auto flash{render::flash_of(last_r, last_g, last_b, do_pal_step)})
+		render::draw_palette_flash(ogl_device(), ogl_ambient(), *flash);
 }
 
 static int ogl_brightness_ok;
