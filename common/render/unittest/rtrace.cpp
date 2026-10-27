@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/render/ambient.h"
+#include "common/render/blit.h"
 #include "common/render/frame_setup.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
@@ -763,4 +764,130 @@ BOOST_AUTO_TEST_CASE(copy_region_copies_a_rectangle_and_guards_its_caps)
 	BOOST_TEST(every_pixel_is(drawing(d), {{255, 0, 0}}));
 	BOOST_CHECK_THROW(d.copy_region(up_to_down, true), std::logic_error);
 	BOOST_CHECK_THROW(d.select_eye(render::eye::right), std::logic_error);
+}
+
+namespace {
+
+/* The colour of pixel (x, y) of image rgb of target, y from the top. */
+std::array<std::uint8_t, 3> pixel_at(const std::span<const std::uint8_t> rgb, const std::uint32_t x,
+                                     const std::uint32_t y)
+{
+	const std::size_t i{(std::size_t{y} * target.width + x) * 3};
+	return {rgb[i], rgb[i + 1], rgb[i + 2]};
+}
+
+constexpr std::array<std::uint8_t, 3> red_rgb{{255, 0, 0}}, green_rgb{{0, 255, 0}},
+    blue_rgb{{0, 0, 255}}, black_rgb{{0, 0, 0}};
+
+/* A texture image of tw by th texels, the way the front end pads a bitmap
+ * of w by h: the top left w by h texels from texel(x, y), the rest green.
+ */
+template <typename F>
+struct padded_image
+{
+	std::vector<std::uint8_t> rgba;
+	render::texture_image image;
+	padded_image(const std::uint32_t tw, const std::uint32_t th, const std::uint32_t w,
+	             const std::uint32_t h, F texel)
+	    : rgba{make(tw, th, w, h, texel)}, image{{.size = {.width = tw, .height = th},
+		                                          .format = render::texture_format::rgba8,
+		                                          .filter = render::filter::nearest,
+		                                          .anisotropic = false,
+		                                          .has_transparency = false},
+		                                         rgba}
+	{}
+	static std::vector<std::uint8_t> make(const std::uint32_t tw, const std::uint32_t th,
+	                                      const std::uint32_t w, const std::uint32_t h, F texel)
+	{
+		std::vector<std::uint8_t> v;
+		for (std::uint32_t y{0}; y != th; ++y)
+			for (std::uint32_t x{0}; x != tw; ++x)
+			{
+				const auto c{x < w && y < h ? texel(x, y) : green_rgb};
+				v.insert(v.end(), {c[0], c[1], c[2], 255});
+			}
+		return v;
+	}
+};
+
+}
+
+/* Test that a movie frame, uploaded to a slot and drawn through the GL
+ * adapter with movie_rect, blits into the rectangle it is given and shows
+ * its own texels there: a 6 by 4 frame in an 8 by 4 texture, its
+ * left three columns red and its right three blue, drawn into 24 by 16
+ * pixels at (16, 8) of the 64 by 48 target, fills the rectangle in red then
+ * blue, shows none of the texture's green padding and leaves the rest of
+ * the target black.
+ */
+BOOST_AUTO_TEST_CASE(movie_frame_blits_into_its_rectangle)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	/* Any slot draws the same: 20001 is the number ogl_texture_slot gives
+	 * the movie frame today, but nothing here reads ogl_texture_list, and
+	 * rtrace's gl_host resolves the slot by its own name for it.
+	 */
+	constexpr render::texture_slot movie_slot{20001};
+	const padded_image frame{8, 4, 6, 4, [](const std::uint32_t x, const std::uint32_t) {
+		                         return x < 3 ? red_rgb : blue_rgb;
+	                         }};
+	d.texture(movie_slot, &frame.image);
+	d.clear({.color = true, .depth = true});
+	render::ambient a;
+	a.viewport = {.x = 0, .y = 0, .size = target};
+	const auto vertices{render::blit_vertices(render::movie_rect(16, 8, 24, 16, target),
+	                                          {.u1 = 0, .u2 = 0.75f, .v1 = 0, .v2 = 1},
+	                                          {{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}})};
+	d.draw(a.fan(vertices, movie_slot));
+	const auto rgb{drawing(d)};
+	for (std::uint32_t y{8}; y != 24; ++y)
+	{
+		BOOST_TEST((pixel_at(rgb, 16, y) == red_rgb));
+		BOOST_TEST((pixel_at(rgb, 27, y) == red_rgb));
+		BOOST_TEST((pixel_at(rgb, 28, y) == blue_rgb));
+		BOOST_TEST((pixel_at(rgb, 39, y) == blue_rgb));
+	}
+	BOOST_TEST((pixel_at(rgb, 15, 16) == black_rgb));
+	BOOST_TEST((pixel_at(rgb, 40, 16) == black_rgb));
+	BOOST_TEST((pixel_at(rgb, 20, 7) == black_rgb));
+	BOOST_TEST((pixel_at(rgb, 20, 24) == black_rgb));
+}
+
+/* Test that a glyph, a bitmap offset into its parent's texture, shows its
+ * own window of the texture, tinted by its vertex colours: the top right
+ * 4 by 4 texels of an 8 by 8 texture, which are blue, the rest red, drawn
+ * with a half grey tint give blue of half the texel's, and nothing beside.
+ */
+BOOST_AUTO_TEST_CASE(glyph_blits_its_window_of_the_texture)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	const padded_image font{8, 8, 8, 8, [](const std::uint32_t x, const std::uint32_t y) {
+		                        return x >= 4 && y < 4 ? blue_rgb : red_rgb;
+	                        }};
+	d.texture({3}, &font.image);
+	d.clear({.color = true, .depth = true});
+	render::ambient a;
+	a.viewport = {.x = 0, .y = 0, .size = target};
+	const auto uv{render::bitmap_uv({.x = 4,
+	                                 .y = 0,
+	                                 .w = 4,
+	                                 .h = 4,
+	                                 .tex_w = 8,
+	                                 .tex_h = 8,
+	                                 .tex_tw = 8,
+	                                 .tex_th = 8,
+	                                 .u = 1,
+	                                 .v = 1})};
+	const auto vertices{render::blit_vertices(
+	    render::canvas_rect(8, 8, 8, 8, target), uv,
+	    {{0.5f, 0.5f, 0.5f, 1, 0.5f, 0.5f, 0.5f, 1, 0.5f, 0.5f, 0.5f, 1, 0.5f, 0.5f, 0.5f, 1}})};
+	d.draw(a.fan(vertices, {3}));
+	const auto rgb{drawing(d)};
+	for (const std::uint32_t y : {8u, 15u})
+		for (const std::uint32_t x : {8u, 15u})
+			BOOST_TEST((pixel_at(rgb, x, y) == std::array<std::uint8_t, 3>{{0, 0, 128}}));
+	BOOST_TEST((pixel_at(rgb, 16, 12) == black_rgb));
+	BOOST_TEST((pixel_at(rgb, 7, 12) == black_rgb));
 }
