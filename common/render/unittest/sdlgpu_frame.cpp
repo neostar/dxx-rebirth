@@ -58,6 +58,9 @@ struct counting_commands final : sdlgpu::commands
 {
 	std::vector<render::vertex> uploaded;
 	unsigned uploads{0};
+	/* The last upload's plan. */
+	std::size_t upload_size{0};
+	std::size_t vertex_offset{0};
 	std::vector<sdlgpu::pass_ops> passes;
 	unsigned ends{0};
 	unsigned pipeline_binds{0};
@@ -75,11 +78,14 @@ struct counting_commands final : sdlgpu::commands
 	sdlgpu::vertex_uniforms vertex{};
 	sdlgpu::fragment_uniforms fragment{};
 
-	void upload_vertices(const std::span<const render::vertex> v) override
+	void upload(const sdlgpu::frame_uploads &u) override
 	{
 		BOOST_TEST(!in_pass);
+		BOOST_TEST(passes.empty());
 		++uploads;
-		uploaded.assign(v.begin(), v.end());
+		upload_size = u.size;
+		vertex_offset = u.vertex_offset;
+		uploaded.assign(u.vertices.begin(), u.vertices.end());
 	}
 	void begin_pass(const sdlgpu::pass_ops &ops) override
 	{
@@ -242,9 +248,9 @@ BOOST_AUTO_TEST_CASE(pipeline_key_is_blend_depth_cull)
 	BOOST_TEST(sdlgpu::index_of(sdlgpu::key_of(a)) != sdlgpu::index_of(sdlgpu::key_of(c)));
 }
 
-/* Test that three equal-state quads cost one upload, one pass and one bind
- * of each kind, and draw as triangle lists one after another in the one
- * vertex buffer.
+/* Test that three equal-state quads cost one upload, whose plan holds their
+ * vertices at offset 0, one pass and one bind of each kind, and draw as triangle lists one after
+ * another in the one vertex buffer.
  */
 BOOST_AUTO_TEST_CASE(equal_state_draws_bind_once)
 {
@@ -257,6 +263,8 @@ BOOST_AUTO_TEST_CASE(equal_state_draws_bind_once)
 	BOOST_TEST(f.encode(c, none));
 	BOOST_TEST(c.uploads == 1u);
 	BOOST_TEST(c.uploaded.size() == 18u);
+	BOOST_TEST(c.vertex_offset == 0u);
+	BOOST_TEST(c.upload_size == 18 * sizeof(render::vertex));
 	BOOST_REQUIRE(c.passes.size() == 1u);
 	BOOST_TEST((c.passes.front() == sdlgpu::pass_ops{.clear_color = true, .clear_depth = true}));
 	BOOST_TEST(c.ends == 1u);

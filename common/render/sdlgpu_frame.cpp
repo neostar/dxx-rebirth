@@ -113,8 +113,16 @@ bool frame::encode(commands &c, const clear_targets undefined)
 	bool in_pass{false};
 	bool encoded{false};
 	bind_cache bound;
+	/* One plan for the frame's uploads. */
 	if (!vertices_.empty())
-		c.upload_vertices(vertices_);
+	{
+		upload_plan plan;
+		frame_uploads u{.size = 0,
+		                .vertices = vertices_,
+		                .vertex_offset = plan.reserve(vertices_.size() * sizeof(vertex))};
+		u.size = plan.size();
+		c.upload(u);
+	}
 	const auto begin{[&] {
 		c.begin_pass({.clear_color = pending.color, .clear_depth = pending.depth});
 		pending = {.color = false, .depth = false};

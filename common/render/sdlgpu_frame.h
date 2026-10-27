@@ -177,18 +177,28 @@ struct pass_ops
 	constexpr bool operator==(const pass_ops &) const = default;
 };
 
+/* A frame's uploads as one plan (upload_plan): the transfer buffer's size,
+ * and the vertices and where they lie in it.
+ */
+struct frame_uploads
+{
+	std::size_t size;
+	std::span<const vertex> vertices;
+	std::size_t vertex_offset;
+};
+
 /* The GPU command seam: the SDL_GPU calls a frame makes, in the adapter's
- * terms, not a mirror of SDL_gpu.h.  upload_vertices runs before the
- * frame's first pass, in its own copy pass; the rest inside a pass.
+ * terms, not a mirror of SDL_gpu.h.  upload runs before the frame's first
+ * pass, in its own copy pass; the rest inside a pass.
  */
 class commands
 {
   public:
 	virtual ~commands() = default;
 	/* The frame's vertices, into the vertex buffer that bind_vertex_buffer
-	 * binds at offset 0.
+	 * binds at offset 0: one transfer buffer, one copy pass.
 	 */
-	virtual void upload_vertices(std::span<const vertex> vertices) = 0;
+	virtual void upload(const frame_uploads &u) = 0;
 	virtual void begin_pass(const pass_ops &ops) = 0;
 	virtual void end_pass() = 0;
 	virtual void bind_pipeline(const pipeline_key &key) = 0;

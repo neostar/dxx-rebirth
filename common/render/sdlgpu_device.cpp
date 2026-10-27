@@ -497,11 +497,12 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 }
 
 /* The GPU command seam's SDL_GPU adapter (sdlgpu_frame.h): one frame's
- * calls into one command buffer.  The vertex upload is the transfer ring:
- * the frame's transfer buffer is mapped with cycle=true, so a buffer still
- * in flight is never written, and copied to the vertex buffer in a copy
- * pass of its own before the frame's first render pass (research #71,
- * area 2).  Both buffers grow by grown_capacity and keep their size.
+ * calls into one command buffer.  The upload is the transfer ring: the
+ * frame's one transfer buffer, laid out by the frame's upload plan, is
+ * mapped with cycle=true, so a buffer still in flight is never written, and
+ * copied to the vertex buffer in a copy pass of its own before the frame's
+ * first render pass (research #71, area 2).  Both buffers grow by
+ * grown_capacity and keep their size.
  */
 class sdl_commands final : public commands
 {
@@ -545,12 +546,10 @@ class sdl_commands final : public commands
 			SDL_EndGPURenderPass(pass_);
 	}
 
-	void upload_vertices(const std::span<const vertex> v) override
+	void upload(const frame_uploads &u) override
 	{
-		const auto bytes{std::as_bytes(v)};
-		upload_plan plan;
-		const std::size_t offset{plan.reserve(bytes.size())};
-		const std::size_t transfer_size{grown_capacity(r_.transfer_capacity, plan.size())};
+		const auto vertex_bytes{std::as_bytes(u.vertices)};
+		const std::size_t transfer_size{grown_capacity(r_.transfer_capacity, u.size)};
 		if (transfer_size > std::numeric_limits<std::uint32_t>::max())
 			throw std::length_error("sdlgpu: a frame's uploads past a transfer buffer's size");
 		if (transfer_size != r_.transfer_capacity)
@@ -562,7 +561,8 @@ class sdl_commands final : public commands
 			               "SDL_CreateGPUTransferBuffer"};
 			r_.transfer_capacity = transfer_size;
 		}
-		if (const auto c{grown_capacity(r_.vertex_capacity, bytes.size())}; c != r_.vertex_capacity)
+		if (const auto c{grown_capacity(r_.vertex_capacity, vertex_bytes.size())};
+		    c != r_.vertex_capacity)
 		{
 			SDL_GPUBufferCreateInfo info{};
 			info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
@@ -571,21 +571,25 @@ class sdl_commands final : public commands
 			               "SDL_CreateGPUBuffer"};
 			r_.vertex_capacity = c;
 		}
-		const auto mapped{sdl::map_for_writing(device_, r_.transfer.get(), plan.size(), true)};
+		const auto mapped{sdl::map_for_writing(device_, r_.transfer.get(), u.size, true)};
 		if (mapped.empty())
 			sdl_failed("SDL_MapGPUTransferBuffer");
-		std::ranges::copy(bytes, mapped.subspan(offset).begin());
+		std::ranges::copy(vertex_bytes,
+		                  mapped.subspan(u.vertex_offset, vertex_bytes.size()).begin());
 		SDL_UnmapGPUTransferBuffer(device_, r_.transfer.get());
 		SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb_)};
 		if (copy == nullptr)
 			sdl_failed("SDL_BeginGPUCopyPass");
-		SDL_GPUTransferBufferLocation from{};
-		from.transfer_buffer = r_.transfer.get();
-		from.offset = static_cast<std::uint32_t>(offset);
-		SDL_GPUBufferRegion to{};
-		to.buffer = r_.vertices.get();
-		to.size = static_cast<std::uint32_t>(bytes.size());
-		SDL_UploadToGPUBuffer(copy, &from, &to, true);
+		if (!vertex_bytes.empty())
+		{
+			SDL_GPUTransferBufferLocation from{};
+			from.transfer_buffer = r_.transfer.get();
+			from.offset = static_cast<std::uint32_t>(u.vertex_offset);
+			SDL_GPUBufferRegion to{};
+			to.buffer = r_.vertices.get();
+			to.size = static_cast<std::uint32_t>(vertex_bytes.size());
+			SDL_UploadToGPUBuffer(copy, &from, &to, true);
+		}
 		SDL_EndGPUCopyPass(copy);
 	}
 	void begin_pass(const pass_ops &ops) override
