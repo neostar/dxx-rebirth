@@ -5187,6 +5187,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-overlay-uv', (
 			'common/render/unittest/overlay_uv.cpp',
 			)),
+		RuntimeTest('test-blit', (
+			'common/render/unittest/blit.cpp',
+			)),
 		RuntimeTest('test-gl-texture-names', (
 			'common/render/unittest/gl_texture_names.cpp',
 			)),
