@@ -5174,6 +5174,10 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-transform-matrix', (
 			'common/render/unittest/transform_matrix.cpp',
 			)),
+		RuntimeTest('test-sdlgpu-frame', (
+			'common/render/unittest/sdlgpu_frame.cpp',
+			'common/render/sdlgpu_frame.cpp',
+			)),
 		RuntimeTest('test-palette-expand', (
 			'common/render/unittest/palette_expand.cpp',
 			)),
