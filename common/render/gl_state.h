@@ -158,20 +158,24 @@ void replay(Gl &gl, const modelview &m)
 }
 
 /* What the adapter last set, each part unknown (empty) until it sets it:
- * the first draw sets everything.  Code not yet drawing through the device
- * changes GL behind the shadow's back, so the GL state of a draw is right
- * while two things hold:
- * (a) the front end's ambient state, which every draw call is built from,
- *     equals GL's blend, alpha test and reference, depth test, culling,
- *     line width, viewport and transforms at each draw: a part changed
- *     behind the shadow's back then costs a redundant call, never a missing
- *     one.  A draw with the alpha test off (alpha_test_off) turns
- *     GL_ALPHA_TEST off and leaves the alpha function alone, as GL is
- *     before the first ogl_start_frame;
- * (b) code outside the device leaves glDepthFunc LEQUAL, glCullFace FRONT
- *     and the modelview matrix current, which the shadow sets once and
- *     assumes; ogl_start_frame does so before every 3D draw today.  Only
- *     the device draws points, so the point size is the shadow's alone.
+ * the first draw sets everything.  Since #16 no code outside the adapter
+ * calls GL for the state a draw call carries (blend, alpha test and
+ * reference, depth test, culling, line width, viewport, projection and
+ * modelview): the game's setters and ogl_start_frame and ogl_end_frame only
+ * record it in the front end's ambient state, which every draw call is built
+ * from, and the shadow sets GL at the next draw.  So the GL state of a draw
+ * is right while two things hold:
+ * (a) the shadow's state is GL's: GL changes only through the adapter, which
+ *     sets glDepthFunc LEQUAL and glCullFace FRONT once, assumes the matrix
+ *     mode it leaves (modelview) and the depth mask the perspective sets
+ *     (writes on), and only the adapter draws points and sets the line width.
+ *     A draw with the alpha test off (alpha_test_off) turns GL_ALPHA_TEST off
+ *     and leaves the alpha function alone, as GL is before the first
+ *     ogl_start_frame.  The one exception is a new GL context, whose device
+ *     starts with an empty shadow;
+ * (b) code that still draws with GL's own state (the bitmap and movie blits,
+ *     until #15) first calls ogl_sync_gl_state, an empty draw in the ambient
+ *     state, which brings GL to what the game set last.
  */
 class state_shadow
 {

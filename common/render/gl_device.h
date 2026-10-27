@@ -29,7 +29,8 @@
 namespace dcx::render {
 
 /* What the adapter takes from the front end's GL code, which stays in the
- * upstream files until every draw goes through the device (#16).
+ * upstream files until the bitmap, font and movie blits go through the
+ * device (#15).
  */
 struct gl_front_end
 {
@@ -91,11 +92,9 @@ struct gl_context_names
 };
 
 /* The state shadow keeps each draw's GL state right while two things hold
- * (gl_state.h): the front end's ambient state equals GL's blend, alpha
- * reference, depth test, culling, viewport and transforms at each draw;
- * and code outside the device leaves the alpha test on, glDepthFunc
- * LEQUAL, glCullFace FRONT and the modelview matrix current, which
- * ogl_start_frame sets before every 3D draw today.  The bound texture, its
+ * (gl_state.h, invariants (a) and (b)): GL changes only through the
+ * adapter, so the shadow's state is GL's; and the code that still draws with
+ * GL's own state calls ogl_sync_gl_state first.  The bound texture, its
  * wrap and GL_TEXTURE_2D are outside the state shadow: every textured draw
  * binds its texture, and every draw sets GL_TEXTURE_2D and the wrap through
  * the front end (gl_front_end::textured and untextured), whose own shadows
@@ -123,9 +122,8 @@ class gl_device final : public device
 	gl_device(const render::caps &c, gl_front_end front_end);
 	/* Draws call.  A call with no vertices draws nothing but still sets its
 	 * GL state through the state shadow and runs the front end's textured or
-	 * untextured hook: the front end restores the GL state the code not yet
-	 * drawing through the device expects that way (ogl_draw_moved, the
-	 * vertex reticle's line width).
+	 * untextured hook: the front end brings GL to its ambient state for the
+	 * code not yet drawing through the device that way (ogl_sync_gl_state).
 	 */
 	void draw(const draw_call &call) override;
 	/* Makes a new GL texture of image for slot, deleting the slot's old one,

@@ -11,6 +11,11 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Draw call**: one self-contained `draw` request: topology, vertices, texture slot, draw state,
   viewport and transforms.
 - **Draw state**: blend, depth, cull, alpha reference, wrap and line width of one draw call.
+- **Ambient state**: the blend, alpha test, depth, cull, line width, viewport and transforms the game
+  set last (`common/render/ambient.h`); the front end's setters and frame start and end only record
+  into it, and every draw call is built from it. Nothing outside the GL adapter calls GL for that
+  state; code that still draws with GL's own state (the blits, until #15) calls `ogl_sync_gl_state`
+  first, an empty draw in the ambient state.
 - **Vertex**: position, unclamped colour and texture coordinates of one point of a draw call.
 - **Topology**: the primitive a draw call's vertices form (fan, strip, triangles, lines, line loop,
   points), as GL's mode of the same name.

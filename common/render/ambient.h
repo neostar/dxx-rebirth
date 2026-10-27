@@ -37,9 +37,9 @@ struct ambient
 	render::blend blend_function{render::blend::normal};
 	bool blending{true};
 	float alpha_ref{default_alpha_ref};
-	/* GL_ALPHA_TEST: off until the first ogl_start_frame turns it on (the
-	 * title and menus draw without it); only a new GL context
-	 * (ogl_create_device) turns it off again.
+	/* GL_ALPHA_TEST: off until the first 3D frame (begin_3d_frame, from
+	 * ogl_start_frame) turns it on (the title and menus draw without it);
+	 * only a new GL context (ogl_create_device) turns it off again.
 	 */
 	bool alpha_test{false};
 	/* glLineWidth: 1 in a new GL context, linedotscale from the first
