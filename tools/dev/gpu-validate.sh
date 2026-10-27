@@ -17,15 +17,28 @@
 # status (spike #55, K4), so CMD's output is scanned.  Prints the output,
 # then fails with exit status 1, naming the source, on:
 #   - SDL's GPU debug mode: a WARNING, ERROR or CRITICAL log line;
-#   - the driver's validation layer: Metal's "... Validation" reports,
-#     Metal shader validation's "... executing kernel|compute function: ..."
-#     ones (macOS 27 says "compute"),
+#   - the driver's validation layer: Metal's "... Validation" reports
+#     (less the warnings SDL's Metal backend causes itself, below),
+#     Metal shader validation's "... executing <stage> function: ..." ones
+#     (kernel, or compute on macOS 27, for a compute shader; vertex or
+#     fragment for a draw's),
 #     the Vulkan layer's "Validation Error/Warning" messages;
 #   - no SDL_GPU device, its debug mode not on (no `sdlgpu: debug mode
 #     on` line), or its validation not active (on Vulkan, the
 #     layer's status must list synchronization validation and no disables,
 #     naming any it lists).
 # Otherwise CMD's own exit status.
+# Not counted, each line pair exactly, with a note giving their number:
+# the Metal API warnings SDL 3.4.18's Metal backend makes on its own
+# (src/gpu/metal/SDL_gpu_metal.m), which no program can avoid.  Every
+# pipeline bind sets the pipeline's fill mode, cull mode, winding, depth
+# clip, depth bias and depth-stencil state, so a bind of a pipeline that
+# shares one with the last is "redundant set<State>."; every render pass
+# begins with a full-target viewport, so a draw's own viewport makes
+# "previous setViewport was unused." (#26).  The exception holds only while
+# toolchain.pins, beside this script, pins SDL3 3.4.18: with another SDL3,
+# or none pinned, such a pair counts and the run names the exception to
+# re-justify against the new SDL.
 set -u
 [[ $# -gt 0 ]] || { echo "usage: $0 CMD [ARG...]" >&2; exit 2; }
 export MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog MTL_DEBUG_LAYER_WARNING_MODE=nslog
@@ -47,6 +60,27 @@ n=$(matches '(^|\] )(WARNING|ERROR|CRITICAL): ' | wc -l)
 layer='[^ ] Validation$|failed assertion|Validation [A-Za-z ]*(Error|Warning): '
 shader='executing [a-z]+ function: '
 n=$(matches "$layer|$shader" | wc -l)
+# The pairs of SDL's own Metal warnings (above): a title, then its message.
+sdl_own=$(awk '
+	pending != "" && $0 == pending { n++ }
+	{ pending = "" }
+	/\] Set (Triangle Fill Mode|Cull Mode|Front Facing Winding|Depth Clip Mode|Depth Bias|Depth Stencil State) Validation$/ {
+		state = $0
+		sub(/.*\] Set /, "", state)
+		sub(/ Validation$/, "", state)
+		gsub(/ /, "", state)
+		pending = "redundant set" state "."
+	}
+	/\] Viewport Validation$/ { pending = "previous setViewport was unused." }
+	END { print n + 0 }' "$log") || sdl_own=0
+sdl_pin=$(awk '$1 == "source" && $2 == "SDL3" { print $3 }' \
+	"$(dirname "$0")/toolchain.pins" 2>/dev/null) || sdl_pin=
+if [[ $sdl_own -gt 0 && $sdl_pin != 3.4.18 ]]; then
+	problems+=("the exception for SDL's own Metal warnings was justified for SDL3 3.4.18, but toolchain.pins pins SDL3 ${sdl_pin:-nothing}: re-justify it against that SDL before counting them out")
+elif [[ $sdl_own -gt 0 ]]; then
+	echo "gpu-validate: ${1##*/}: $sdl_own Metal API warnings from SDL's own Metal backend, not counted"
+	n=$((n - sdl_own))
+fi
 [[ $n -gt 0 ]] && problems+=("$((n)) from the driver's validation layer")
 # SDL prints nothing that tells debug mode on Metal: a program prints this
 # line for each device it created with debug_mode true, as SDL prints its
