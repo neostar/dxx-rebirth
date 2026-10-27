@@ -93,8 +93,8 @@ struct gl_context_names
 
 /* The state shadow keeps each draw's GL state right while two things hold
  * (gl_state.h, invariants (a) and (b)): GL changes only through the
- * adapter, so the shadow's state is GL's; and the code that still draws with
- * GL's own state calls ogl_sync_gl_state first.  The bound texture, its
+ * adapter, so the shadow's state is GL's; and the region copy, which runs
+ * through GL's own state, follows ogl_sync_gl_state.  The bound texture, its
  * wrap and GL_TEXTURE_2D are outside the state shadow: every textured draw
  * binds its texture, and every draw sets GL_TEXTURE_2D and the wrap through
  * the front end (gl_front_end::textured and untextured), whose own shadows
@@ -123,7 +123,7 @@ class gl_device final : public device
 	/* Draws call.  A call with no vertices draws nothing but still sets its
 	 * GL state through the state shadow and runs the front end's textured or
 	 * untextured hook: the front end brings GL to its ambient state for the
-	 * code not yet drawing through the device that way (ogl_sync_gl_state).
+	 * region copy, which runs through GL's own state (ogl_sync_gl_state).
 	 */
 	void draw(const draw_call &call) override;
 	/* Makes a new GL texture of image for slot, deleting the slot's old one,

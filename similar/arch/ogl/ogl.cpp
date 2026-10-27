@@ -58,6 +58,7 @@
 #include "gamefont.h"
 #include "byteutil.h"
 #include "internal.h"
+#include "common/render/blit.h"
 #include "common/render/frame_setup.h"
 #include "common/render/gl_device.h"
 #include "common/render/overlay_uv.h"
@@ -95,22 +96,6 @@ using std::max;
 #endif
 
 namespace {
-
-template <unsigned G>
-struct enable_ogl_client_state
-{
-	enable_ogl_client_state() noexcept
-	{
-		glEnableClientState(G);
-	}
-	~enable_ogl_client_state() noexcept
-	{
-		glDisableClientState(G);
-	}
-};
-
-template <typename T, unsigned... Gs>
-using ogl_client_states = std::tuple<T, enable_ogl_client_state<Gs>...>;
 
 template <typename T, std::size_t N1, std::size_t N2>
 union flatten_array
@@ -376,8 +361,11 @@ static void ogl_texture_stats(grs_canvas &canvas)
 
 }
 
+/* The texture of bm, uploaded if it holds none; the render device binds it
+ * when a draw uses its slot.
+ */
 [[nodiscard]]
-static auto ogl_bindbmtex(grs_bitmap &bm, const bool edgepad)
+static auto ogl_loaded_bmtex(grs_bitmap &bm, const bool edgepad)
 {
 	if (bm.gltexture==NULL || bm.gltexture->handle<=0)
 		ogl_loadbmtexture(bm, edgepad);
@@ -385,7 +373,6 @@ static auto ogl_bindbmtex(grs_bitmap &bm, const bool edgepad)
 	if (gltexture) [[likely]]
 	{
 		/* `gltexture` will only be `nullptr` if a game data file is missing. */
-		OGL_BINDTEXTURE(gltexture->handle);
 		gltexture->numrend++;
 	}
 	return gltexture;
@@ -674,9 +661,8 @@ static std::vector<render::vertex> ogl_circle_vertices(const std::span<const GLf
 /* Draws vertices as t through the render device in the ambient state,
  * moved by glTranslatef(translate) and glScalef(scale) from the identity
  * modelview, with line_width for lines.  The next draw call carries the
- * ambient modelview and the state shadow sets it again; the code not yet
- * drawing through the device reads GL's matrices only after
- * ogl_sync_gl_state.
+ * ambient modelview and the state shadow sets it again; nothing outside the
+ * device reads GL's matrices.
  */
 static void ogl_draw_moved(const render::topology t, const std::span<const render::vertex> vertices, const std::array<float, 3> &translate, const std::array<float, 3> &scale, const float line_width)
 {
@@ -968,7 +954,7 @@ void _g3_draw_tmap(grs_canvas &canvas, const std::span<g3_draw_tmap_point *const
 	render::wrap wrap{render::wrap::clamp};
 
 	if (tmap_drawer_ptr == draw_tmap) {
-		const auto gltexture{ogl_bindbmtex(bm, 0)};
+		const auto gltexture{ogl_loaded_bmtex(bm, 0)};
 		if (!gltexture || !gltexture->handle) [[unlikely]]
 			/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
 			 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
@@ -1021,7 +1007,7 @@ void _g3_draw_tmap_2(grs_canvas &canvas, const std::span<g3_draw_tmap_point *con
 {
 	_g3_draw_tmap(canvas, pointlist, uvl_list.data(), light_rgb.data(), bmbot, tmap_drawer_ptr);//draw the bottom texture first.. could be optimized with multitexturing..
 	r_tpolyc++;
-	const auto gltexture{ogl_bindbmtex(bm, 1)};
+	const auto gltexture{ogl_loaded_bmtex(bm, 1)};
 	if (!gltexture || !gltexture->handle) [[unlikely]]
 		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
 		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
@@ -1066,7 +1052,7 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, const fix iwidth,
 {
 	r_bitmapc++;
 
-	const auto gltexture{ogl_bindbmtex(bm, 0)};
+	const auto gltexture{ogl_loaded_bmtex(bm, 0)};
 	if (!gltexture || !gltexture->handle) [[unlikely]]
 		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
 		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
@@ -1120,7 +1106,6 @@ void g3_draw_bitmap(grs_canvas &canvas, const vms_vector &pos, const fix iwidth,
  */
 bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw, unsigned sh, unsigned sx, unsigned sy, const grs_bitmap &src, grs_bitmap &dest, const opengl_texture_filter texfilt)
 {
-	GLfloat xo,yo,xs,ys,u1,v1;
 	struct bitblt_free_ogl_texture
 	{
 		ogl_texture t;
@@ -1130,9 +1115,8 @@ bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw,
 			ogl_movie_frame = nullptr;
 		}
 	};
-	ogl_sync_gl_state();
-	ogl_client_states<bitblt_free_ogl_texture, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
-	ogl_texture &tex = std::get<0>(cs).t;
+	bitblt_free_ogl_texture frame{};
+	ogl_texture &tex = frame.t;
 	ogl_movie_frame = &tex;
 	r_ubitbltc++;
 
@@ -1140,54 +1124,15 @@ bool ogl_ubitblt_i(unsigned dw,unsigned dh,unsigned dx,unsigned dy, unsigned sw,
 	tex.prio = 0.0;
 	tex.lw=src.bm_rowsize;
 
-	u1=v1=0;
-	
 	dx+=dest.bm_x;
 	dy+=dest.bm_y;
-	xo=dx/static_cast<float>(last_width);
-	xs=dw/static_cast<float>(last_width);
-	yo=1.0-dy/static_cast<float>(last_height);
-	ys=dh/static_cast<float>(last_height);
-	
-	OGL_ENABLE(TEXTURE_2D);
-	
 	ogl_loadtexture(gr_current_pal, src.get_bitmap_data(), sx, sy, tex, src.get_flags(), texfilt, 0, 0);
-	OGL_BINDTEXTURE(tex.handle);
-	
-	ogl_texwrap(&tex,GL_CLAMP_TO_EDGE);
 
-	const GLfloat vertices[] = {
-		xo,
-		yo,
-		xo + xs,
-		yo,
-		xo + xs,
-		yo - ys,
-		xo,
-		yo - ys
-	};
-
-	const GLfloat texcoord_array[] = {
-		u1,
-		v1,
-		tex.u,
-		v1,
-		tex.u,
-		tex.v,
-		u1,
-		tex.v
-	};
-
-	glVertexPointer(2, GL_FLOAT, 0, vertices);
-	static constexpr GLfloat color_array[] = {
-		1.0, 1.0, 1.0, 1.0,
-		1.0, 1.0, 1.0, 1.0,
-		1.0, 1.0, 1.0, 1.0,
-		1.0, 1.0, 1.0, 1.0
-	};
-	glColorPointer(4, GL_FLOAT, 0, color_array);
-	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);  
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);//replaced GL_QUADS
+	const auto vertices{render::blit_vertices(
+		render::movie_rect(dx, dy, dw, dh, {last_width, last_height}),
+		{.u1 = 0, .u2 = tex.u, .v1 = 0, .v2 = tex.v},
+		ogl_colors::white)};
+	ogl_device().draw(ogl_ambient().fan(vertices, ogl_texture_slot(tex), render::wrap::clamp));
 	return 0;
 }
 
@@ -1800,10 +1745,6 @@ void ogl_ubitmapm_cs(grs_canvas &canvas, int x, int y,int dw, int dh, grs_bitmap
  */
 void ogl_ubitmapm_cs(grs_canvas &canvas, const int entry_x, const int entry_y, const int entry_dw, const int entry_dh, grs_bitmap &bm, const ogl_colors::array_type &color_array)
 {
-	GLfloat u1,u2,v1,v2;
-	ogl_sync_gl_state();
-	ogl_client_states<GLfloat, GL_VERTEX_ARRAY, GL_COLOR_ARRAY, GL_TEXTURE_COORD_ARRAY> cs;
-	auto &xo = std::get<0>(cs);
 	const int adjusted_canvas_x = entry_x + canvas.cv_bitmap.bm_x;
 	const int adjusted_canvas_y = entry_y + canvas.cv_bitmap.bm_y;
 
@@ -1818,55 +1759,22 @@ void ogl_ubitmapm_cs(grs_canvas &canvas, const int entry_x, const int entry_y, c
 			? bm.bm_h
 			: entry_dh);
 
-	xo = adjusted_canvas_x / (static_cast<double>(last_width));
-	const GLfloat xf = (effective_dw + adjusted_canvas_x) / (static_cast<double>(last_width));
-	const GLfloat yo = 1.0 - adjusted_canvas_y / (static_cast<double>(last_height));
-	const GLfloat yf = 1.0 - (effective_dh + adjusted_canvas_y) / (static_cast<double>(last_height));
-
-	OGL_ENABLE(TEXTURE_2D);
-	const auto gltexture{ogl_bindbmtex(bm, 0)};
-	if (!gltexture) [[unlikely]]
-		/* `gltexture` will only be `nullptr` if a game data file is missing. */
+	const auto gltexture{ogl_loaded_bmtex(bm, 0)};
+	if (!gltexture || !gltexture->handle) [[unlikely]]
+		/* `gltexture` will only be `nullptr`, or hold no GL texture (a stale entry, as after
+		 * ogl_smash_texture_list_internal), if a game data file is missing; the device draws
+		 * no slot without a texture. */
 		return;
-	ogl_texwrap(gltexture, GL_CLAMP_TO_EDGE);
-	
-	if (bm.bm_x==0){
-		u1=0;
-		if (bm.bm_w==bm.gltexture->w)
-			u2=bm.gltexture->u;
-		else
-			u2=(bm.bm_w+bm.bm_x)/static_cast<float>(bm.gltexture->tw);
-	}else {
-		u1=bm.bm_x/static_cast<float>(bm.gltexture->tw);
-		u2=(bm.bm_w+bm.bm_x)/static_cast<float>(bm.gltexture->tw);
-	}
-	if (bm.bm_y==0){
-		v1=0;
-		if (bm.bm_h==bm.gltexture->h)
-			v2=bm.gltexture->v;
-		else
-			v2=(bm.bm_h+bm.bm_y)/static_cast<float>(bm.gltexture->th);
-	}else{
-		v1=bm.bm_y/static_cast<float>(bm.gltexture->th);
-		v2=(bm.bm_h+bm.bm_y)/static_cast<float>(bm.gltexture->th);
-	}
 
-	const std::array<GLfloat, 8> vertices{{
-		xo, yo,
-		xf, yo,
-		xf, yf,
-		xo, yf,
-	}};
-	const std::array<GLfloat, 8> texcoord_array{{
-		u1, v1,
-		u2, v1,
-		u2, v2,
-		u1, v2,
-	}};
-	glVertexPointer(2, GL_FLOAT, 0, vertices.data());
-	glColorPointer(4, GL_FLOAT, 0, color_array.data());
-	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array.data());
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);//replaced GL_QUADS
+	const auto vertices{render::blit_vertices(
+		render::canvas_rect(adjusted_canvas_x, adjusted_canvas_y, effective_dw, effective_dh, {last_width, last_height}),
+		render::bitmap_uv({
+			.x = bm.bm_x, .y = bm.bm_y, .w = bm.bm_w, .h = bm.bm_h,
+			.tex_w = gltexture->w, .tex_h = gltexture->h,
+			.tex_tw = gltexture->tw, .tex_th = gltexture->th,
+			.u = gltexture->u, .v = gltexture->v}),
+		color_array)};
+	ogl_device().draw(ogl_ambient().fan(vertices, ogl_texture_slot(*gltexture), render::wrap::clamp));
 }
 
 void ogl_ubitmapm_cs(grs_canvas &canvas, int x0, int y0, int dw, int dh, grs_bitmap &bm, const ogl_colors::array_type &color_array, bool fill)

@@ -30,9 +30,10 @@ extern int GL_TEXTURE_2D_enabled;
  * and make no GL call: the device sets GL on the next draw (gl_state.h).
  */
 render::ambient &ogl_ambient();
-/* Brings GL to the ambient state through an empty draw, for the code not yet
- * drawing through the device (the bitmap and movie blits, #15): it reads
- * GL's blend, alpha test, depth test, culling, viewport and matrices.
+/* Brings GL to the ambient state through an empty draw, for the one thing
+ * that runs through GL's own state rather than a draw call's: the region
+ * copy of ogl_ubitblt_cs (render::device::copy_region, glCopyPixels), which
+ * reads GL's blend, alpha test and depth test.
  */
 void ogl_sync_gl_state();
 /* The render device of the current GL context, made by gr_set_mode. */

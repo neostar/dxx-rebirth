@@ -2,12 +2,8 @@
 # per owner of a file's calls: <path> <count> -- <reason>.  The list shrinks as
 # tickets move the calls to the render device, and ends empty.
 
-# The blits draw with client-state arrays and bind textures behind the device:
-# ogl_client_states (2), ogl_ubitblt_i (6), ogl_ubitmapm_cs (5), and the texturing
-# restore of the stereo copy (1).
-similar/arch/ogl/ogl.cpp 14 -- #15: the bitmap, font and movie blits
-
-# Not blits, and #15 does not remove them: ogl_bindbmtex (1), ogl_texwrap (2),
-# the front end's untextured and textured hooks in ogl_create_device (3), and
-# the eight glGetTexLevelParameteriv of tex_set_size.
+# Not blits: ogl_texwrap (2), the front end's untextured and textured hooks in
+# ogl_create_device (3), the eight glGetTexLevelParameteriv of tex_set_size,
+# and the texturing restore of the stereo copy (1), which #89's empty list
+# takes along.
 similar/arch/ogl/ogl.cpp 14 -- #89: texture binding, wrap and level statistics

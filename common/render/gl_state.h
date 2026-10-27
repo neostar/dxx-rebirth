@@ -173,9 +173,10 @@ void replay(Gl &gl, const modelview &m)
  *     and leaves the alpha function alone, as GL is before the first
  *     ogl_start_frame.  The one exception is a new GL context, whose device
  *     starts with an empty shadow;
- * (b) code that still draws with GL's own state (the bitmap and movie blits,
- *     until #15) first calls ogl_sync_gl_state, an empty draw in the ambient
- *     state, which brings GL to what the game set last.
+ * (b) the one GL operation that runs through GL's own state rather than a
+ *     draw call's, the region copy (copy_region, glCopyPixels, from
+ *     ogl_ubitblt_cs), first calls ogl_sync_gl_state, an empty draw in the
+ *     ambient state, which brings GL to what the game set last.
  */
 class state_shadow
 {
