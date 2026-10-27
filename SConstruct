@@ -5212,6 +5212,10 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-vecmat', (
 			'common/unittest/vecmat.cpp',
 			)),
+		RuntimeTest('test-startup-options', (
+			'common/render/unittest/startup_options.cpp',
+			'common/render/rtrace/startup_options.cpp',
+			)),
 		RuntimeTest('test-xrange', (
 			'common/unittest/xrange.cpp',
 			)),
@@ -5231,10 +5235,6 @@ class DXXArchive(DXXCommon):
 	rtrace_programs = (
 		RuntimeTest('rtrace', ('common/render/rtrace/main.cpp',) + _rtrace_sources),
 		RuntimeTest('test-rtrace', ('common/render/unittest/rtrace.cpp',) + _rtrace_sources),
-		RuntimeTest('test-startup-options', (
-			'common/render/unittest/startup_options.cpp',
-			'common/render/rtrace/startup_options.cpp',
-			)),
 			)
 	sdlgpu_programs = (
 		RuntimeTest('test-sdlgpu', (

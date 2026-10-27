@@ -18,12 +18,13 @@
 
 namespace dcx::render::rtrace {
 
-/* Whether the startup options text says GPU-based validation is on. Case,
- * spaces, '-' and '_' are ignored; the words "GPU based validation" must be
+/* Whether the startup options text says GPU-based validation is on.
+ * Case, spaces, '-' and '_' are ignored. The words "GPU based validation"
+ * (their first match, at the start or after a non-letter) must be
  * followed, after an optional ':' or '=' and an optional "is", by exactly
- * "enabled", "on" or "true", up to one of ",;.()" or the text's end. Chromium
- * issue 42241494 quotes the text as "GPU-Based Validation is enabled
- * (disabled by default)."
+ * "enabled", "on" or "true", up to one of ",;.()" or the text's end.
+ * Chromium issue 42241494 quotes the text as "GPU-Based Validation is
+ * enabled (disabled by default)."
  */
 [[nodiscard]]
 bool says_gpu_based_validation_on(std::string_view text);

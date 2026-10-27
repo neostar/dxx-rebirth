@@ -36,9 +36,10 @@ BOOST_AUTO_TEST_CASE(other_on_forms_pass)
 	BOOST_TEST(says_gpu_based_validation_on("GPU_Based_Validation is on."));
 }
 
-/* Test that a text saying off, an unknown word after the key, a missing
- * key and an empty text fail; the token must be enabled, on or true exactly,
- * so "enabled" inside another word does not count.
+/* Test that a text saying off, an unknown word after the key, a key after
+ * another word (Disable, Non-), a missing key and an empty text fail; the
+ * token must be enabled, on or true exactly, so "enabled" inside another
+ * word does not count.
  */
 BOOST_AUTO_TEST_CASE(off_or_missing_fails)
 {
@@ -48,6 +49,8 @@ BOOST_AUTO_TEST_CASE(off_or_missing_fails)
 	BOOST_TEST(!says_gpu_based_validation_on("GPU-Based Validation: not enabled"));
 	BOOST_TEST(!says_gpu_based_validation_on("GPU-Based Validation: enabledness"));
 	BOOST_TEST(!says_gpu_based_validation_on("GPU-Based Validation is"));
+	BOOST_TEST(!says_gpu_based_validation_on("Disable GPU-Based Validation: true"));
+	BOOST_TEST(!says_gpu_based_validation_on("Non-GPU-Based Validation is enabled"));
 	BOOST_TEST(!says_gpu_based_validation_on("Device Debug Layer Startup Options: none"));
 	BOOST_TEST(!says_gpu_based_validation_on(""));
 }

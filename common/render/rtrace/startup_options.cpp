@@ -22,6 +22,12 @@ bool says_gpu_based_validation_on(const std::string_view text)
 	const auto at{folded.find(key)};
 	if (at == std::string::npos)
 		return false;
+	/* Only the first match counts, and it must start the text or follow a
+	 * non-letter once the separators are dropped: "Disable GPU-Based
+	 * Validation" and "Non-GPU-Based Validation" fold to a letter before it.
+	 */
+	if (at != 0 && std::isalpha(static_cast<unsigned char>(folded[at - 1])))
+		return false;
 	std::string_view rest{folded};
 	rest.remove_prefix(at + key.size());
 	if (!rest.empty() && (rest.front() == ':' || rest.front() == '='))

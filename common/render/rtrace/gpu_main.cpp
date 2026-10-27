@@ -202,8 +202,7 @@ void confirm_gpu_based_validation()
 			continue;
 		if (!m.pDescription)
 			throw std::runtime_error{"the debug layer startup options message has no text"};
-		// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): the message's own text
-		// and size
+		// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): its text and size
 		const std::span<const char> bytes{m.pDescription, m.DescriptionByteLength};
 		std::string text{bytes.begin(), std::ranges::find(bytes, '\0')};
 		std::ranges::replace(text, '\r', ' ');
