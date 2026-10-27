@@ -5131,6 +5131,10 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-pacer', (
 			'common/sdl/unittest/frame_pacer.cpp',
 			)),
+		*((RuntimeTest('test-macos-defaults', (
+			'common/sdl/unittest/macos_defaults.cpp',
+			'common/sdl/macos_defaults.mm',
+			), use_default_libs=True),) if sys.platform == 'darwin' else ()),
 		RuntimeTest('test-frame-hash', (
 			'common/debug/unittest/frame_hash.cpp',
 			)),
@@ -5398,6 +5402,7 @@ class DXXArchive(DXXCommon):
 	class DarwinPlatformSettings(DXXCommon.DarwinPlatformSettings):
 		get_platform_objects = LazyObjectConstructor.create_lazy_object_getter((
 			'common/arch/cocoa/messagebox.mm',
+			'common/sdl/macos_defaults.mm',
 		))
 
 	class LinuxPlatformSettings(DXXCommon.LinuxPlatformSettings):
