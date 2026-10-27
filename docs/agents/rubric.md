@@ -21,7 +21,7 @@ decisions; the original plan is archived, frozen, in `docs/history/2026-10-20-po
 | R13 | Retired | The renderer is chosen at startup, not switched in game (ADR 2) | None |
 | R14 | Fallback | No usable GPU device (or only a software one): the game starts on GL and logs why. GL is the fallback until R16 passes on SDL_GPU, then the fork drops it | Open: #52 |
 | R15 | Licensed data never committed | No hog, pig, dem, trace or golden made from licensed data in git | `check.sh`'s `guard` step (pre-commit), `docs/agents/game-data.md` |
-| R16 | Fully playable (sdl3 + sdlgpu, macOS; R16w: the Windows build under CrossOver) | Owner's checklist: D1 and D2 menus, new game, save and load, demo, briefings with voice, all movies, all music sources (SC-55, OPL3, MIDI, CD jukebox), gamepad, fullscreen toggle, Retina and Studio Display | The signed-off checklist, before release (#54) |
+| R16 | Fully playable (sdl3 + sdlgpu, macOS; R16w: the Windows build under CrossOver) | Owner's checklist: D1 and D2 menus, new game, save and load, demo, briefings with voice, every graphics option (#54), all movies, all music sources (SC-55, OPL3, MIDI, CD jukebox), gamepad, fullscreen toggle, Retina and Studio Display | The signed-off checklist, before release (#54) |
 
 The scenes S1-S4 and how `r1.sh` plays them: `docs/agents/game-data.md`. S5 (renderer switch)
 went with R13.
