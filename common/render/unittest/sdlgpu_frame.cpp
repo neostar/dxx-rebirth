@@ -340,6 +340,32 @@ BOOST_AUTO_TEST_CASE(draw_runs_with_its_own_uniforms)
 	BOOST_TEST((c.passes.front() == sdlgpu::pass_ops{.clear_color = false, .clear_depth = false}));
 }
 
+/* Test that a perspective draw runs with the 3D view's matrix as GL builds
+ * it (gluPerspective(90, 1, 0.1, 5000), read back from Apple's GL) and its
+ * own modelview, apart, as the vertex shader multiplies them.
+ */
+BOOST_AUTO_TEST_CASE(perspective_draw_runs_with_its_matrix)
+{
+	sdlgpu::frame f{target};
+	quad q{{.depth = render::depth::test_and_write, .cull = render::cull::front}};
+	q.call.transforms = {
+	    .projection = render::view_perspective,
+	    .modelview = render::translate_scale{.translate = {{1, 2, -3}}, .scale = {{1, 1, -1}}}};
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const auto &d{c.draws.front()};
+	const render::matrix gl{
+	    {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -0x1.00029ep+0f, -1, 0, 0, -0x1.999bb2p-3f, 0}};
+	const render::matrix moved{{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 1, 2, -3, 1}};
+	BOOST_TEST(d.vertex.projection == gl, boost::test_tools::per_element());
+	BOOST_TEST(d.vertex.modelview == moved, boost::test_tools::per_element());
+	BOOST_TEST((d.key == sdlgpu::pipeline_key{.blend = render::blend::normal,
+	                                          .depth = render::depth::test_and_write,
+	                                          .cull = render::cull::front}));
+}
+
 /* Test that the bind cache calls SDL only on change: a new blend binds a
  * pipeline, a new alpha reference pushes the fragment uniforms alone, and
  * a draw that changes nothing binds nothing.
@@ -444,8 +470,8 @@ BOOST_AUTO_TEST_CASE(encode_empties_the_frame)
 }
 
 /* Test that a fan of fewer than three vertices draws nothing and that what
- * later tickets bring is refused, not drawn wrong: a perspective
- * projection, lines, line loops, points and strips.
+ * later tickets bring is refused, not drawn wrong: lines, line loops,
+ * points and strips.
  */
 BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
 {
@@ -455,9 +481,6 @@ BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
 	f.draw(q.call);
 	counting_commands c;
 	BOOST_TEST(!f.encode(c, none));
-	quad perspective;
-	perspective.call.transforms.projection = render::view_perspective;
-	BOOST_CHECK_THROW(f.draw(perspective.call), std::logic_error);
 	for (const auto t : {render::topology::lines, render::topology::line_loop,
 	                     render::topology::points, render::topology::strip})
 	{

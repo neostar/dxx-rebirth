@@ -79,9 +79,6 @@ void frame::draw(const draw_call &call)
 		           .wrap = call.state.wrap,
 		           .anisotropic = t->second.anisotropic};
 	}
-	const auto *const o{std::get_if<ortho>(&call.transforms.projection)};
-	if (o == nullptr)
-		throw std::logic_error("sdlgpu: perspective projections come with #28");
 	std::vector<vertex> list;
 	switch (call.topology)
 	{
@@ -95,8 +92,8 @@ void frame::draw(const draw_call &call)
 		                static_cast<std::ptrdiff_t>(call.vertices.size() / 3 * 3));
 		break;
 	case topology::strip:
-		/* The front end draws none yet; the 3D view may (#28). */
-		throw std::logic_error("sdlgpu: strips come with #28");
+		/* Only the reticle draws strips, with the lines (#32). */
+		throw std::logic_error("sdlgpu: strips come with #32");
 	case topology::lines:
 	case topology::line_loop:
 	case topology::points:
@@ -111,17 +108,18 @@ void frame::draw(const draw_call &call)
 	vertices_.insert(vertices_.end(), list.begin(), list.end());
 	if (textured)
 		sampled_.insert(call.texture.index);
-	records_.emplace_back(recorded_draw{
-	    .key = key_of(call.state),
-	    .viewport = viewport_on(target_, call.viewport),
-	    .vertex = {.projection = matrix_of(*o), .modelview = matrix_of(call.transforms.modelview)},
-	    .fragment = {.alpha_ref = call.state.alpha_ref,
-		             .use_texture = textured ? 1u : 0u,
-		             .pad = {}},
-	    .texture = call.texture,
-	    .sampler = sampler,
-	    .first = first,
-	    .count = count});
+	records_.emplace_back(
+	    recorded_draw{.key = key_of(call.state),
+		              .viewport = viewport_on(target_, call.viewport),
+		              .vertex = {.projection = matrix_of(call.transforms.projection),
+		                         .modelview = matrix_of(call.transforms.modelview)},
+		              .fragment = {.alpha_ref = call.state.alpha_ref,
+		                           .use_texture = textured ? 1u : 0u,
+		                           .pad = {}},
+		              .texture = call.texture,
+		              .sampler = sampler,
+		              .first = first,
+		              .count = count});
 }
 
 void frame::texture(const texture_slot slot, const texture_image *const image)

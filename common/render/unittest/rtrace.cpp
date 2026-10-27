@@ -467,6 +467,40 @@ BOOST_AUTO_TEST_CASE(ortho_matrix_is_gls)
 	}
 }
 
+/* Test that the perspective recipe's matrix is the one the GL adapter
+ * builds on the host's GL (gluPerspective, then the stereo shift), element
+ * for element: the 3D view's, a stereo eye's, others whose elements
+ * round differently under SGI's form of gluPerspective, and one whose
+ * element 14 rounds differently unless 2 near is rounded to float first.
+ */
+BOOST_AUTO_TEST_CASE(perspective_matrix_is_gls)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	for (const render::perspective &p :
+	     {render::view_perspective,
+	      render::perspective{
+	          .fovy = 90, .aspect = 1, .z_near = 0.1, .z_far = 5000, .stereo_dx = -0.0375f},
+	      render::perspective{.fovy = 63.5, .aspect = 4.0 / 3, .z_near = 0.37, .z_far = 1234.5},
+	      render::perspective{.fovy = 45, .aspect = 1, .z_near = 1, .z_far = 100},
+	      render::perspective{.fovy = 30, .aspect = 0.75, .z_near = 2, .z_far = 3000},
+	      render::perspective{.fovy = 120, .aspect = 1, .z_near = 0.25, .z_far = 77.7},
+	      render::perspective{.fovy = 10, .aspect = 2, .z_near = 3.3, .z_far = 9},
+	      render::perspective{.fovy = 75, .aspect = 1.6, .z_near = 0.05, .z_far = 640},
+	      render::perspective{.fovy = 48.342374243203913,
+	                          .aspect = 1.475677203535734,
+	                          .z_near = 0.0011208076448162329,
+	                          .z_far = 372.49184310084053}})
+	{
+		auto call{render::rtrace::sample_draw(render::topology::fan, {})};
+		call.transforms.projection = p;
+		d.draw(call);
+		render::matrix gl{};
+		glGetFloatv(GL_PROJECTION_MATRIX, gl.data());
+		BOOST_TEST(render::matrix_of(p) == gl, boost::test_tools::per_element());
+	}
+}
+
 /* Test that the GL adapter applies the state of a draw with no vertices:
  * after a draw with a moved modelview, an empty draw with the identity
  * leaves GL's modelview matrix the identity, which the front end relies on

@@ -307,9 +307,8 @@ class frame
 	explicit frame(const extent target) : target_{target}
 	{}
 	/* Records call.  Throws std::invalid_argument on a textured draw of a
-	 * slot that holds no texture, and std::logic_error on what later
-	 * tickets bring: a perspective projection (#28), lines and points
-	 * (#32), strips.
+	 * slot that holds no texture, and std::logic_error on what a later
+	 * ticket brings: lines, points and strips (#32).
 	 */
 	void draw(const draw_call &call);
 	void clear(const clear_targets targets)

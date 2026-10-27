@@ -42,6 +42,27 @@ BOOST_AUTO_TEST_CASE(asymmetric_ortho_is_gls)
 	BOOST_TEST(render::matrix_of(o) == expected, boost::test_tools::per_element());
 }
 
+/* Test that the 3D view's projection, gluPerspective(90, 1, 0.1, 5000),
+ * builds the matrix Apple's GL builds (read back as for the screen ortho),
+ * not SGI's GLU form, whose element 10 is -0x1.0002ap+0, a ULP away.
+ */
+BOOST_AUTO_TEST_CASE(view_perspective_is_gls)
+{
+	const render::matrix expected{
+	    {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -0x1.00029ep+0f, -1, 0, 0, -0x1.999bb2p-3f, 0}};
+	BOOST_TEST(render::matrix_of(render::view_perspective) == expected,
+	           boost::test_tools::per_element());
+}
+
+/* Test that a stereo eye's shift lands in element 8 of the perspective. */
+BOOST_AUTO_TEST_CASE(stereo_shift_lands_in_element_8)
+{
+	render::perspective p{render::view_perspective};
+	p.stereo_dx = -0.0375f;
+	const auto m{render::matrix_of(p)};
+	BOOST_TEST(m[8] == -0.0375f);
+}
+
 /* Test that glLoadIdentity, glTranslatef(t), glScalef(s) builds T * S:
  * the scale on the diagonal, the translation in the last column.
  */
