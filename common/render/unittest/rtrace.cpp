@@ -29,6 +29,13 @@
 #include "common/render/replay.h"
 #include "common/render/rtrace/gl_host.h"
 #include "common/render/trace.h"
+#include "common/render/transform_matrix.h"
+
+// clang-format off
+#include "tools/dev/upstream_begin.h"
+#include "d_gl.h"
+#include "tools/dev/upstream_end.h"
+// clang-format on
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth rtrace
@@ -427,4 +434,25 @@ BOOST_AUTO_TEST_CASE(textured_draw_of_empty_slot_is_refused)
 	d.texture({1}, nullptr);
 	const textured_quad q{{1}, render::wrap::clamp, 1};
 	BOOST_CHECK_THROW(d.draw(q.call), std::logic_error);
+}
+
+/* Test that the ortho recipe's matrix (transform_matrix.h), which the
+ * SDL_GPU adapter draws with, is the one glOrtho builds on the host's GL,
+ * element for element: the game's 2D projection and an asymmetric one.
+ */
+BOOST_AUTO_TEST_CASE(ortho_matrix_is_gls)
+{
+	const render::rtrace::gl_host host{target};
+	for (const render::ortho &o :
+	     {render::ortho{.left = 0, .right = 1, .bottom = 0, .top = 1, .z_near = -1, .z_far = 1},
+	      render::ortho{
+	          .left = -3, .right = 5, .bottom = -2, .top = 6, .z_near = 0.5, .z_far = 100}})
+	{
+		glMatrixMode(GL_PROJECTION);
+		glLoadIdentity();
+		glOrtho(o.left, o.right, o.bottom, o.top, o.z_near, o.z_far);
+		render::matrix gl{};
+		glGetFloatv(GL_PROJECTION_MATRIX, gl.data());
+		BOOST_TEST(render::matrix_of(o) == gl, boost::test_tools::per_element());
+	}
 }
