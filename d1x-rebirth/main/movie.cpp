@@ -75,7 +75,11 @@ struct movie_pause_window : window
 unsigned MovieFileRead(SDL_RWops *const handle, const std::span<uint8_t> buf)
 {
 	const auto count{buf.size()};
+#if SDL_MAJOR_VERSION == 3
+	const auto numread{SDL_ReadIO(handle, buf.data(), count)};
+#else
 	const auto numread{SDL_RWread(handle, buf.data(), 1, count)};
+#endif
 	return (numread == count);
 }
 

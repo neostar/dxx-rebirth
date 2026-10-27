@@ -103,17 +103,28 @@ static auto load_physfs_blob(const char *const filename)
 
 static pcx_result pcx_read_bitmap(const char *const filename, grs_main_bitmap &bmp, palette_array_t &palette, RWops_ptr rw)
 {
+#if SDL_MAJOR_VERSION == 3
+	RAII_SDL_Surface surface(IMG_LoadPCX_IO(rw.get()));
+#else
 	RAII_SDL_Surface surface(IMG_LoadPCX_RW(rw.get()));
+#endif
 	if (!surface.surface)
 	{
 		con_printf(CON_NORMAL, "%s:%u: failed to create surface from \"%s\"", __FILE__, __LINE__, filename);
 		return pcx_result::ERROR_OPENING;
 	}
 	const auto &s = *surface.surface.get();
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3 keeps the palette on the surface, and the format is an enum. */
+	if (SDL_BITSPERPIXEL(s.format) != 8)
+		return pcx_result::ERROR_WRONG_VERSION;
+	const auto fpal = SDL_GetSurfacePalette(surface.surface.get());
+#else
 	const auto fmt{s.format};
 	if (!fmt || fmt->BitsPerPixel != 8)
 		return pcx_result::ERROR_WRONG_VERSION;
 	const auto fpal = fmt->palette;
+#endif
 	if (!fpal || fpal->ncolors != palette.size())
 		return pcx_result::ERROR_NO_PALETTE;
 	const unsigned xsize = s.w;

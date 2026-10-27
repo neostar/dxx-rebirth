@@ -40,6 +40,9 @@
 #include "args.h"
 #include "console.h"
 #include "u_mem.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#endif
 #if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
 #include "dxxerror.h"
 #include "common/debug/audio_driver_report.h"
@@ -232,6 +235,9 @@ struct MVE_audio_clamp
 
 }
 
+#if SDL_MAJOR_VERSION == 3
+/* The movie audio callback and its queue wait for #47. */
+#else
 static void mve_audio_callback(void *userdata, unsigned char *stream, int len);
 
 static void mve_audio_callback(void *const vstream, unsigned char *stream, int len)
@@ -297,6 +303,8 @@ static void mve_audio_callback(void *const vstream, unsigned char *stream, int l
 	//con_printf(CON_CRITICAL, "- <%d (%d), %d, %d>", mvestream.mve_audio_bufhead, mvestream.mve_audio_curbuf_curpos, mvestream.mve_audio_buftail, len);
 }
 
+#endif
+
 bool MVESTREAM::queue_mve_audio_buffer(::dcx::unique_span<int16_t> &&buffer)
 {
 	const std::lock_guard lock{mve_audio_mutex};
@@ -343,6 +351,20 @@ bool MVESTREAM::drain_mve_audio_stream()
 #endif
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned char minor, const unsigned char *data)
+#if SDL_MAJOR_VERSION == 3
+{
+	/* SDL3 has no SDL_OpenAudio, audio callback or Mix_SetPostMix: the movie
+	 * plays silent (mve_audio_spec stays empty) until #47 gives it an audio
+	 * stream.
+	 */
+	static_cast<void>(minor);
+	static_cast<void>(data);
+	static dcx::sdl::link_stub stub{"the movie audio", "#47"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	return MVESTREAM::handle_result::step_again;
+}
+#else
 {
 	if (mve_audio_enabled == MVE_play_sounds::silent)
 		return MVESTREAM::handle_result::step_again;
@@ -436,6 +458,7 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_initaudiobuffers(unsigned
 
 	return MVESTREAM::handle_result::step_again;
 }
+#endif
 
 MVESTREAM::handle_result MVESTREAM::handle_mve_segment_startstopaudio()
 {
@@ -448,11 +471,15 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_startstopaudio()
 		}
 		if (have_queued_audio)
 		{
+#if SDL_MAJOR_VERSION == 3
+			/* No movie audio to start (#47). */
+#else
 			if (CGameArg.SndDisableSdlMixer)
 				SDL_PauseAudio(0);
 #if DXX_USE_SDLMIXER
 			else
 				Mix_Pause(0);
+#endif
 #endif
 			mve_audio_playing = 1;
 		}
@@ -537,6 +564,9 @@ MVESTREAM::handle_result MVESTREAM::handle_mve_segment_audioframedata(const mve_
 				else
 					drain_mve_audio_stream();
 				p = {};
+#elif SDL_MAJOR_VERSION == 3
+				/* mve_audio_spec is never set under SDL3 (#47). */
+				static_cast<void>(mve_audio_spec);
 #else
 				// build converter: in = MVE format, out = SDL_mixer output
 				int out_freq;
@@ -753,6 +783,10 @@ void MVE_rmEndMovie(std::unique_ptr<MVESTREAM> stream)
 {
 	timer_stop();
 
+#if SDL_MAJOR_VERSION == 3
+	/* No movie audio under SDL3 (#47), so nothing to close. */
+	static_cast<void>(stream);
+#else
 	if (stream->mve_audio_spec) {
 		// MD2211: if using SDL_Mixer, we never reinit sound, hence never close it
 		if (CGameArg.SndDisableSdlMixer)
@@ -768,6 +802,7 @@ void MVE_rmEndMovie(std::unique_ptr<MVESTREAM> stream)
 		}
 #endif
 	}
+#endif
 }
 
 

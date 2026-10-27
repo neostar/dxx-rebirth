@@ -129,7 +129,11 @@ static constexpr bool valid_palette_color_range(const unsigned start, const unsi
 unsigned MovieFileRead(SDL_RWops *const handle, const std::span<uint8_t> buf)
 {
 	const auto count{buf.size()};
+#if SDL_MAJOR_VERSION == 3
+	const auto numread{SDL_ReadIO(handle, buf.data(), count)};
+#else
 	const auto numread{SDL_RWread(handle, buf.data(), 1, count)};
+#endif
 	return (numread == count);
 }
 
@@ -451,7 +455,11 @@ int RotateRobot(MVESTREAM *const pMovie)
 
 	if (err == MVE_StepStatus::EndOfFile)     //end of movie, so reset
 	{
+#if SDL_MAJOR_VERSION == 3
+		SDL_SeekIO(pMovie->movie->stream.get(), 0, SDL_IO_SEEK_SET);
+#else
 		SDL_RWseek(pMovie->movie->stream.get(), 0, SEEK_SET);
+#endif
 		mve_reset(pMovie);
 		err = MVE_rmStepMovie(*pMovie);
 	}
