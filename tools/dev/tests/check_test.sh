@@ -571,10 +571,12 @@ test_fast_fails_on_gpu_program_run_outside_the_wrapper()
 		'braced() { ${gpu_program}; }' 'c() { "$root/$gpu_program"; } # gpu-validate.sh'
 		'e() { echo gpu-validate.sh "$gpu_program"; }'
 		'f() { "$dev_dir/gpu-validate.sh" true; "$root/$gpu_program"; }'
-		'g() { "$root/$gpu_program" "$dev_dir/gpu-validate.sh"; }' 'h() { build/dev/gpu-demo; }')
+		'g() { "$root/$gpu_program" "$dev_dir/gpu-validate.sh"; }' 'h() { build/dev/gpu-demo; }'
+		'i() { bounded "$gpu_program"; }')
 	# shellcheck disable=SC1003  # a planted line continuation
 	ok=('# runs $gpu_program' 'k() { "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" \'
-		'	"$root/$gpu_program" || rc=1; }' 'l() { local gpu_program; }')
+		'	"$root/$gpu_program" || rc=1; }' 'l() { local gpu_program; }'
+		'm() { bounded "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$gpu_program"; }')
 	printf '%s\n' "${bad[@]}" "${ok[@]}" >> "$r/tools/dev/check.sh"
 	printf '#!/usr/bin/env bash\n%s\n' 'x() { "$1" "$gpu_program"; }' \
 		> "$r/tools/dev/rtrace-tests.sh"

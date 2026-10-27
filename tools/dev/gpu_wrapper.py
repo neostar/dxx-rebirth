@@ -11,7 +11,8 @@
 # word ending in gpu-validate.sh comes before it and is the command's
 # program: every word before that one is an assignment (X=y), a word
 # ending in no-window.sh, or one of env, exec, command, time, !, {, if,
-# then, do, else, elif, while, until.
+# then, do, else, elif, while, until, or bounded (rtrace-tests.sh's time
+# bound, which runs its arguments as given).
 #
 #   python3 gpu_wrapper.py PROGRAMS_FILE SCRIPT...
 import re
@@ -19,7 +20,7 @@ import sys
 
 VAR = re.compile(r'\$(gpu_program\b|\{gpu_program\})')
 LEADERS = {'env', 'exec', 'command', 'time', '!', '{', 'if', 'then', 'do', 'else', 'elif',
-	'while', 'until'}
+	'while', 'until', 'bounded'}
 
 
 def commands(text):

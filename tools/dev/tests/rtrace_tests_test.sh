@@ -14,7 +14,11 @@ source "$(dirname "$0")/lib.sh"
 # set, run 2 an extra line when FAKE_DIFFER=1, and fails on the frameless
 # trace (on its header unless FAKE_FRAMELESS_OTHER=1) unless
 # FAKE_FRAMELESS_PASSES=1; either sleeps $FAKE_SLEEP s, test-rtrace in a
-# child whose pid it writes to test-rtrace.child.
+# child whose pid it writes to test-rtrace.child.  With FAKE_GPU=1 it also
+# installs a fake rtrace-gpu in build/<profile>-sdl3/common, which prints
+# the driver line of $FAKE_GPU_DRIVER (default Metal) and logs the sample's
+# two lines, frame 0's as $FAKE_GPU_FRAME0 when set; a pass-through
+# gpu-validate.sh fails when FAKE_GPU_INVALID=1.
 make_rtrace_repo()
 {
 	local r
@@ -31,10 +35,26 @@ echo "scons: Configure: checking for usable library ${FAKE_SDL:-SDL2} with OpenG
 if [[ "$*" == *test-rtrace* ]]; then
 	[[ ${FAKE_BUILD_FAIL-} == 1 ]] && { echo "fake build failed"; exit 1; }
 	cp fakes/test-rtrace fakes/rtrace "build/$1/common/"
+	if [[ ${FAKE_GPU-} == 1 ]]; then
+		mkdir -p "build/$1-sdl3/common"
+		cp fakes/rtrace-gpu "build/$1-sdl3/common/"
+	fi
 fi
 exit 0
 EOF
 	printf '#!/usr/bin/env bash\nexec "$@"\n' > "$r/tools/dev/no-window.sh"
+	cat > "$r/tools/dev/gpu-validate.sh" <<'EOF'
+#!/usr/bin/env bash
+"$@"
+rc=$?
+[[ ${FAKE_GPU_INVALID-} == 1 ]] && { echo "gpu-validate: fake validation message" >&2; exit 1; }
+exit "$rc"
+EOF
+	cat > "$r/fakes/rtrace-gpu" <<'EOF'
+#!/usr/bin/env bash
+echo "SDL_GPU Driver: ${FAKE_GPU_DRIVER:-Metal}"
+printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
+EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
 #!/usr/bin/env bash
 sleep "${FAKE_SLEEP:-0}" > /dev/null 2>&1 &
@@ -59,6 +79,7 @@ printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef643
 exit 0
 EOF
 	chmod +x "$r/tools/dev/build.sh" "$r/tools/dev/no-window.sh" "$r/tools/dev/rtrace-tests.sh" \
+		"$r/tools/dev/gpu-validate.sh" \
 		"$r/fakes/"*
 	printf '%s\n' "$r"
 }
@@ -176,6 +197,36 @@ test_timeout_fails()
 	if kill -0 "$(cat "$r/test-rtrace.child")" 2>/dev/null; then
 		fail "test-rtrace's child still runs after the time bound"
 	fi
+}
+
+# Test that without a build/<profile>-sdl3 rtrace-gpu the R3 run is a
+# visible SKIP, and that with one, on Metal, it must log the pinned lines
+# through gpu-validate.sh: a wrong line or a validation failure fails, and
+# another driver, whose frames the pins do not hold for, is a SKIP.
+test_rtrace_gpu_logs_the_pinned_lines()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$("$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP rtrace-gpu (dev): no build/dev-sdl3/common/rtrace-gpu"
+	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "rtrace-tests (dev): passed"
+	[[ $out != *"SKIP rtrace-gpu"* ]] || fail "rtrace-gpu skipped: $out"
+	out=$(FAKE_GPU=1 FAKE_GPU_FRAME0='0 64x48 0000000000000000' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes are not GL's:"
+	assert_contains "$out" "0 64x48 0000000000000000"
+	out=$(FAKE_GPU=1 FAKE_GPU_INVALID=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu failed"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIVER=Vulkan "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP rtrace-gpu (dev): driver Vulkan"
 }
 
 run_tests --parallel
