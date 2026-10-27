@@ -509,11 +509,21 @@ step_sdl_arms()
 
 # GL stays behind the render device (ADR 2): the text pass (--fast) counts the
 # GL calls in every C and C++ source outside the GL adapter and the platform
-# code, and fails on a call tools/dev/gl-calls-pending does not name
-# (check_gl_calls.py).
+# code, and the clang pass (full) lists them with clang-query on every
+# translation unit of build/dev's compilation database; both fail on a call
+# tools/dev/gl-calls-pending does not name (check_gl_calls.py).
 step_gl_text()
 {
 	python3 "$dev_dir/check_gl_calls.py" text "$root"
+}
+
+# CHECK_CLANG_QUERY names the binary (default: the pinned LLVM's, which
+# deps.sh installs only if its prebuilt_members_llvm lists bin/clang-query);
+# a missing one is a SKIP, printed by the script.
+step_gl_calls()
+{
+	local cq=${CHECK_CLANG_QUERY:-$dev_deps_prefix/opt/llvm/bin/clang-query}
+	python3 "$dev_dir/check_gl_calls.py" clang "$root" "$root/build/dev" "$cq"
 }
 
 # Run every GPU program tools/dev/gpu-programs registers under
@@ -716,7 +726,7 @@ step_sdl3_link()
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
 	workflows commit_sizes test_git gpu_gate sdl_arms gl_text shell_tests)
-full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests
+full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests gl_calls
 	sdl3_link)
 # The merge gate's steps (ADR 6), with r1 run beside them.
 gate_steps=(repo_config doctor guard gitleaks_allow new_secrets gpu_gate sdl_arms unit_tests

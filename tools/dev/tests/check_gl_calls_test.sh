@@ -1,9 +1,63 @@
 #!/usr/bin/env bash
 # Command-line behaviour of tools/dev/check_gl_calls.py: a GL call outside
 # the GL adapter and the platform code fails unless the pending list names
-# it (ADR 2).
+# it (ADR 2).  clang-query is a stub here that prints the hits a file of the
+# stub's directory holds; tools/dev/check.sh's gl_calls step runs the real
+# one.
 source "$(dirname "$0")/lib.sh"
 CHECK="$DEV_DIR/check_gl_calls.py"
+
+# Make a throwaway tree: a compilation database naming each source given
+# (created, with a GL call in its text), a stub clang-query that prints the
+# hit lines kept in $tree/hits/<source's base name> and then its match
+# count, an allow list and an empty pending list.  The stub does what files
+# of its directory say: `fail` (a fatal error), `error` (a non-fatal error
+# and exit 0), `exit` (exit 3 and nothing else), `nosummary`, `miscount`
+# (a count that is not the hits') and `sleep`.  Prints the tree's path.
+make_tree()
+{
+	local tree src entries=""
+	tree=$(make_scratch) || die "make_scratch failed"
+	mkdir -p "$tree/build" "$tree/hits"
+	for src in "$@"; do
+		mkdir -p "$tree/$(dirname "$src")"
+		printf 'void f() { glFlush(); }\n' > "$tree/$src"
+		entries+="${entries:+,}{\"directory\":\"$tree\",\"file\":\"$src\",\"command\":\"g++ -c $src\"}"
+	done
+	printf '[%s]\n' "$entries" > "$tree/build/compile_commands.json"
+	cat > "$tree/clang-query" <<'EOF'
+#!/usr/bin/env bash
+src=${*: -1}
+dir=$(dirname "$0")
+hits=$dir/hits/$(basename "$src")
+[[ ! -f $dir/sleep ]] || sleep 30
+[[ ! -f $dir/exit ]] || exit 3
+[[ ! -f $hits ]] || cat "$hits"
+[[ ! -f $dir/fail ]] || { echo "$src:1:1: fatal error: 'x.h' file not found"; exit 1; }
+[[ ! -f $dir/error ]] || echo "$src:2:3: error: unknown type name 'foo'"
+n=0
+[[ ! -f $hits ]] || n=$(grep -c 'binds here' "$hits")
+[[ ! -f $dir/miscount ]] || n=$((n + 1))
+[[ -f $dir/nosummary ]] || { [[ $n == 1 ]] && echo "1 match." || echo "$n matches."; }
+exit 0
+EOF
+	chmod +x "$tree/clang-query"
+	printf '^common/render/gl_device\\.cpp$\n^common/render/unittest/rtrace\\.cpp$\n' > "$tree/allow"
+	: > "$tree/pending"
+	printf '%s\n' "$tree"
+}
+
+# Print a hit line of clang-query's diagnostic output for file:line.
+hit()
+{
+	printf '%s:%s:%s: note: "root" binds here\n' "$1" "$2" "${3-3}"
+}
+
+run_check()
+{
+	CHECK_GL_CALLS_SYSROOT=/nonexistent python3 "$CHECK" clang "$1" "$1/build" "$1/clang-query" \
+		"$1/allow" "$1/pending" 2>&1
+}
 
 # Make a throwaway source tree with an allow list naming the adapter, an
 # empty pending list and one source with no GL call.  Prints the tree's path.
@@ -20,6 +74,97 @@ make_text_tree()
 run_text()
 {
 	python3 "$CHECK" text "$1" "$1/allow" "$1/pending" 2>&1
+}
+
+# Test that a GL call in game code is reported at its line and fails, and
+# that one in the adapter or its pixel tests passes.
+test_call_outside_adapter_fails()
+{
+	local t out rc
+	t=$(make_tree similar/arch/gr.cpp common/render/gl_device.cpp common/render/unittest/rtrace.cpp) ||
+		die "make_tree failed"
+	hit "$t/common/render/gl_device.cpp" 10 > "$t/hits/gl_device.cpp"
+	hit "$t/common/render/unittest/rtrace.cpp" 11 > "$t/hits/rtrace.cpp"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "0 GL call(s) outside"
+	hit "$t/similar/arch/gr.cpp" 42 5 > "$t/hits/gr.cpp"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "1 GL call(s) outside the GL adapter in similar/arch/gr.cpp (pending 0): similar/arch/gr.cpp:42:5"
+}
+
+# Test that a unit test other than the GL pixel tests is not allowed to
+# call GL.
+test_other_unit_tests_may_not_call_gl()
+{
+	local t out rc
+	t=$(make_tree common/render/unittest/frame_setup.cpp) || die "make_tree failed"
+	hit "$t/common/render/unittest/frame_setup.cpp" 7 > "$t/hits/frame_setup.cpp"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "frame_setup.cpp:7:3"
+}
+
+# Test that a translation unit clang-query cannot parse fails the check
+# instead of counting as clean, however it says so: a fatal error, a
+# non-fatal error with exit status 0 (clang-query then drops the calls of the
+# bodies it could not parse), a non-zero exit with no message, no match
+# count, or a count that is not the number of matches printed.
+test_unparsable_unit_fails_however_it_says_so()
+{
+	local t out rc what
+	for what in fail error exit nosummary miscount; do
+		t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+		hit "$t/similar/arch/gr.cpp" 42 > "$t/hits/gr.cpp"
+		: > "$t/$what"
+		out=$(run_check "$t") && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$what: $out"
+	done
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	: > "$t/error"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_contains "$out" "error: unknown type name 'foo'"
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	: > "$t/exit"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_contains "$out" "clang-query exited 3"
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	: > "$t/miscount"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_contains "$out" "counted 1 matches, 0 parsed"
+}
+
+# Test that a clang-query that takes longer than the timeout fails.
+test_slow_query_times_out()
+{
+	local t out rc
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	: > "$t/sleep"
+	out=$(CHECK_GL_CALLS_TIMEOUT=1 run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "took more than 1 s"
+}
+
+# Test that a missing compilation database and an empty one fail, and that
+# a missing clang-query is a SKIP.
+test_missing_database_fails_and_missing_tool_skips()
+{
+	local t out rc
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	rm "$t/build/compile_commands.json"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "compile_commands.json is missing"
+	t=$(make_tree) || die "make_tree failed"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no translation unit"
+	t=$(make_tree similar/arch/gr.cpp) || die "make_tree failed"
+	rm "$t/clang-query"
+	out=$(run_check "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "SKIP gl_calls: "
 }
 
 # Test that the pending list lets a file keep exactly its count, the entries
@@ -109,6 +254,8 @@ test_bad_usage_is_an_error()
 	out=$(python3 "$CHECK" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 2 "$out"
 	out=$(python3 "$CHECK" other . 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	out=$(python3 "$CHECK" clang . 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 2 "$out"
 }
 
