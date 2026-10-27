@@ -62,9 +62,9 @@ check()
 }
 
 # Test that a build that renders every frame of every synthetic trace on
-# D3D12, with the debug layer on, passes, naming the adapter, and that
-# each trace ran with SDL_GPU_DRIVER asking for D3D12.
-test_d3d12_run_passes()
+# D3D12 on WARP, with the debug layer on, passes, naming the adapter, and
+# that each trace ran with SDL_GPU_DRIVER asking for D3D12.
+test_warp_run_passes()
 {
 	local d out
 	d=$(fake_build)
@@ -128,12 +128,15 @@ test_missing_or_short_frame_lines_fail()
 	done
 }
 
-# Test that a run on another driver, or one naming no driver or no
-# adapter, fails.
-test_other_driver_or_no_adapter_fails()
+# Test that an adapter other than WARP fails, naming it, and so does a run
+# on another driver or one naming no adapter.
+test_other_adapter_driver_or_no_adapter_fails()
 {
 	local d out
 	d=$(fake_build)
+	out=$(FAKE_OUT="${d3d12_lines/Microsoft Basic Render Driver/NVIDIA GeForce RTX 4090}" check "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace ran on NVIDIA GeForce RTX 4090, not on WARP (Microsoft Basic Render Driver)"
+	assert_contains "$out" "status 1"
 	out=$(FAKE_OUT="${d3d12_lines/Driver: D3D12/Driver: Vulkan}" check "$d")
 	assert_contains "$out" "rtrace-d3d12: the sample trace ran on Vulkan, not D3D12"
 	assert_contains "$out" "status 1"

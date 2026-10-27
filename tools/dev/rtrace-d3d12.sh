@@ -12,14 +12,15 @@
 # otherwise; 2 on a usage error.  Runs in Git Bash on Windows (the workflow
 # d3d12-check.yml), which ends a hung run by its job's timeout.
 #
-# Each run goes through gpu-validate.sh, which fails it on any SDL warning
-# or error (the D3D12 debug layer's messages among them) and when SDL's
-# "Validation layers enabled" line is missing.  Every trace must render
-# all its frames: one frame hash line each, in order.  The lines are
-# recorded in FILE (default d3d12-frame-hashes.txt), one `TRACE INDEX WxH
-# HASH` per line, and printed, for the FLIP compare of #37; they are not
-# compared with GL's, because WARP rounds UNORM ties differently from a
-# GPU.
+# Each run (the GitHub run, WARP) goes through gpu-validate.sh,
+# which fails it on any SDL warning or error (the D3D12 debug layer's
+# messages among them) and when SDL's "Validation layers enabled" line is
+# missing.  The adapter must be WARP (Microsoft Basic
+# Render Driver).  Every trace must render all its frames: one frame
+# hash line each, in order.  The lines are recorded in FILE (default
+# d3d12-frame-hashes.txt), one `TRACE INDEX WxH HASH` per line, and printed,
+# for the FLIP compare of #37; they are not compared with GL's, because WARP
+# rounds UNORM ties differently from a GPU.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$dev_dir/../.." && pwd)
@@ -40,6 +41,7 @@ exe=$dir/rtrace-gpu.exe
 [[ -f $exe ]] || { echo "rtrace-d3d12: no rtrace-gpu.exe in $dir" >&2; exit 1; }
 source "$dev_dir/rtrace-pins.sh"
 export SDL_GPU_DRIVER=direct3d12
+warp="Microsoft Basic Render Driver"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rtrace-d3d12.XXXXXX") ||
 	{ echo "rtrace-d3d12: mktemp failed" >&2; exit 1; }
@@ -61,6 +63,9 @@ check()
 		ok=0
 	elif [[ -z $adapter ]]; then
 		echo "rtrace-d3d12: the $name trace named no D3D12 adapter" >&2
+		ok=0
+	elif [[ $adapter != "$warp" ]]; then
+		echo "rtrace-d3d12: the $name trace ran on $adapter, not on WARP ($warp)" >&2
 		ok=0
 	fi
 	# One line per frame, in order: `INDEX WxH HASH`.
