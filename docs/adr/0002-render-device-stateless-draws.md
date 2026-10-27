@@ -2,10 +2,11 @@
 
 Date: 2026-10-20. Status: accepted.
 Amended 2026-10-23 (owner): the `fan` helper is `render::ambient::fan`, on the front end's state.
+Amended 2026-10-27 (owner, decided 2026-10-22): the renderer is chosen at startup, not switched at run time.
 
 ## Context
 
-GL and SDL_GPU must sit behind one seam, switchable at runtime, with GL output bit-identical to
+GL and SDL_GPU must sit behind one seam, the renderer chosen at startup, with GL output bit-identical to
 today (R1). Three designs were compared (spike workspace `design/render-{1,2,3}-*.md`): a minimal
 stateless device, a per-frame command list, and a GL-like device with sticky state. The spike showed
 that a matrix built on the CPU can differ from GL's by one ULP and that this causes visible depth
