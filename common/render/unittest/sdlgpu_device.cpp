@@ -443,6 +443,79 @@ BOOST_AUTO_TEST_CASE(alpha_test_and_blend)
 	BOOST_TEST(pixels_other_than(drawing(*d), {{255, 255, 255}}) == 0u);
 }
 
+namespace {
+
+/* The first pixel of an RGB image. */
+[[nodiscard]]
+std::array<int, 3> first_pixel(const std::vector<std::uint8_t> &rgb)
+{
+	return {{rgb[0], rgb[1], rgb[2]}};
+}
+
+/* The first pixel after d drew an opaque base of (0.5, 0.4, 0.3) and then a
+ * quad of rgba under blend b, the way the game's flash follows a scene.
+ */
+[[nodiscard]]
+std::array<int, 3> blended_over_base(const render::blend b, const std::array<float, 4> &rgba)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const quad base{{{0.5f, 0.4f, 0.3f, 1}}, 0, {.blend = render::blend::none}};
+	d->draw(base.call);
+	const quad over{rgba, 0, {.blend = b}};
+	d->draw(over.call);
+	const auto rgb{drawing(*d)};
+	BOOST_TEST(pixels_other_than(rgb, {{rgb[0], rgb[1], rgb[2]}}) == 0u);
+	return first_pixel(rgb);
+}
+
+/* Check that each channel of pixel is within one level of expected, which
+ * the GPU may round either way; a failure names the channel and both values.
+ */
+void expect_pixel(const std::array<int, 3> &pixel, const std::array<int, 3> &expected)
+{
+	for (std::size_t c{0}; c != 3; ++c)
+		BOOST_TEST(std::abs(pixel[c] - expected[c]) <= 1,
+		           "channel " << c << " is " << pixel[c] << ", expected " << expected[c]);
+}
+
+}
+
+/* Test that the weapon-hit palette flash, additive_c of the mixed-sign
+ * (0.6, -0.1, -0.2), adds to the scene and clamps at both ends, as GL's
+ * unsigned colour does: (0.5, 0.4, 0.3) becomes (1, 0.4, 0.3).
+ */
+BOOST_AUTO_TEST_CASE(red_flash_adds_and_clamps)
+{
+	expect_pixel(blended_over_base(render::blend::additive_c, {{0.6f, -0.1f, -0.2f, 1}}),
+	             {{255, 102, 77}});
+}
+
+/* Test that the negative palette flash, palfx_neg of (0.754, 0.397, 0) (a
+ * brightness of (-19, -10, 0) out of 63, scaled by 2.5), scales the scene
+ * by one minus the flash: (0.5, 0.4, 0.3) becomes (0.123, 0.241, 0.3).
+ */
+BOOST_AUTO_TEST_CASE(negative_flash_darkens_by_the_flash)
+{
+	expect_pixel(blended_over_base(render::blend::palfx_neg, {{0.754f, 0.397f, 0, 1}}),
+	             {{31, 61, 77}});
+}
+
+/* Test that additive_a adds the colour scaled by its alpha, normal mixes
+ * by alpha, and additive_c ignores alpha, over (0.5, 0.4, 0.3): (0, 1, 0)
+ * at 0.25 under additive_a gives (0.5, 0.65, 0.3); (0, 0, 1) at 0.25 under
+ * normal gives (0.375, 0.3, 0.475); (0.2, 0.2, 0.2) at 0.25 under
+ * additive_c gives (0.7, 0.6, 0.5).
+ */
+BOOST_AUTO_TEST_CASE(blends_weigh_the_colour_by_alpha_as_gl_does)
+{
+	expect_pixel(blended_over_base(render::blend::additive_a, {{0, 1, 0, 0.25f}}),
+	             {{128, 166, 77}});
+	expect_pixel(blended_over_base(render::blend::normal, {{0, 0, 1, 0.25f}}), {{96, 77, 121}});
+	expect_pixel(blended_over_base(render::blend::additive_c, {{0.2f, 0.2f, 0.2f, 0.25f}}),
+	             {{179, 153, 128}});
+}
+
 /* Test that draws in every state of the pipeline set take a pipeline of
  * the set built at creation, none new, and that the frame's transfer and
  * vertex buffers die with the device.
