@@ -46,7 +46,9 @@ class device
 	explicit device(const render::caps &c) : caps_{c}
 	{}
 	virtual ~device() = default;
-	/* Draws call.  Its vertices are read during the call only. */
+	/* Draws call.  Its vertices are read during the call only.  A call
+	 * with no vertices draws nothing: an adapter or a replay may skip it.
+	 */
 	virtual void draw(const draw_call &call) = 0;
 	/* Gives slot the image, which later draws sample; a null image releases
 	 * the slot.

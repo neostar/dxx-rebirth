@@ -434,3 +434,24 @@ BOOST_AUTO_TEST_CASE(ortho_matrix_is_gls)
 		BOOST_TEST(render::matrix_of(o) == gl, boost::test_tools::per_element());
 	}
 }
+
+/* Test that the GL adapter applies the state of a draw with no vertices:
+ * after a draw with a moved modelview, an empty draw with the identity
+ * leaves GL's modelview matrix the identity, which the front end relies on
+ * to restore the matrix the code not yet drawing through the device
+ * expects (ogl_draw_moved).
+ */
+BOOST_AUTO_TEST_CASE(empty_draw_applies_its_state)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	quad q{red};
+	q.call.transforms.modelview =
+	    render::translate_scale{.translate = {{0.25f, 0.5f, 0}}, .scale = {{2, 3, 1}}};
+	d.draw(q.call);
+	d.draw(flat_draw(render::topology::fan, {}));
+	std::array<GLfloat, 16> m{};
+	glGetFloatv(GL_MODELVIEW_MATRIX, m.data());
+	const std::array<GLfloat, 16> identity{{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
+	BOOST_TEST(m == identity, boost::test_tools::per_element());
+}

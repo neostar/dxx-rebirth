@@ -92,6 +92,12 @@ class gl_device final : public device
 	 * empty and the first draw sets everything.
 	 */
 	gl_device(const render::caps &c, gl_front_end front_end);
+	/* Draws call.  A call with no vertices draws nothing but still sets its
+	 * GL state through the state shadow and runs the front end's textured or
+	 * untextured hook: the front end restores the GL state the code not yet
+	 * drawing through the device expects that way (ogl_draw_moved, the
+	 * vertex reticle's line width).
+	 */
 	void draw(const draw_call &call) override;
 	/* Makes a new GL texture of image for slot, deleting the slot's old one,
 	 * with the GL calls ogl_loadtexture made, and leaves it bound as they

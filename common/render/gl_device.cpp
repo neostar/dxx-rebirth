@@ -259,6 +259,7 @@ gl_device::gl_device(const render::caps &c, gl_front_end front_end)
 
 void gl_device::draw(const draw_call &call)
 {
+	/* The state first, also for a call with no vertices (gl_device.h). */
 	gl_calls gl{.build_perspective = front_end_.build_perspective};
 	shadow_.apply(gl, call);
 	const bool textured{call.texture != texture_slot::none};
