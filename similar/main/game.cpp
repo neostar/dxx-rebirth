@@ -119,6 +119,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "compiler-range_for.h"
 #include "partial_range.h"
 #include "segiter.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/frame_pacer_sdl.h"
+#endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/frame_time_harness.h"
 #endif
@@ -682,7 +685,14 @@ void calc_frame_time()
 
 	const auto vsync{CGameCfg.VSync};
 	const auto bound = f1_0 / (likely(vsync) ? MAXIMUM_FPS : CGameArg.SysMaxFPS);
+#if SDL_MAJOR_VERSION == 3
+	/* The swap need not block (docs/agents/sdl-window.md section 5): sleep
+	 * with vsync on as well.
+	 */
+	const auto may_sleep = !CGameArg.SysNoNiceFPS;
+#else
 	const auto may_sleep = !CGameArg.SysNoNiceFPS && !vsync;
+#endif
 	const auto multiplayer{+(Game_mode & GM_MULTI)};
 	for (;;)
 	{
@@ -701,7 +711,11 @@ void calc_frame_time()
 		if (multiplayer)
 			multi_do_frame(); // during long wait, keep packets flowing
 		if (may_sleep)
+#if SDL_MAJOR_VERSION == 3
+			dcx::sdl::sleep_toward(timer_value - sync_timer_value, bound, multiplayer);
+#else
 			timer_delay_ms(1);
+#endif
 	}
 #if DXX_USE_DBG_HARNESS
 	FrameTime = harness_frame_time_policy().frame_time(FrameTime);

@@ -81,6 +81,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_range.h"
 #include "d_zip.h"
 #include <memory>
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/frame_pacer_sdl.h"
+#endif
 
 #define EF_USED     1   // This edge is used
 #define EF_DEFINING 2   // A structure defining edge that should always draw.
@@ -1056,14 +1059,22 @@ static void draw_automap(fvcobjptr &vcobjptr, automap &am, fix eye = 0)
 	am.t2 = timer_query();
 	const auto vsync{CGameCfg.VSync};
 	const auto bound{F1_0 / (vsync ? MAXIMUM_FPS : CGameArg.SysMaxFPS)};
+#if SDL_MAJOR_VERSION == 3
+	const auto may_sleep{!CGameArg.SysNoNiceFPS};
+#else
 	const auto may_sleep{!CGameArg.SysNoNiceFPS && !vsync};
+#endif
 	const auto multiplayer{+(Game_mode & GM_MULTI)};
 	while (am.t2 - am.t1 < bound) // ogl is fast enough that the automap can read the input too fast and you start to turn really slow.  So delay a bit (and free up some cpu :)
 	{
 		if (multiplayer)
 			multi_do_frame(); // during long wait, keep packets flowing
 		if (may_sleep)
+#if SDL_MAJOR_VERSION == 3
+			dcx::sdl::sleep_toward(am.t2 - am.t1, bound, multiplayer);
+#else
 			timer_delay(F1_0>>8);
+#endif
 		am.t2 = timer_update();
 	}
 	if (am.pause_game)

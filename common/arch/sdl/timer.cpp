@@ -18,6 +18,9 @@
 #include "config.h"
 #include "game.h"
 #include "multi.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/frame_pacer_sdl.h"
+#endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script_harness.h"
 #endif
@@ -38,7 +41,14 @@ fix64 timer_update()
 #endif
 	static bool already_initialized;
 	static fix64 last_tv;
+#if SDL_MAJOR_VERSION == 3
+	/* SDL_GetTicksNS is 64 bits: convert whole seconds first, so that the
+	 * product does not overflow (frame_pacer.h).
+	 */
+	const fix64 cur_tv = fix_from_ns(SDL_GetTicksNS());
+#else
 	const fix64 cur_tv = static_cast<fix64>(SDL_GetTicks()) * F1_0 / 1000;
+#endif
 	const fix64 prev_tv = last_tv;
 	fix64 runtime = F64_RunTime;
 	last_tv = cur_tv;
@@ -61,6 +71,26 @@ void timer_delay_ms(unsigned milliseconds)
 	SDL_Delay(milliseconds);
 }
 
+#if SDL_MAJOR_VERSION == 3
+// Replacement for timer_delay which considers calc time the program needs between frames (not reentrant)
+void timer_delay_bound(const unsigned caller_bound)
+{
+	static std::uint64_t FrameStart;
+	const auto multiplayer{+(Game_mode & GM_MULTI)};
+	const auto vsync{CGameCfg.VSync};
+	/* The swap need not block (docs/agents/sdl-window.md section 5), so
+	 * the menus sleep with vsync on as well.
+	 */
+	const auto bound{vsync ? 1000u / MAXIMUM_FPS : caller_bound};
+	const pacing p{.period_ns = std::uint64_t{bound} * 1000000, .multiplayer = !!multiplayer};
+	auto pacer{sdl::make_pacer()};
+	pacer.wait(FrameStart, p, [multiplayer] {
+		if (multiplayer)
+			multi_do_frame(); // during long wait, keep packets flowing
+	});
+	FrameStart = SDL_GetTicksNS();
+}
+#else
 // Replacement for timer_delay which considers calc time the program needs between frames (not reentrant)
 void timer_delay_bound(const unsigned caller_bound)
 {
@@ -86,5 +116,6 @@ void timer_delay_bound(const unsigned caller_bound)
 		}
 	}
 }
+#endif
 
 }
