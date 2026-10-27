@@ -20,6 +20,7 @@
 #include "multi.h"
 #if SDL_MAJOR_VERSION == 3
 #include "common/sdl/frame_pacer_sdl.h"
+static_assert(dcx::fix_one == F1_0);
 #endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script_harness.h"

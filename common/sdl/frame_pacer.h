@@ -72,7 +72,8 @@ struct pacing
 
 /* The design's cap while the window is hidden: DESIGNATED_GAME_FPS, 30. */
 inline constexpr std::uint64_t hidden_period_ns{ns_per_second / 30};
-inline constexpr std::uint64_t poll_slice_ns{1000000};
+inline constexpr std::uint64_t ns_per_ms{1000000};
+inline constexpr std::uint64_t poll_slice_ns{ns_per_ms};
 
 struct step
 {

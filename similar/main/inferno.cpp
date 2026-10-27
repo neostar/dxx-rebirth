@@ -125,6 +125,7 @@ char copyright[] = "DESCENT II  COPYRIGHT (C) 1994-1996 PARALLAX SOFTWARE CORPOR
  * SDL_MAIN_USE_CALLBACKS is defined nowhere.
  */
 #include <SDL3/SDL_main.h>
+#include "common/sdl/version_text.h"
 #endif
 
 namespace dsx {
@@ -579,11 +580,7 @@ static int main(int argc, char *argv[])
 			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with PhysFS %u.%u.%u; loaded with PhysFS %u.%u.%u", vc.major, vc.minor, vc.patch, vl.major, vl.minor, vl.patch);
 		}
 #if SDL_MAJOR_VERSION == 3
-		{
-			const int vc{SDL_VERSION};
-			const int vl{SDL_GetVersion()};
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with libSDL %u.%u.%u; loaded with libSDL %u.%u.%u", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
-		}
+		con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with %s", dcx::sdl::versions_text("libSDL", SDL_VERSION, SDL_GetVersion()).c_str());
 #else
 		{
 			SDL_version vc;
@@ -600,11 +597,7 @@ static int main(int argc, char *argv[])
 #endif
 #if DXX_USE_SDLIMAGE
 #if SDL_MAJOR_VERSION == 3
-		{
-			const int vc{SDL_IMAGE_VERSION};
-			const int vl{IMG_Version()};
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_image %u.%u.%u; loaded with SDL_image %u.%u.%u", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
-		}
+		con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with %s", dcx::sdl::versions_text("SDL_image", SDL_IMAGE_VERSION, IMG_Version()).c_str());
 #else
 		{
 			SDL_version vc;
@@ -616,11 +609,7 @@ static int main(int argc, char *argv[])
 #endif
 #if DXX_USE_SDLMIXER
 #if SDL_MAJOR_VERSION == 3
-		{
-			const int vc{SDL_MIXER_VERSION};
-			const int vl{MIX_Version()};
-			con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with SDL_mixer %u.%u.%u; loaded with SDL_mixer %u.%u.%u", SDL_VERSIONNUM_MAJOR(vc), SDL_VERSIONNUM_MINOR(vc), SDL_VERSIONNUM_MICRO(vc), SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
-		}
+		con_printf(CON_VERBOSE, "D" DXX_NAME_NUMBER "X-Rebirth built with %s", dcx::sdl::versions_text("SDL_mixer", SDL_MIXER_VERSION, MIX_Version()).c_str());
 #else
 		{
 			SDL_version vc;

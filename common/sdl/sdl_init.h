@@ -9,7 +9,9 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "common/sdl/dxx-sdl.h"
 #include "common/sdl/macos_defaults.h"
@@ -80,11 +82,12 @@ struct init_report
 {
 	/* SDL_Init succeeded. */
 	bool initialised{false};
-	bool metadata_refused{false};
-	/* Read at once: the hints and SDL_Init that follow overwrite SDL's error. */
-	std::string metadata_error;
-	/* Parallel to pre_init_hints: the name of each refused hint, else null. */
-	std::array<const char *, pre_init_hints.size()> refused_hints{};
+	/* Set when SDL refused the metadata, to its error.  Read at once: the
+	 * hints and SDL_Init that follow overwrite SDL's error.
+	 */
+	std::optional<std::string> metadata_error;
+	/* The name of each refused hint. */
+	std::vector<const char *> refused_hints;
 };
 
 template <typename Ops = sdl_ops>
@@ -92,12 +95,11 @@ template <typename Ops = sdl_ops>
 init_report init_video(const app_metadata &metadata, Ops ops = {})
 {
 	init_report report;
-	report.metadata_refused = !ops.set_app_metadata(metadata);
-	if (report.metadata_refused)
+	if (!ops.set_app_metadata(metadata))
 		report.metadata_error = ops.last_error();
-	for (std::size_t i{0}; i != pre_init_hints.size(); ++i)
-		if (!ops.set_hint(pre_init_hints[i]))
-			report.refused_hints[i] = pre_init_hints[i].name;
+	for (const auto &h : pre_init_hints)
+		if (!ops.set_hint(h))
+			report.refused_hints.push_back(h.name);
 	ops.register_early_defaults();
 	report.initialised = ops.init_video();
 	return report;

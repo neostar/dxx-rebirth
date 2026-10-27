@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "common/sdl/version_text.h"
+
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth sdl init
 #include <boost/test/unit_test.hpp>
@@ -93,16 +95,16 @@ BOOST_AUTO_TEST_CASE(refusals_are_reported_and_do_not_stop_the_start_up)
 	std::vector<std::string> log;
 	const auto report{dcx::sdl::init_video(test_metadata, recording_ops{&log, false, false, true})};
 	BOOST_TEST(report.initialised);
-	BOOST_TEST(report.metadata_refused);
-	BOOST_TEST(report.metadata_error == "metadata error text");
+	BOOST_REQUIRE(report.metadata_error.has_value());
+	BOOST_TEST(report.metadata_error.value() == "metadata error text");
 	BOOST_TEST(log.size() == 5u);
+	BOOST_REQUIRE(report.refused_hints.size() == 2u);
 	BOOST_TEST(std::string{report.refused_hints[0]} == "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS");
 	BOOST_TEST(std::string{report.refused_hints[1]} == "SDL_WINDOWS_CLOSE_ON_ALT_F4");
 	log.clear();
 	const auto clean{dcx::sdl::init_video(test_metadata, recording_ops{&log})};
-	BOOST_TEST(!clean.metadata_refused);
-	BOOST_TEST(clean.refused_hints[0] == nullptr);
-	BOOST_TEST(clean.refused_hints[1] == nullptr);
+	BOOST_TEST(!clean.metadata_error.has_value());
+	BOOST_TEST(clean.refused_hints.empty());
 }
 
 /* Test that real SDL3 initialises on the dummy video driver, keeps the
@@ -136,4 +138,12 @@ BOOST_AUTO_TEST_CASE(real_sdl_failure_is_false)
 	SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "no-such-driver", SDL_HINT_OVERRIDE);
 	BOOST_TEST(!dcx::sdl::init_video(test_metadata).initialised);
 	SDL_Quit();
+}
+
+/* Test that the version text names the library and both versions, built first. */
+BOOST_AUTO_TEST_CASE(versions_text_names_the_built_and_the_loaded_version)
+{
+	BOOST_TEST(
+	    dcx::sdl::versions_text("libSDL", SDL_VERSIONNUM(3, 4, 2), SDL_VERSIONNUM(3, 2, 20)) ==
+	    "libSDL 3.4.2; loaded with libSDL 3.2.20");
 }

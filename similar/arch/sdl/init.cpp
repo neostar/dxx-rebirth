@@ -81,11 +81,10 @@ arch_atexit arch_init()
 		.identifier = "com.dxx-rebirth.d" DXX_STRINGIZE(DXX_BUILD_DESCENT) "x-rebirth",
 	};
 	const auto report{dcx::sdl::init_video(metadata)};
-	if (report.metadata_refused)
-		con_printf(CON_NORMAL, "SDL refused the application metadata: %s", report.metadata_error.c_str());
+	if (report.metadata_error)
+		con_printf(CON_NORMAL, "SDL refused the application metadata: %s", report.metadata_error->c_str());
 	for (const auto name : report.refused_hints)
-		if (name)
-			con_printf(CON_NORMAL, "SDL refused the hint %s", name);
+		con_printf(CON_NORMAL, "SDL refused the hint %s", name);
 	if (!report.initialised)
 		Error("SDL library initialisation failed: %s.",SDL_GetError());
 #else
