@@ -180,3 +180,17 @@ BOOST_AUTO_TEST_CASE(flash_draws_one_screen_quad_in_2d_state_and_restores_blend)
 	BOOST_TEST((a.blend_function == render::blend::normal));
 	BOOST_TEST(a.blending);
 }
+
+/* Test that a darkening flash is drawn with its own blend, palfx_neg, and
+ * not the adding one.
+ */
+BOOST_AUTO_TEST_CASE(darkening_flash_draws_with_its_blend)
+{
+	recording_device d;
+	render::ambient a;
+	const auto flash{render::flash_of(-0.1f, -0.2f, 0.f, true)};
+	BOOST_REQUIRE(flash.has_value());
+	render::draw_palette_flash(d, a, flash.value());
+	BOOST_REQUIRE_EQUAL(d.calls.size(), 1u);
+	BOOST_TEST((std::get<kept_draw>(d.calls[0]).state.blend == render::blend::palfx_neg));
+}
