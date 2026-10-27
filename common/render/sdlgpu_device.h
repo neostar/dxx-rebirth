@@ -10,8 +10,9 @@
  * draws into an offscreen R8G8B8A8_UNORM colour target with D32_FLOAT
  * depth, which read_pixels reads, and needs no window; the swapchain blit
  * comes with #50.  It clears, presents and reads back, and draws
- * untextured triangles in 2D (#26) through the frame record and the GPU
- * command seam (sdlgpu_frame.h); textures come with #27.  Built from the
+ * triangles in 2D (#26) through the frame record and the GPU
+ * command seam (sdlgpu_frame.h), textured through the closed sampler set
+ * (#27).  Built from the
  * spike's headless replayer (#55, K1) and research #71
  * (docs/agents/sdl-gpu-backends.md, areas 2, 3, 5, 8).
  *
@@ -149,11 +150,16 @@ class device final : public render::device
 	device &operator=(device &&) = delete;
 
 	/* Records the call for the next flush (present, or a readback of the
-	 * image being drawn).  Throws std::logic_error, naming the ticket, on
-	 * what frame::draw refuses.
+	 * image being drawn).  Throws what frame::draw throws.
 	 */
 	void draw(const draw_call &call) override;
-	/* Not yet: throws std::logic_error, naming #27. */
+	/* Gives slot image, uploaded at the next flush; first flushes a
+	 * recorded draw that samples the slot's earlier image.  The image's
+	 * pixels upload as RGBA8, an RGB image with alpha 255; the other
+	 * internal formats are not quantized as GL does, and trilinear
+	 * textures have no mipmaps yet.  Throws std::invalid_argument on
+	 * texture_slot::none.
+	 */
 	void texture(texture_slot slot, const texture_image *image) override;
 
 	void clear(clear_targets targets) override;

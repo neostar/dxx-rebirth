@@ -136,6 +136,81 @@ std::size_t pixels_other_than(const std::span<const std::uint8_t> rgb,
 
 constexpr std::array<std::uint8_t, 3> clear_rgb{{clear_rgba[0], clear_rgba[1], clear_rgba[2]}};
 
+constexpr std::array<std::uint8_t, 3> red{{255, 0, 0}};
+constexpr std::array<std::uint8_t, 3> green{{0, 255, 0}};
+constexpr std::array<std::uint8_t, 3> blue{{0, 0, 255}};
+constexpr std::array<std::uint8_t, 3> white{{255, 255, 255}};
+
+/* A 2x2 texture image, nearest-filtered unless asked otherwise, and the
+ * pixels it views: the checker's first row, at v = 0, red then green; its
+ * second blue then white.
+ */
+struct texture_pixels
+{
+	std::array<std::uint8_t, 16> rgba;
+	render::texture_image image;
+	explicit texture_pixels(const std::array<std::uint8_t, 16> &p,
+	                        const render::filter f = render::filter::nearest)
+	    : rgba{p}, image{{.size = {2, 2},
+		                  .format = render::texture_format::rgba8,
+		                  .filter = f,
+		                  .anisotropic = false,
+		                  .has_transparency = false},
+		                 rgba}
+	{}
+	texture_pixels(const texture_pixels &) = delete;
+	texture_pixels &operator=(const texture_pixels &) = delete;
+	texture_pixels(texture_pixels &&) = delete;
+	texture_pixels &operator=(texture_pixels &&) = delete;
+	~texture_pixels() = default;
+};
+
+[[nodiscard]]
+texture_pixels checker(const render::filter f = render::filter::nearest)
+{
+	return texture_pixels{{{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255}},
+	                      f};
+}
+
+/* A white quad from row y0 up over the whole target, textured from slot
+ * with uv 0 to 1 across the target.
+ */
+struct textured_quad : quad
+{
+	textured_quad(const render::texture_slot slot, const float y0 = 0) : quad{{{1, 1, 1, 1}}, y0}
+	{
+		vertices[0].uv = {{0, 0}};
+		vertices[1].uv = {{1, 0}};
+		vertices[2].uv = {{1, 1}};
+		vertices[3].uv = {{0, 1}};
+		vertices[0].pos[1] = 0;
+		vertices[1].pos[1] = 0;
+		call.texture = slot;
+		/* The quad's lower rows lie under y0's viewport cut, not its uv. */
+		if (y0 > 0)
+			call.viewport = {.x = 0,
+			                 .y = static_cast<std::int32_t>(static_cast<float>(target.height) * y0),
+			                 .size = {.width = target.width,
+			                          .height = static_cast<std::uint32_t>(
+			                              static_cast<float>(target.height) * (1 - y0))}};
+	}
+};
+
+/* How many pixels of the w x h block at column x, row y (from the top) of
+ * rgb, a target-sized RGB image, are not p.
+ */
+[[nodiscard]]
+std::size_t block_other_than(const std::span<const std::uint8_t> rgb, const std::uint32_t x,
+                             const std::uint32_t y, const std::uint32_t w, const std::uint32_t h,
+                             const std::array<std::uint8_t, 3> p)
+{
+	std::size_t n{0};
+	for (std::uint32_t row{y}; row != y + h; ++row)
+		n += pixels_other_than(
+		    rgb.subspan((std::size_t{row} * target.width + x) * 3, std::size_t{w} * 3), p);
+	return n;
+}
+
 /* M6 (research #71): how long the pipeline set took to build from MSL. */
 void print_m6(const char *which, const sdlgpu::device &d)
 {
@@ -208,8 +283,8 @@ BOOST_AUTO_TEST_CASE(read_pixels_checks_its_buffer)
 }
 
 /* Test that the device holds its closed pipeline and sampler sets and its
- * targets while it lives, and nothing of any kind after it is gone,
- * also after readbacks (the resource-leak gate, #56).
+ * targets while it lives, and nothing of any kind after it is gone, also
+ * after a texture and readbacks (the resource-leak gate, #56).
  */
 BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
 {
@@ -222,12 +297,21 @@ BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
 	BOOST_TEST(live.textures == 4u);
 	/* The shaders are released once the pipeline set is built. */
 	BOOST_TEST(live.shaders == 0u);
+	const auto image{checker()};
+	d->texture({1}, &image.image);
+	BOOST_TEST(ledger->counts().textures == 5u);
+	d->texture({1}, nullptr);
+	BOOST_TEST(ledger->counts().textures == 4u);
+	d->texture({1}, &image.image);
 	d->clear({.color = true, .depth = true});
 	d->present();
 	std::array<std::uint8_t, 4> pixel{};
 	d->read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = {1, 1}},
 	               render::pixel_format::rgba8, pixel);
-	BOOST_TEST(ledger->counts().buffers == 0u);
+	/* The transfer ring the texture went through; no vertex buffer, with
+	 * no vertices drawn.
+	 */
+	BOOST_TEST(ledger->counts().buffers == 1u);
 	print_m6("later device", *d);
 	d.reset();
 	BOOST_TEST((ledger->counts() == sdlgpu::resource_counts{}));
@@ -501,6 +585,80 @@ BOOST_AUTO_TEST_CASE(depth_off_writes_no_depth)
 	d->draw(near_red.call);
 	d->draw(far_green.call);
 	BOOST_TEST(pixels_other_than(drawing(*d), {{0, 255, 0}}) == 0u);
+}
+
+/* Test that a textured quad samples its texture as GL does: the texture's
+ * first row at v = 0, the bottom of the target, read back last; nearest
+ * filtering gives four solid quadrants.
+ */
+BOOST_AUTO_TEST_CASE(textured_quad_samples_its_texture)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto image{checker()};
+	d->texture({1}, &image.image);
+	d->clear({.color = true, .depth = true});
+	const textured_quad q{{1}};
+	d->draw(q.call);
+	const auto rgb{drawing(*d)};
+	BOOST_TEST(block_other_than(rgb, 0, 24, 32, 24, red) == 0u);
+	BOOST_TEST(block_other_than(rgb, 32, 24, 32, 24, green) == 0u);
+	BOOST_TEST(block_other_than(rgb, 0, 0, 32, 24, blue) == 0u);
+	BOOST_TEST(block_other_than(rgb, 32, 0, 32, 24, white) == 0u);
+}
+
+/* Test that a trilinear texture magnifies linearly: the checker drawn over
+ * the target is solid near each quadrant's centre, where the clamped
+ * filter reads one texel, and blends across the boundary between red and
+ * green, where nearest filtering would give one or the other.
+ */
+BOOST_AUTO_TEST_CASE(trilinear_texture_blends_when_magnified)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto image{checker(render::filter::trilinear)};
+	d->texture({1}, &image.image);
+	d->clear({.color = true, .depth = true});
+	const textured_quad q{{1}};
+	d->draw(q.call);
+	const auto rgb{drawing(*d)};
+	/* Row 36 from the top is row 11 from the bottom: texel row 0 alone. */
+	BOOST_TEST(block_other_than(rgb, 15, 36, 1, 1, red) == 0u);
+	BOOST_TEST(block_other_than(rgb, 48, 36, 1, 1, green) == 0u);
+	BOOST_TEST(block_other_than(rgb, 15, 11, 1, 1, blue) == 0u);
+	BOOST_TEST(block_other_than(rgb, 48, 11, 1, 1, white) == 0u);
+	for (const std::uint32_t x : {31u, 32u})
+	{
+		BOOST_TEST(block_other_than(rgb, x, 36, 1, 1, red) == 1u);
+		BOOST_TEST(block_other_than(rgb, x, 36, 1, 1, green) == 1u);
+	}
+}
+
+/* Test that a slot given a new image after a draw sampled it, in the same
+ * frame, keeps the earlier draw's image: the top half drawn before the
+ * change shows the checker, the bottom half after it the new all-green
+ * image.
+ */
+BOOST_AUTO_TEST_CASE(texture_changed_mid_frame_keeps_earlier_draws)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto image{checker()};
+	d->texture({1}, &image.image);
+	d->clear({.color = true, .depth = true});
+	const textured_quad top{{1}, 0.5f};
+	d->draw(top.call);
+	const texture_pixels all_green{
+	    {{0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255}}};
+	d->texture({1}, &all_green.image);
+	textured_quad bottom{{1}};
+	bottom.call.viewport = {.x = 0, .y = 0, .size = {.width = 64, .height = 24}};
+	d->draw(bottom.call);
+	d->present();
+	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
+	d->read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
+	               render::pixel_format::rgb8, rgb);
+	BOOST_TEST(block_other_than(rgb, 0, 0, 32, 12, blue) == 0u);
+	BOOST_TEST(block_other_than(rgb, 32, 0, 32, 12, white) == 0u);
+	BOOST_TEST(block_other_than(rgb, 0, 12, 32, 12, red) == 0u);
+	BOOST_TEST(block_other_than(rgb, 0, 24, 64, 24, green) == 0u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

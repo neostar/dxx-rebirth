@@ -13,7 +13,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -496,13 +498,20 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 	return std::chrono::steady_clock::now() - start;
 }
 
+/* A texture slot's SDL texture and its size. */
+struct slot_texture
+{
+	texture_handle handle;
+	render::extent size{};
+};
+
 /* The GPU command seam's SDL_GPU adapter (sdlgpu_frame.h): one frame's
  * calls into one command buffer.  The upload is the transfer ring: the
  * frame's one transfer buffer, laid out by the frame's upload plan, is
  * mapped with cycle=true, so a buffer still in flight is never written, and
- * copied to the vertex buffer in a copy pass of its own before the frame's
- * first render pass (research #71, area 2).  Both buffers grow by
- * grown_capacity and keep their size.
+ * copied to the vertex buffer and the textures (cycle=true) in a copy pass
+ * of its own before the frame's first render pass (research #71, area 2).
+ * Both buffers grow by grown_capacity and keep their size.
  */
 class sdl_commands final : public commands
 {
@@ -520,6 +529,7 @@ class sdl_commands final : public commands
 		SDL_GPUTexture *depth;
 		SDL_GPUTexture *white;
 		const std::array<sampler_handle, sampler_set_size> &samplers;
+		const std::map<std::uint32_t, slot_texture> &textures;
 		SDL_FColor clear_color;
 	};
 
@@ -576,6 +586,13 @@ class sdl_commands final : public commands
 			sdl_failed("SDL_MapGPUTransferBuffer");
 		std::ranges::copy(vertex_bytes,
 		                  mapped.subspan(u.vertex_offset, vertex_bytes.size()).begin());
+		for (const auto &t : u.textures)
+		{
+			if (t.rgba.size() != std::size_t{t.size.width} * t.size.height * 4)
+				throw std::length_error("sdlgpu: texture rows that do not match their size");
+			std::ranges::copy(std::as_bytes(t.rgba),
+			                  mapped.subspan(t.offset, t.rgba.size()).begin());
+		}
 		SDL_UnmapGPUTransferBuffer(device_, r_.transfer.get());
 		SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb_)};
 		if (copy == nullptr)
@@ -589,6 +606,19 @@ class sdl_commands final : public commands
 			to.buffer = r_.vertices.get();
 			to.size = static_cast<std::uint32_t>(vertex_bytes.size());
 			SDL_UploadToGPUBuffer(copy, &from, &to, true);
+		}
+		for (const auto &t : u.textures)
+		{
+			/* Tight rows: pixels_per_row 0 (SDL #16474). */
+			SDL_GPUTextureTransferInfo from{};
+			from.transfer_buffer = r_.transfer.get();
+			from.offset = static_cast<std::uint32_t>(t.offset);
+			SDL_GPUTextureRegion to{};
+			to.texture = r_.textures.at(t.slot.index).handle.get();
+			to.w = t.size.width;
+			to.h = t.size.height;
+			to.d = 1;
+			SDL_UploadToGPUTexture(copy, &from, &to, true);
 		}
 		SDL_EndGPUCopyPass(copy);
 	}
@@ -639,6 +669,13 @@ class sdl_commands final : public commands
 		    .texture = r_.white, .sampler = r_.samplers[index_of(sampler_key{})].get()};
 		SDL_BindGPUFragmentSamplers(pass_, 0, &binding, 1);
 	}
+	void bind_texture(const texture_slot slot, const sampler_key &key) override
+	{
+		const SDL_GPUTextureSamplerBinding binding{.texture =
+		                                               r_.textures.at(slot.index).handle.get(),
+		                                           .sampler = r_.samplers.at(index_of(key)).get()};
+		SDL_BindGPUFragmentSamplers(pass_, 0, &binding, 1);
+	}
 	void push_vertex_uniforms(const vertex_uniforms &u) override
 	{
 		SDL_PushGPUVertexUniformData(cb_, 0, &u, sizeof u);
@@ -673,6 +710,12 @@ struct device::state
 	texture_handle white;
 	/* The closed sampler set, indexed by sampler_key. */
 	std::array<sampler_handle, sampler_set_size> samplers;
+	/* Each slot's texture, by slot index.  Invariant: it holds a slot
+	 * exactly when the frame record's description does (frame::texture),
+	 * at that description's size; device::texture keeps the two in step by
+	 * its order.
+	 */
+	std::map<std::uint32_t, slot_texture> textures;
 	std::vector<pipeline_handle> pipelines;
 	std::chrono::nanoseconds pipeline_time{};
 	/* The transfer ring and the vertex buffer, made by the first frame
@@ -703,6 +746,7 @@ struct device::state
 		                                .depth = depth.get(),
 		                                .white = white.get(),
 		                                .samplers = samplers,
+		                                .textures = textures,
 		                                .clear_color = {.r = unit(cfg.clear_rgba[0]),
 		                                                .g = unit(cfg.clear_rgba[1]),
 		                                                .b = unit(cfg.clear_rgba[2]),
@@ -755,9 +799,49 @@ void device::draw(const draw_call &call)
 	state_->record.draw(call);
 }
 
-void device::texture(texture_slot, const texture_image *)
+void device::texture(const texture_slot slot, const texture_image *const image)
 {
-	throw std::logic_error("sdlgpu: textures come with #27");
+	auto &s{*state_};
+	if (slot == texture_slot::none)
+		throw std::invalid_argument("sdlgpu: texture_slot::none holds no texture");
+	/* A draw recorded before this call samples the slot's earlier image:
+	 * encode and submit it first (research #71, area 2, item 4).
+	 */
+	if (s.record.samples(slot))
+	{
+		command_buffer cb{s.gpu.get()};
+		s.flush(cb.get());
+		cb.submit();
+		s.flushed();
+	}
+	if (image == nullptr)
+	{
+		s.record.texture(slot, nullptr);
+		s.textures.erase(slot.index);
+		return;
+	}
+	const extent size{image->desc().size};
+	/* The record and the handles change together or not at all: the new
+	 * handle and the map's node are made first, the record changes, and
+	 * only then does the handle take the node.
+	 */
+	const auto [t, inserted]{s.textures.try_emplace(slot.index)};
+	std::optional<texture_handle> fresh;
+	try
+	{
+		if (inserted || t->second.size != size)
+			fresh = create_target(s.gpu.get(), *s.ledger, color_format,
+			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size);
+		s.record.texture(slot, image);
+	}
+	catch (...)
+	{
+		if (inserted)
+			s.textures.erase(t);
+		throw;
+	}
+	if (fresh)
+		t->second = {.handle = std::move(fresh.value()), .size = size};
 }
 
 void device::clear(const clear_targets targets)

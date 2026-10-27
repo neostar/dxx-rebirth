@@ -18,6 +18,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -177,14 +179,27 @@ struct pass_ops
 	constexpr bool operator==(const pass_ops &) const = default;
 };
 
+/* One texture's rows in the frame's transfer buffer: size.width *
+ * size.height RGBA pixels, tightly packed (SDL #16474: Metal ignores a row
+ * length), at offset.
+ */
+struct texture_rows
+{
+	texture_slot slot;
+	extent size;
+	std::size_t offset;
+	std::span<const std::uint8_t> rgba;
+};
+
 /* A frame's uploads as one plan (upload_plan): the transfer buffer's size,
- * and the vertices and where they lie in it.
+ * the vertices and where they lie, and each texture's rows.
  */
 struct frame_uploads
 {
 	std::size_t size;
 	std::span<const vertex> vertices;
 	std::size_t vertex_offset;
+	std::vector<texture_rows> textures;
 };
 
 /* The GPU command seam: the SDL_GPU calls a frame makes, in the adapter's
@@ -196,7 +211,8 @@ class commands
   public:
 	virtual ~commands() = default;
 	/* The frame's vertices, into the vertex buffer that bind_vertex_buffer
-	 * binds at offset 0: one transfer buffer, one copy pass.
+	 * binds at offset 0, and its textures' rows, each into its slot's
+	 * texture: one transfer buffer, one copy pass.
 	 */
 	virtual void upload(const frame_uploads &u) = 0;
 	virtual void begin_pass(const pass_ops &ops) = 0;
@@ -208,6 +224,8 @@ class commands
 	 * samples even untextured, so a texture must be bound.
 	 */
 	virtual void bind_untextured() = 0;
+	/* The texture of slot with the sampler of key. */
+	virtual void bind_texture(texture_slot slot, const sampler_key &key) = 0;
 	virtual void push_vertex_uniforms(const vertex_uniforms &u) = 0;
 	virtual void push_fragment_uniforms(const fragment_uniforms &u) = 0;
 	virtual void draw(std::uint32_t first_vertex, std::uint32_t count) = 0;
@@ -253,7 +271,10 @@ constexpr std::size_t grown_capacity(const std::size_t current, const std::size_
 	return c;
 }
 
-/* One frame's draws and clears, in game order, until they are encoded. */
+/* One frame's draws, clears and texture uploads, in game order, until they
+ * are encoded; and the description of every slot's texture, which outlives
+ * the frame, since a draw's sampler comes from it.
+ */
 class frame
 {
 	struct recorded_draw
@@ -262,24 +283,50 @@ class frame
 		gpu_viewport viewport;
 		vertex_uniforms vertex;
 		fragment_uniforms fragment;
+		texture_slot texture;
+		sampler_key sampler;
 		std::uint32_t first;
 		std::uint32_t count;
+	};
+	struct pending_upload
+	{
+		texture_slot slot;
+		extent size;
+		std::vector<std::uint8_t> rgba;
 	};
 	extent target_;
 	std::vector<vertex> vertices_;
 	std::vector<std::variant<recorded_draw, clear_targets>> records_;
+	std::vector<pending_upload> uploads_;
+	/* Each slot's texture, by slot index. */
+	std::map<std::uint32_t, texture_desc> textures_;
+	/* The slots this frame's draws sample. */
+	std::set<std::uint32_t> sampled_;
 
   public:
 	explicit frame(const extent target) : target_{target}
 	{}
-	/* Records call.  Throws std::logic_error on what later tickets bring:
-	 * a texture (#27), a perspective projection (#28), lines and points
+	/* Records call.  Throws std::invalid_argument on a textured draw of a
+	 * slot that holds no texture, and std::logic_error on what later
+	 * tickets bring: a perspective projection (#28), lines and points
 	 * (#32), strips.
 	 */
 	void draw(const draw_call &call);
 	void clear(const clear_targets targets)
 	{
 		records_.emplace_back(targets);
+	}
+	/* Gives slot image, copied, uploaded when the frame is encoded; a null
+	 * image releases the slot.  A slot given twice uploads the last image.
+	 * Change no slot that samples() names: the device encodes the frame
+	 * first.  Throws std::invalid_argument on texture_slot::none.
+	 */
+	void texture(texture_slot slot, const texture_image *image);
+	/* Whether a draw of this frame samples slot. */
+	[[nodiscard]]
+	bool samples(const texture_slot slot) const
+	{
+		return sampled_.contains(slot.index);
 	}
 	/* Encodes the frame into c and empties it.  undefined names the targets
 	 * nothing has drawn to yet, which the first pass clears.  Returns

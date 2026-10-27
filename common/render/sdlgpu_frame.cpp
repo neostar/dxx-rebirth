@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -30,10 +31,14 @@ struct pass_bindings
 {
 	std::optional<pipeline_key> pipeline;
 	std::optional<gpu_viewport> viewport;
-	/* The vertex buffer and the white texture, bound at a pass's first
-	 * draw: a pass of clears alone binds nothing.
+	/* The vertex buffer, bound at a pass's first draw: a pass of clears
+	 * alone binds nothing.
 	 */
-	bool resources{false};
+	bool vertex_buffer{false};
+	/* The texture and sampler: none and the clamp sampler for the white
+	 * texture.
+	 */
+	std::optional<std::pair<texture_slot, sampler_key>> texture;
 };
 
 /* What one encode has bound: the pass's bindings, and the uniform blocks
@@ -63,8 +68,17 @@ bool changes(std::optional<T> &bound, const T &value)
 
 void frame::draw(const draw_call &call)
 {
-	if (call.texture != texture_slot::none)
-		throw std::logic_error("sdlgpu: textured draws come with #27");
+	sampler_key sampler{};
+	const bool textured{call.texture != texture_slot::none};
+	if (textured)
+	{
+		const auto t{textures_.find(call.texture.index)};
+		if (t == textures_.end())
+			throw std::invalid_argument("sdlgpu: a textured draw of a slot that holds no texture");
+		sampler = {.filter = t->second.filter,
+		           .wrap = call.state.wrap,
+		           .anisotropic = t->second.anisotropic};
+	}
 	const auto *const o{std::get_if<ortho>(&call.transforms.projection)};
 	if (o == nullptr)
 		throw std::logic_error("sdlgpu: perspective projections come with #28");
@@ -95,13 +109,46 @@ void frame::draw(const draw_call &call)
 	const auto first{static_cast<std::uint32_t>(vertices_.size())};
 	const auto count{static_cast<std::uint32_t>(list.size())};
 	vertices_.insert(vertices_.end(), list.begin(), list.end());
+	if (textured)
+		sampled_.insert(call.texture.index);
 	records_.emplace_back(recorded_draw{
 	    .key = key_of(call.state),
 	    .viewport = viewport_on(target_, call.viewport),
 	    .vertex = {.projection = matrix_of(*o), .modelview = matrix_of(call.transforms.modelview)},
-	    .fragment = {.alpha_ref = call.state.alpha_ref, .use_texture = 0, .pad = {}},
+	    .fragment = {.alpha_ref = call.state.alpha_ref,
+		             .use_texture = textured ? 1u : 0u,
+		             .pad = {}},
+	    .texture = call.texture,
+	    .sampler = sampler,
 	    .first = first,
 	    .count = count});
+}
+
+void frame::texture(const texture_slot slot, const texture_image *const image)
+{
+	if (slot == texture_slot::none)
+		throw std::invalid_argument("sdlgpu: texture_slot::none holds no texture");
+	const auto pending{[slot](const pending_upload &u) { return u.slot == slot; }};
+	if (image == nullptr)
+	{
+		std::erase_if(uploads_, pending);
+		textures_.erase(slot.index);
+		return;
+	}
+	/* Everything that may throw comes first, so that a failure leaves the
+	 * frame as it was: the copy, the room for it, the description.
+	 */
+	const texture_desc &d{image->desc()};
+	pending_upload u{
+	    .slot = slot, .size = d.size, .rgba = {image->rgba().begin(), image->rgba().end()}};
+	/* GL_RGB8 keeps no alpha: GL samples it as 1. */
+	if (d.format == texture_format::rgb8)
+		for (std::size_t i{3}; i < u.rgba.size(); i += 4)
+			u.rgba[i] = 255;
+	uploads_.reserve(uploads_.size() + 1);
+	textures_.insert_or_assign(slot.index, d);
+	std::erase_if(uploads_, pending);
+	uploads_.push_back(std::move(u));
 }
 
 bool frame::encode(commands &c, const clear_targets undefined)
@@ -113,13 +160,20 @@ bool frame::encode(commands &c, const clear_targets undefined)
 	bool in_pass{false};
 	bool encoded{false};
 	bind_cache bound;
-	/* One plan for the frame's uploads. */
-	if (!vertices_.empty())
+	/* One plan for the frame: the vertices, then each texture's rows. */
+	if (!vertices_.empty() || !uploads_.empty())
 	{
 		upload_plan plan;
 		frame_uploads u{.size = 0,
 		                .vertices = vertices_,
-		                .vertex_offset = plan.reserve(vertices_.size() * sizeof(vertex))};
+		                .vertex_offset = plan.reserve(vertices_.size() * sizeof(vertex)),
+		                .textures = {}};
+		u.textures.reserve(uploads_.size());
+		for (const auto &t : uploads_)
+			u.textures.push_back({.slot = t.slot,
+			                      .size = t.size,
+			                      .offset = plan.reserve(t.rgba.size()),
+			                      .rgba = t.rgba});
 		u.size = plan.size();
 		c.upload(u);
 	}
@@ -151,11 +205,17 @@ bool frame::encode(commands &c, const clear_targets undefined)
 		const auto &d{std::get<recorded_draw>(r)};
 		if (!in_pass)
 			begin();
-		if (!bound.pass.resources)
+		if (!bound.pass.vertex_buffer)
 		{
 			c.bind_vertex_buffer();
-			c.bind_untextured();
-			bound.pass.resources = true;
+			bound.pass.vertex_buffer = true;
+		}
+		if (changes(bound.pass.texture, std::pair{d.texture, d.sampler}))
+		{
+			if (d.texture == texture_slot::none)
+				c.bind_untextured();
+			else
+				c.bind_texture(d.texture, d.sampler);
 		}
 		if (changes(bound.pass.pipeline, d.key))
 			c.bind_pipeline(d.key);
@@ -172,9 +232,12 @@ bool frame::encode(commands &c, const clear_targets undefined)
 		begin();
 	if (in_pass)
 		c.end_pass();
+	const bool uploaded{!vertices_.empty() || !uploads_.empty()};
 	vertices_.clear();
 	records_.clear();
-	return encoded;
+	uploads_.clear();
+	sampled_.clear();
+	return encoded || uploaded;
 }
 
 }

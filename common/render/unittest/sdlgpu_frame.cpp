@@ -46,6 +46,8 @@ struct seen_draw
 	sdlgpu::gpu_viewport viewport;
 	sdlgpu::vertex_uniforms vertex;
 	sdlgpu::fragment_uniforms fragment;
+	render::texture_slot slot;
+	sdlgpu::sampler_key sampler;
 };
 
 /* The counting fake of the GPU command seam: counts every call and keeps
@@ -58,9 +60,18 @@ struct counting_commands final : sdlgpu::commands
 {
 	std::vector<render::vertex> uploaded;
 	unsigned uploads{0};
-	/* The last upload's plan. */
+	/* The last upload's plan, with each texture's rows copied. */
+	struct seen_rows
+	{
+		render::texture_slot slot;
+		render::extent size;
+		std::size_t offset;
+		std::vector<std::uint8_t> rgba;
+	};
 	std::size_t upload_size{0};
 	std::size_t vertex_offset{0};
+	std::vector<seen_rows> texture_rows;
+	unsigned texture_binds{0};
 	std::vector<sdlgpu::pass_ops> passes;
 	unsigned ends{0};
 	unsigned pipeline_binds{0};
@@ -75,6 +86,9 @@ struct counting_commands final : sdlgpu::commands
 	std::optional<sdlgpu::gpu_viewport> viewport;
 	bool vertex_buffer_bound{false};
 	bool texture_bound{false};
+	/* The texture bound, none for the white one, and its sampler. */
+	render::texture_slot bound_slot{render::texture_slot::none};
+	sdlgpu::sampler_key bound_sampler{};
 	sdlgpu::vertex_uniforms vertex{};
 	sdlgpu::fragment_uniforms fragment{};
 
@@ -86,6 +100,12 @@ struct counting_commands final : sdlgpu::commands
 		upload_size = u.size;
 		vertex_offset = u.vertex_offset;
 		uploaded.assign(u.vertices.begin(), u.vertices.end());
+		texture_rows.clear();
+		for (const auto &t : u.textures)
+			texture_rows.push_back({.slot = t.slot,
+			                        .size = t.size,
+			                        .offset = t.offset,
+			                        .rgba = {t.rgba.begin(), t.rgba.end()}});
 	}
 	void begin_pass(const sdlgpu::pass_ops &ops) override
 	{
@@ -126,6 +146,15 @@ struct counting_commands final : sdlgpu::commands
 		BOOST_TEST(in_pass);
 		++untextured_binds;
 		texture_bound = true;
+		bound_slot = render::texture_slot::none;
+	}
+	void bind_texture(const render::texture_slot slot, const sdlgpu::sampler_key &k) override
+	{
+		BOOST_TEST(in_pass);
+		++texture_binds;
+		texture_bound = true;
+		bound_slot = slot;
+		bound_sampler = k;
 	}
 	void push_vertex_uniforms(const sdlgpu::vertex_uniforms &u) override
 	{
@@ -149,7 +178,9 @@ struct counting_commands final : sdlgpu::commands
 		                 .key = key.value_or(sdlgpu::pipeline_key{}),
 		                 .viewport = viewport.value_or(sdlgpu::gpu_viewport{}),
 		                 .vertex = vertex,
-		                 .fragment = fragment});
+		                 .fragment = fragment,
+		                 .slot = bound_slot,
+		                 .sampler = bound_sampler});
 	}
 };
 
@@ -248,9 +279,9 @@ BOOST_AUTO_TEST_CASE(pipeline_key_is_blend_depth_cull)
 	BOOST_TEST(sdlgpu::index_of(sdlgpu::key_of(a)) != sdlgpu::index_of(sdlgpu::key_of(c)));
 }
 
-/* Test that three equal-state quads cost one upload, whose plan holds their
- * vertices at offset 0, one pass and one bind of each kind, and draw as triangle lists one after
- * another in the one vertex buffer.
+/* Test that three equal-state quads cost one upload, one pass and one bind
+ * of each kind, and draw as triangle lists one after another in the one
+ * vertex buffer.
  */
 BOOST_AUTO_TEST_CASE(equal_state_draws_bind_once)
 {
@@ -263,8 +294,6 @@ BOOST_AUTO_TEST_CASE(equal_state_draws_bind_once)
 	BOOST_TEST(f.encode(c, none));
 	BOOST_TEST(c.uploads == 1u);
 	BOOST_TEST(c.uploaded.size() == 18u);
-	BOOST_TEST(c.vertex_offset == 0u);
-	BOOST_TEST(c.upload_size == 18 * sizeof(render::vertex));
 	BOOST_REQUIRE(c.passes.size() == 1u);
 	BOOST_TEST((c.passes.front() == sdlgpu::pass_ops{.clear_color = true, .clear_depth = true}));
 	BOOST_TEST(c.ends == 1u);
@@ -415,7 +444,7 @@ BOOST_AUTO_TEST_CASE(encode_empties_the_frame)
 }
 
 /* Test that a fan of fewer than three vertices draws nothing and that what
- * later tickets bring is refused, not drawn wrong: a texture, a perspective
+ * later tickets bring is refused, not drawn wrong: a perspective
  * projection, lines, line loops, points and strips.
  */
 BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
@@ -426,9 +455,6 @@ BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
 	f.draw(q.call);
 	counting_commands c;
 	BOOST_TEST(!f.encode(c, none));
-	quad textured;
-	textured.call.texture = {1};
-	BOOST_CHECK_THROW(f.draw(textured.call), std::logic_error);
 	quad perspective;
 	perspective.call.transforms.projection = render::view_perspective;
 	BOOST_CHECK_THROW(f.draw(perspective.call), std::logic_error);
@@ -456,4 +482,164 @@ BOOST_AUTO_TEST_CASE(upload_plan_packs_at_512_bytes)
 	BOOST_TEST(sdlgpu::grown_capacity(0, 1) == 65536u);
 	BOOST_TEST(sdlgpu::grown_capacity(65536, 65537) == 131072u);
 	BOOST_TEST(sdlgpu::grown_capacity(131072, 100) == 131072u);
+}
+
+namespace {
+
+/* An image of size with pixels rgba, which it views. */
+[[nodiscard]]
+render::texture_image image_of(const render::extent size, const std::span<const std::uint8_t> rgba,
+                               const render::filter filter = render::filter::nearest,
+                               const bool anisotropic = false,
+                               const render::texture_format format = render::texture_format::rgba8)
+{
+	return {{.size = size,
+	         .format = format,
+	         .filter = filter,
+	         .anisotropic = anisotropic,
+	         .has_transparency = false},
+	        rgba};
+}
+
+constexpr std::array<std::uint8_t, 16> two_by_two{
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}};
+
+}
+
+/* Test that a textured draw binds its slot's texture with the sampler of
+ * the texture's filter and anisotropy and the draw's wrap, and samples it
+ * (use_texture 1); that a second draw of the same texture and wrap binds
+ * nothing, another wrap binds again, and an untextured draw binds the white
+ * texture and does not sample.
+ */
+BOOST_AUTO_TEST_CASE(textured_draw_binds_its_texture_and_sampler)
+{
+	sdlgpu::frame f{target};
+	const auto image{image_of({2, 2}, two_by_two, render::filter::trilinear, true)};
+	f.texture({1}, &image);
+	quad repeat{{.wrap = render::wrap::repeat}};
+	repeat.call.texture = {1};
+	quad clamp{{.wrap = render::wrap::clamp}};
+	clamp.call.texture = {1};
+	const quad untextured;
+	f.draw(repeat.call);
+	f.draw(repeat.call);
+	f.draw(clamp.call);
+	f.draw(untextured.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 4u);
+	BOOST_TEST(c.texture_binds == 2u);
+	BOOST_TEST(c.untextured_binds == 1u);
+	const sdlgpu::sampler_key repeating{
+	    .filter = render::filter::trilinear, .wrap = render::wrap::repeat, .anisotropic = true};
+	BOOST_TEST((c.draws[0].slot == render::texture_slot{1}));
+	BOOST_TEST((c.draws[0].sampler == repeating));
+	BOOST_TEST(c.draws[0].fragment.use_texture == 1u);
+	BOOST_TEST((c.draws[2].sampler == sdlgpu::sampler_key{.filter = render::filter::trilinear,
+	                                                      .wrap = render::wrap::clamp,
+	                                                      .anisotropic = true}));
+	BOOST_TEST((c.draws[3].slot == render::texture_slot::none));
+	BOOST_TEST(c.draws[3].fragment.use_texture == 0u);
+}
+
+/* Test that one plan per frame covers the vertices and every texture's
+ * rows: one upload, the vertices at offset 0 and each texture at the next
+ * multiple of 512 bytes, its rows tight; an RGB texture uploads with alpha
+ * 255, as GL_RGB8 samples it; a slot given twice uploads its last image
+ * once.
+ */
+BOOST_AUTO_TEST_CASE(one_plan_covers_vertices_and_texture_rows)
+{
+	sdlgpu::frame f{target};
+	const auto first{image_of({2, 2}, two_by_two)};
+	f.texture({1}, &first);
+	std::array<std::uint8_t, 64> rgb_pixels{};
+	rgb_pixels.fill(7);
+	const auto rgb{
+	    image_of({4, 4}, rgb_pixels, render::filter::nearest, false, render::texture_format::rgb8)};
+	f.texture({2}, &rgb);
+	std::array<std::uint8_t, 16> again{};
+	again.fill(9);
+	const auto second{image_of({2, 2}, again)};
+	f.texture({1}, &second);
+	const quad q;
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_TEST(c.uploads == 1u);
+	BOOST_TEST(c.vertex_offset == 0u);
+	BOOST_TEST(c.uploaded.size() == 6u);
+	BOOST_REQUIRE(c.texture_rows.size() == 2u);
+	const auto &a{c.texture_rows[0]};
+	const auto &b{c.texture_rows[1]};
+	BOOST_TEST((a.slot == render::texture_slot{2}));
+	BOOST_TEST(a.offset == 512u);
+	BOOST_TEST((a.size == render::extent{4, 4}));
+	std::array<std::uint8_t, 64> opaque{};
+	for (std::size_t i{0}; i != opaque.size(); ++i)
+		opaque[i] = i % 4 == 3 ? 255 : 7;
+	BOOST_TEST(a.rgba == opaque, boost::test_tools::per_element());
+	BOOST_TEST((b.slot == render::texture_slot{1}));
+	BOOST_TEST(b.offset == 1024u);
+	BOOST_TEST(b.rgba == again, boost::test_tools::per_element());
+	BOOST_TEST(c.upload_size == 1024u + 16u);
+}
+
+/* Test that a frame of a texture alone uploads it with no pass, and that
+ * the upload is not repeated by the next encode.
+ */
+BOOST_AUTO_TEST_CASE(texture_alone_uploads_without_a_pass)
+{
+	sdlgpu::frame f{target};
+	const auto image{image_of({2, 2}, two_by_two)};
+	f.texture({3}, &image);
+	counting_commands c;
+	(void)f.encode(c, none);
+	BOOST_TEST(c.uploads == 1u);
+	BOOST_TEST(c.uploaded.empty());
+	BOOST_REQUIRE(c.texture_rows.size() == 1u);
+	BOOST_TEST(c.texture_rows[0].offset == 0u);
+	BOOST_TEST(c.passes.empty());
+	counting_commands next;
+	BOOST_TEST(!f.encode(next, none));
+	BOOST_TEST(next.uploads == 0u);
+}
+
+/* Test that the frame tells whether one of its draws samples a slot, which
+ * the device flushes before it changes that slot's texture, and forgets it
+ * once encoded.
+ */
+BOOST_AUTO_TEST_CASE(frame_tells_which_slots_its_draws_sample)
+{
+	sdlgpu::frame f{target};
+	const auto image{image_of({2, 2}, two_by_two)};
+	f.texture({1}, &image);
+	f.texture({2}, &image);
+	quad q;
+	q.call.texture = {1};
+	f.draw(q.call);
+	BOOST_TEST(f.samples({1}));
+	BOOST_TEST(!f.samples({2}));
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_TEST(!f.samples({1}));
+}
+
+/* Test that a textured draw of a slot that holds no texture, never given
+ * or released, is refused, as the GL replay refuses it.
+ */
+BOOST_AUTO_TEST_CASE(textured_draw_of_empty_slot_is_refused)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.texture = {1};
+	BOOST_CHECK_THROW(f.draw(q.call), std::invalid_argument);
+	const auto image{image_of({2, 2}, two_by_two)};
+	f.texture({1}, &image);
+	f.texture({1}, nullptr);
+	BOOST_CHECK_THROW(f.draw(q.call), std::invalid_argument);
+	counting_commands c;
+	BOOST_TEST(!f.encode(c, none));
+	BOOST_TEST(c.uploads == 0u);
 }
