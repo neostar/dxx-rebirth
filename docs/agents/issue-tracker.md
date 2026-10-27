@@ -65,13 +65,18 @@ A prompt that says "follow Working a ticket" adds only the ticket number and the
    machine, so leave `ci.sh --gate` to it. Start long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
-   fakes), or open, with why; the test seams; the plants, each with the test that went red; anything surprising.
+   fakes), or open, with why; the test seams; the plants, each with the test that went red; the
+   docs you opened (the lane's list in `domain.md` "Grounding a brief", plus the ticket's), each
+   with the section you used; anything surprising.
 
 **Reviewer**
 
 - Follow the hard rules above.
 - Check each implementer report for its plants, and each `tools/dev` script against the
   fail-closed checklist in `conventions.md`.
+- Open the lane's docs yourself (`domain.md` "Grounding a brief", plus the ticket's), and hold the
+  code to them. A doc the report didn't open, whose content the code contradicts or misses, is a
+  finding, rated by its effect on the code.
 
 **Researcher** (the output is a doc)
 
