@@ -1545,38 +1545,27 @@ void harness_log_frame_hash()
 		UserError("DXX_DBG_FRAMEHASH: quad-buffer stereo is not hashed, only one eye would be");
 #endif
 	const frame_size size{.width = grd_curscreen->get_screen_width(), .height = grd_curscreen->get_screen_height()};
-	static std::vector<std::byte> pixels;
+	static std::vector<std::uint8_t> pixels;
 	pixels.resize(size.rgb_bytes());
 	/* The game never calls glGetError: an error of earlier drawing would
 	 * still be pending and fail the readback's check below.  Say once that
 	 * there were some, so a real GL error is not hidden.
 	 */
 	static bool reported_pending_errors{false};
-	if (const auto pending{drain_gl_errors(glGetError, GL_NO_ERROR)}; pending.count != 0 && !reported_pending_errors)
+	if (const auto pending{render::gl_device::drain_errors()}; pending.count != 0 && !reported_pending_errors)
 	{
 		reported_pending_errors = true;
 		con_printf(CON_NORMAL, "DXX_DBG_FRAMEHASH: %u GL error(s) were pending before a readback, the first 0x%x; reported only once", pending.count, pending.first);
 	}
-	GLint pack_alignment;
-	glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
-#if !DXX_USE_OGLES
 	/* The frame being drawn, whatever a screenshot left selected. */
-	GLint read_buffer;
-	glGetIntegerv(GL_READ_BUFFER, &read_buffer);
-	glReadBuffer(GL_BACK);
-#endif
-	glReadPixels(0, 0, GLsizei{size.width}, GLsizei{size.height}, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
-	const GLenum error{glGetError()};
-#if !DXX_USE_OGLES
-	glReadBuffer(static_cast<GLenum>(read_buffer));
-#endif
-	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
-	if (error != GL_NO_ERROR)
-		UserError("DXX_DBG_FRAMEHASH: reading back the frame failed: GL error 0x%x", error);
+	ogl_device().read_pixels(render::read_source::drawing, {.x = 0, .y = 0, .size = {size.width, size.height}}, render::pixel_format::rgb8, pixels);
+	/* The log hashes the rows bottom first, as glReadPixels gave them. */
+	render::flip_rows(pixels, std::size_t{size.width} * 3);
+	if (const auto error{render::gl_device::drain_errors()}; error.count != 0)
+		UserError("DXX_DBG_FRAMEHASH: reading back the frame failed: GL error 0x%x", error.first);
 	const auto scene{harness_scene_name()};
 	const auto section{Newdemo_state == ND_STATE_PLAYBACK ? frame_hash_section::demo_playback(newdemo_harness_playback_file()) : scene ? frame_hash_section::scene(scene) : frame_hash_section::no_demo()};
-	if (!log.log_frame(section, size, pixels))
+	if (!log.log_frame(section, size, std::as_bytes(std::span<const std::uint8_t>{pixels})))
 		UserError("DXX_DBG_FRAMEHASH=\"%s\": write failed: %s", path, strerror(errno));
 }
 

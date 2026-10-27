@@ -39,6 +39,19 @@ struct read_rect
 	constexpr bool operator==(const read_rect &) const = default;
 };
 
+/* The one-pixel rectangle ogl_ugpixel reads for the pixel (x, y) of a bitmap
+ * at (bitmap_x, bitmap_y).  GL read the row SHEIGHT - bitmap_y - y counted
+ * from the bottom, which is one above the pixel's own: the rectangle names
+ * rows from the top, so it is one row above the pixel too (y 0 of a bitmap
+ * at the top reads outside the target, which gives zero).
+ */
+[[nodiscard]]
+constexpr read_rect ugpixel_rect(const std::int32_t bitmap_x, const std::int32_t bitmap_y,
+                                 const std::int32_t x, const std::int32_t y)
+{
+	return {.x = bitmap_x + x, .y = bitmap_y + y - 1, .size = {1, 1}};
+}
+
 /* The pixel layout a readback writes: 8 bits a channel, rows tightly
  * packed.
  */

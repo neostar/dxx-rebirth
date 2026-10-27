@@ -985,16 +985,8 @@ void ogl_upixelc(const grs_bitmap &cv_bitmap, unsigned x, unsigned y, const colo
 
 color_palette_index ogl_ugpixel(const grs_bitmap &bitmap, unsigned x, unsigned y)
 {
-	ubyte buf[4];
-
-#if !DXX_USE_OGLES
-	GLint gl_draw_buffer;
-	glGetIntegerv(GL_DRAW_BUFFER, &gl_draw_buffer);
-	glReadBuffer(gl_draw_buffer);
-#endif
-
-	glReadPixels(bitmap.bm_x + x, SHEIGHT - bitmap.bm_y - y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, buf);
-	
+	std::array<uint8_t, 4> buf;
+	ogl_device().read_pixels(render::read_source::drawing, render::ugpixel_rect(bitmap.bm_x, bitmap.bm_y, x, y), render::pixel_format::rgba8, buf);
 	return gr_find_closest_color(buf[0]/4, buf[1]/4, buf[2]/4);
 }
 

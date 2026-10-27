@@ -181,3 +181,15 @@ BOOST_AUTO_TEST_CASE(place_rows_rejects_wrong_sizes)
 	                  std::length_error);
 	BOOST_TEST(rgb[0] == 0xaa);
 }
+
+/* Test that the pixel read for ogl_ugpixel is the one-pixel rectangle one
+ * row above the pixel, as GL read it: a bitmap at (10, 20), pixel (3, 4).
+ */
+BOOST_AUTO_TEST_CASE(ugpixel_reads_the_row_above_the_pixel)
+{
+	const auto r{render::ugpixel_rect(10, 20, 3, 4)};
+	BOOST_TEST(r.x == 13);
+	BOOST_TEST(r.y == 23);
+	BOOST_TEST(r.size.width == 1u);
+	BOOST_TEST(r.size.height == 1u);
+}
