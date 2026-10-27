@@ -578,18 +578,20 @@ class sdl_commands final : public commands
 			               "SDL_CreateGPUBuffer"};
 			r_.vertex_capacity = c;
 		}
+		/* Checked before the buffer is mapped, so that the throw leaves it
+		 * unmapped.
+		 */
+		for (const auto &t : u.textures)
+			if (t.rgba.size() != std::size_t{t.size.width} * t.size.height * 4)
+				throw std::length_error("sdlgpu: texture rows that do not match their size");
 		const auto mapped{sdl::map_for_writing(device_, r_.transfer.get(), u.size, true)};
 		if (mapped.empty())
 			sdl_failed("SDL_MapGPUTransferBuffer");
 		std::ranges::copy(vertex_bytes,
 		                  mapped.subspan(u.vertex_offset, vertex_bytes.size()).begin());
 		for (const auto &t : u.textures)
-		{
-			if (t.rgba.size() != std::size_t{t.size.width} * t.size.height * 4)
-				throw std::length_error("sdlgpu: texture rows that do not match their size");
 			std::ranges::copy(std::as_bytes(t.rgba),
 			                  mapped.subspan(t.offset, t.rgba.size()).begin());
-		}
 		SDL_UnmapGPUTransferBuffer(device_, r_.transfer.get());
 		SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb_)};
 		if (copy == nullptr)
