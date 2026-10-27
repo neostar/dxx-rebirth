@@ -15,3 +15,5 @@ overbright=$root/common/render/rtrace/synthetic/overbright.rtr
 # The flash trace (#30).
 expected_flash=('0 64x48 a088becd21e46f87' '1 64x48 4142e7869f743d59' '2 64x48 c33733e407fec502')
 flash=$root/common/render/rtrace/synthetic/flash.rtr
+# The walls trace (#28).
+walls=$root/common/render/rtrace/synthetic/walls.rtr

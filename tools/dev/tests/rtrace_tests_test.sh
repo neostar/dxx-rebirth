@@ -31,6 +31,7 @@ make_rtrace_repo()
 	printf 'a stand-in for the overbright trace\n' \
 		> "$r/common/render/rtrace/synthetic/overbright.rtr"
 	printf 'a stand-in for the flash trace\n' > "$r/common/render/rtrace/synthetic/flash.rtr"
+	printf 'a stand-in for the walls trace\n' > "$r/common/render/rtrace/synthetic/walls.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$DEV_DIR/rtrace-pins.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash

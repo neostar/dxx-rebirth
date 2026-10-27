@@ -10,7 +10,8 @@
  * common/render/rtrace/synthetic/: sample.rtr, the first, the shaded
  * triangle, then the whole target in yellow, each in its own frame; and
  * overbright.rtr, textured quads with vertex colours above 1 (#27); and
- * flash.rtr, the blend modes and the red and negative palette flashes (#30).
+ * flash.rtr, the blend modes and the red and negative palette flashes (#30);
+ * and walls.rtr, lit walls in perspective, depth-tested and culled (#28).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -220,6 +221,141 @@ inline std::vector<std::uint8_t> flash_trace()
 	flash_quad(w, blend::normal, {{0, 0, 1, 0.25f}});
 	flash_quad(w, blend::additive_a, {{0, 1, 0, 0.25f}});
 	flash_quad(w, blend::additive_c, {{0.2f, 0.2f, 0.2f, 0.25f}});
+	w.present({.frame = 2});
+	return w.take();
+}
+
+/* A draw of a quad in the 3D view (frame_setup.h): gluPerspective(90, 1,
+ * 0.1, 5000), the identity modelview, eye-space vertices, depth tested
+ * and written, front faces culled, as the game draws walls.  The call
+ * views the vertices.
+ */
+[[nodiscard]]
+inline draw_call wall_draw(const std::span<const vertex> v)
+{
+	draw_call c{sample_draw(topology::fan, v)};
+	c.state.depth = depth::test_and_write;
+	c.state.cull = cull::front;
+	c.transforms.projection =
+	    perspective{.fovy = 90, .aspect = 1, .z_near = 0.1, .z_far = 5000, .stereo_dx = 0};
+	return c;
+}
+
+/* A quad of four eye-space corners, each with its vertex colour, its
+ * texture coordinates from 0 to uv_max.  Corners clockwise on screen face
+ * away from GL's counter-clockwise front, so the game's front culling keeps
+ * them.
+ */
+[[nodiscard]]
+inline std::array<vertex, 4> wall_quad(const std::array<std::array<float, 3>, 4> &pos,
+                                       const std::array<std::array<float, 4>, 4> &rgba,
+                                       const float uv_max)
+{
+	return {{
+	    {.pos = pos[0], .rgba = rgba[0], .uv = {{0, 0}}},
+	    {.pos = pos[1], .rgba = rgba[1], .uv = {{0, uv_max}}},
+	    {.pos = pos[2], .rgba = rgba[2], .uv = {{uv_max, uv_max}}},
+	    {.pos = pos[3], .rgba = rgba[3], .uv = {{uv_max, 0}}},
+	}};
+}
+
+/* One colour at every corner. */
+[[nodiscard]]
+inline std::array<std::array<float, 4>, 4> flat(const std::array<float, 4> &rgba)
+{
+	return {{rgba, rgba, rgba, rgba}};
+}
+
+/* The walls trace's bytes (#28).  Frame 0, a lit corridor from 0.5 to 4
+ * deep: floor, ceiling and side walls of the repeated RGBA texture under
+ * vertex light from 1.6 near to 0.3 far, all wound clockwise on screen; a
+ * red quad wound counter-clockwise in front of them, which front culling
+ * drops (the winding check); a green quad at 2 deep, then the end wall at 4
+ * deep drawn after it, which the depth test keeps behind it.  Frame 1, the
+ * near plane: over a far grey wall, a floor left of the centre just below
+ * the eye from 0.02 deep (in front of the near plane, 0.1, and on screen
+ * there) to 3, a red quad at 0.15 deep, nearer than twice the
+ * near plane, and a yellow one at 0.25, farther: GL clips the floor at the
+ * near plane and keeps both quads; with depth clip instead of the clip
+ * distances the red quad and the floor nearer than 0.2 vanish (ADR 2's
+ * depth pairing rule).  Frame 2, mixed-sign vertex light: a wall with one
+ * corner of (-1, 0, 0) and three of (1, 1, 1), which GL clamps per vertex
+ * before it interpolates, untextured.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> walls_trace()
+{
+	trace::writer w{sample_target};
+	const sample_texture rgba{texture_format::rgba8};
+	w.texture({1}, &rgba.image);
+	constexpr float n{-0.5f}, f{-4};
+	constexpr std::array<float, 4> bright{{1.6f, 1.4f, 1.2f, 1}}, dim{{0.3f, 0.35f, 0.4f, 1}};
+	const auto lit{[&](const std::array<std::array<float, 3>, 4> &pos) {
+		/* Corners at the near end bright, at the far end dim. */
+		std::array<std::array<float, 4>, 4> c{};
+		for (std::size_t i{0}; i != 4; ++i)
+			c[i] = pos[i][2] == n ? bright : dim;
+		return wall_quad(pos, c, 2);
+	}};
+	const std::array<std::array<vertex, 4>, 4> corridor{{
+	    lit({{{{-1, -1, n}}, {{-1, -1, f}}, {{1, -1, f}}, {{1, -1, n}}}}),
+	    lit({{{{-1, 1, n}}, {{1, 1, n}}, {{1, 1, f}}, {{-1, 1, f}}}}),
+	    lit({{{{-1, -1, n}}, {{-1, 1, n}}, {{-1, 1, f}}, {{-1, -1, f}}}}),
+	    lit({{{{1, -1, n}}, {{1, -1, f}}, {{1, 1, f}}, {{1, 1, n}}}}),
+	}};
+	w.clear({.color = true, .depth = true});
+	for (const auto &q : corridor)
+	{
+		draw_call c{wall_draw(q)};
+		c.texture = {1};
+		c.state.wrap = wrap::repeat;
+		w.draw(c);
+	}
+	const auto back_face{wall_quad(
+	    {{{{-0.3f, -0.3f, -1}}, {{0.3f, -0.3f, -1}}, {{0.3f, 0.3f, -1}}, {{-0.3f, 0.3f, -1}}}},
+	    flat({{1, 0, 0, 1}}), 0)};
+	w.draw(wall_draw(back_face));
+	const auto middle{wall_quad(
+	    {{{{-0.4f, -0.6f, -2}}, {{-0.4f, 0.2f, -2}}, {{0.5f, 0.2f, -2}}, {{0.5f, -0.6f, -2}}}},
+	    {{{{0, 1, 0, 1}}, {{0, 0.8f, 0.2f, 1}}, {{0.2f, 1, 0, 1}}, {{0, 0.6f, 0, 1}}}}, 0)};
+	w.draw(wall_draw(middle));
+	const auto end{wall_quad({{{{-1, -1, f}}, {{-1, 1, f}}, {{1, 1, f}}, {{1, -1, f}}}},
+	                         {{{{0.2f, 0.2f, 0.6f, 1}},
+	                           {{0.6f, 0.2f, 0.2f, 1}},
+	                           {{0.2f, 0.6f, 0.2f, 1}},
+	                           {{0.5f, 0.5f, 0.5f, 1}}}},
+	                         0)};
+	w.draw(wall_draw(end));
+	w.present({.frame = 0});
+	w.clear({.color = true, .depth = true});
+	const auto far_wall{wall_quad({{{{-4, -4, -4}}, {{-4, 4, -4}}, {{4, 4, -4}}, {{4, -4, -4}}}},
+	                              flat({{0.5f, 0.5f, 0.5f, 1}}), 0)};
+	w.draw(wall_draw(far_wall));
+	const auto floor{wall_quad({{{{-0.3f, -0.01f, -0.02f}},
+	                             {{-0.3f, -0.01f, -3}},
+	                             {{-0.005f, -0.01f, -3}},
+	                             {{-0.005f, -0.01f, -0.02f}}}},
+	                           {{{{0, 0, 1, 1}}, {{0, 1, 1, 1}}, {{0, 1, 1, 1}}, {{0, 0, 1, 1}}}},
+	                           0)};
+	w.draw(wall_draw(floor));
+	const auto near_red{wall_quad({{{{-0.05f, -0.03f, -0.15f}},
+	                                {{-0.05f, 0.05f, -0.15f}},
+	                                {{0.03f, 0.05f, -0.15f}},
+	                                {{0.03f, -0.03f, -0.15f}}}},
+	                              flat({{1, 0, 0, 1}}), 0)};
+	w.draw(wall_draw(near_red));
+	const auto yellow{wall_quad({{{{0.08f, -0.05f, -0.25f}},
+	                              {{0.08f, 0.1f, -0.25f}},
+	                              {{0.2f, 0.1f, -0.25f}},
+	                              {{0.2f, -0.05f, -0.25f}}}},
+	                            flat({{1, 1, 0, 1}}), 0)};
+	w.draw(wall_draw(yellow));
+	w.present({.frame = 1});
+	w.clear({.color = true, .depth = true});
+	const auto mixed{
+	    wall_quad({{{{-1, -1, -1.5f}}, {{-1, 1, -1.5f}}, {{1, 1, -1.5f}}, {{1, -1, -1.5f}}}},
+		          {{{{-1, 0, 0, 1}}, {{1, 1, 1, 1}}, {{1, 1, 1, 1}}, {{1, 1, 1, 1}}}}, 0)};
+	w.draw(wall_draw(mixed));
 	w.present({.frame = 2});
 	return w.take();
 }
