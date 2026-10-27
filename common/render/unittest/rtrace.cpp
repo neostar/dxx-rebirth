@@ -487,13 +487,12 @@ BOOST_AUTO_TEST_CASE(empty_draw_applies_its_state)
 	BOOST_TEST(m == identity, boost::test_tools::per_element());
 }
 
-/* Test that an empty line draw restores the line width through the state
- * shadow: after a line at width 2, an empty line draw at width 1 sets 1
- * itself, and a second line at width 2 sets 2 again, as the vertex reticle
- * draws on each frame after restoring the width the code not yet drawing
- * through the device expects.
+/* Test that each line draw sets its own width through the state shadow,
+ * with no empty draw to restore one: after a line at width 2 and a line at
+ * width 1, GL draws at 1, and a second line at width 2 sets 2 again, as
+ * the vertex reticle draws on each frame among lines of the frame's width.
  */
-BOOST_AUTO_TEST_CASE(empty_line_draw_restores_line_width)
+BOOST_AUTO_TEST_CASE(each_line_draw_sets_its_width)
 {
 	render::rtrace::gl_host host{target};
 	auto &d{host.device()};
@@ -503,10 +502,10 @@ BOOST_AUTO_TEST_CASE(empty_line_draw_restores_line_width)
 	}};
 	auto wide{flat_draw(render::topology::lines, line)};
 	wide.state.line_width = 2.f;
-	auto restore{flat_draw(render::topology::lines, {})};
-	restore.state.line_width = 1.f;
+	auto narrow{flat_draw(render::topology::lines, line)};
+	narrow.state.line_width = 1.f;
 	d.draw(wide);
-	d.draw(restore);
+	d.draw(narrow);
 	GLfloat width{};
 	glGetFloatv(GL_LINE_WIDTH, &width);
 	BOOST_TEST(width == 1.f);

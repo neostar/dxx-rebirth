@@ -629,11 +629,6 @@ namespace dcx {
 
 void g3_draw_line(const g3_draw_line_context &context, const g3_draw_line_point &p0, const g3_draw_line_point &p1)
 {
-	/* GL's culling must keep equal to the ambient state's (gl_state.h,
-	 * invariant (a)): the state shadow may believe culling off already
-	 * after ogl_start_frame turned it on behind its back.
-	 */
-	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
 	const auto &c{context.color_array};
 	const std::array<render::vertex, 2> vertices{{
@@ -784,7 +779,6 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 		scale_xyz = {{gl1, gl2, gl3}};
 	}
 
-	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
 	const reticle_place place{.translate = translate, .scale = scale_xyz, .line_width = linedotscale * 2.f};
 	
@@ -887,14 +881,6 @@ void ogl_draw_vertex_reticle(grs_canvas &canvas, int cross, int primary, int sec
 			secondary_lva[2] = circle_array_init_2(16, 2.0, 0.0, 2.0, -8.0);
 		secondary_circle(secondary_lva[2].get(), secondary != 4 ? dark_lca : bright_lca);
 	}
-	/* Other lines draw this wide, and ogl_start_frame sets this width with
-	 * glLineWidth behind the state shadow's back.  An empty line draw sets
-	 * it through the shadow, so the shadow knows GL's width and sets twice
-	 * it again for the next reticle.
-	 */
-	auto &ambient{ogl_ambient()};
-	ambient.line_width = linedotscale;
-	ogl_device().draw(ambient.call(render::topology::lines, {}));
 }
 
 /*
@@ -904,7 +890,6 @@ void g3_draw_sphere(grs_canvas &canvas, const g3_draw_sphere_point &pnt, fix rad
 {
 	const float scale = (static_cast<float>(canvas.cv_bitmap.bm_w) / canvas.cv_bitmap.bm_h);
 	const std::array<float, 4> rgba{{CPAL2Tr(c), CPAL2Tg(c), CPAL2Tb(c), 1.0}};
-	glDisable(GL_CULL_FACE);
 	ogl_ambient().cull = render::cull::none;
 	const std::array<float, 3> translate{{f2glf(pnt.p3_vec.x), f2glf(pnt.p3_vec.y), -f2glf(pnt.p3_vec.z)}};
 	GLfloat gl1, gl2;
@@ -1271,11 +1256,8 @@ void ogl_start_frame(grs_canvas &canvas)
 	OGL_VIEWPORT(canvas.cv_bitmap.bm_x, canvas.cv_bitmap.bm_y, canvas.cv_bitmap.bm_w, canvas.cv_bitmap.bm_h);
 	glClearColor(0.0, 0.0, 0.0, 0.0);
 
-	glLineWidth(linedotscale);
 
 	ogl_device().clear({.color = false, .depth = true});
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_FRONT);
 
 	glShadeModel(GL_SMOOTH);
 	glMatrixMode(GL_PROJECTION);
@@ -1476,7 +1458,6 @@ void ogl_end_frame(void){
 #endif
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();//clear matrix
-	glDisable(GL_CULL_FACE);
 	auto &ambient{ogl_ambient()};
 	ambient.cull = render::cull::none;
 	ambient.depth = render::depth::off;
