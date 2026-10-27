@@ -1,9 +1,9 @@
 # The manual D3D12 check (#49, ADR 4): R3, the committed synthetic traces
-# replayed by rtrace-gpu, on a real D3D12 runtime (WARP on windows-latest)
+# replayed by rtrace-gpu, on a real D3D12 runtime (WARP on windows-2025)
 # with the D3D12 debug layer and GPU-based validation on.  Fails on any
 # validation message, a missing "Validation layers enabled" line, GPU-based
-# validation not confirmed in the log, a trace that does not render all its
-# frames, and an adapter other than WARP.  WARP's frame hash lines are
+# validation not confirmed from SDL's device, a trace that does not render
+# all its frames, and an adapter other than WARP.  WARP's frame hash lines are
 # recorded in the d3d12-frame-hashes artifact (for the FLIP compare of #37),
 # not compared.
 # Started by hand only, by the orchestrator when the D3D12 path changes:
@@ -21,7 +21,7 @@ jobs:
   build:
     # The MinGW-w64 cross-build from source, in the pinned image
     # (tools/dev/windows/Dockerfile), built here: no image is pushed.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,7 +38,7 @@ jobs:
 
   d3d12:
     needs: build
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 30
     steps:
       # The scripts run in Git Bash: check them out with LF line ends.
@@ -72,8 +72,10 @@ jobs:
             "Graphics Tools: installed in $([int]$took.TotalSeconds) s"
           }
           if (-not (Test-Path $dll)) { throw "no $dll after installing Graphics Tools" }
+      # Ends before the job's timeout, so the hashes artifact still uploads.
       - name: R3 on D3D12 (WARP), debug layer and GPU-based validation on
         shell: bash
+        timeout-minutes: 15
         run: tools/dev/rtrace-d3d12.sh --hashes d3d12-frame-hashes.txt out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}

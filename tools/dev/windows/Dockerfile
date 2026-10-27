@@ -1,10 +1,9 @@
-# syntax=docker/dockerfile:1
 # The Windows cross-build (#49): MinGW-w64 builds rtrace-gpu.exe and the
 # pinned SDL3 as SDL3.dll, for the manual D3D12 check on GitHub
 # (.github/workflows/d3d12-check.yml, ADR 4) and for a local run under
 # Wine.  Built by tools/dev/windows.sh from tools/dev/toolchain.pins (base
 # image by digest, apt by the Ubuntu archive snapshot, SDL3 by sha256),
-# locally and on the workflow's ubuntu-latest runner; never pushed to a
+# locally and on the workflow's ubuntu-24.04 runner; never pushed to a
 # registry.  Separate from the reference image (tools/dev/container/),
 # whose inputs it does not change.  Two stages:
 #   cross  MinGW-w64 (GCC 13, noble), SDL3.dll in /opt/sdl3-win64 and

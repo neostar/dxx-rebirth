@@ -22,21 +22,30 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
 - **One manual D3D12 workflow** (amended 2026-10-27, #49): `.github/workflows/d3d12-check.yml`.
   D3D12 needs a real Windows runtime with the D3D12 debug layer; Wine has neither (vkd3d-proton
   translates D3D12 to Vulkan). The workflow cross-builds `rtrace-gpu.exe` with MinGW-w64 on
-  `ubuntu-latest` (`tools/dev/windows.sh build`, its own pinned Dockerfile in `tools/dev/windows/`,
-  built on the runner, never pushed), then replays the synthetic traces on `windows-latest`
+  `ubuntu-24.04` (`tools/dev/windows.sh build`, its own pinned Dockerfile in `tools/dev/windows/`,
+  built on the runner, never pushed), then replays the synthetic traces on `windows-2025`
   (`tools/dev/rtrace-d3d12.sh`).
   - **Pass condition**: the run fails on any D3D12 debug-layer message; on SDL's "Validation layers
-    enabled" line missing; on GPU-based validation not confirmed in the log; on a trace that does
-    not render all its frames; on an adapter other than WARP (Microsoft Basic Render Driver).
+    enabled" line missing; on GPU-based validation not confirmed from SDL's device (below); on a
+    trace that does not render all its frames; on an adapter other than WARP (Microsoft Basic Render Driver).
   - **Record, not compare**: WARP's frame hash lines go to the `d3d12-frame-hashes` artifact and
     the log, for #37's FLIP compare. WARP rounds UNORM ties differently from a GPU, so equality
     with GL's hashes is the wrong test.
   - **GPU-based validation**: WARP renders correct pixels with wrong barriers; only the debug layer
     with GPU-based validation catches them. SDL 3.4.18 never calls `SetEnableGPUBasedValidation`,
     so on Windows `rtrace-gpu.exe` calls it through `ID3D12Debug1` before SDL creates the device,
-    when `DXX_D3D12_GPU_VALIDATION=1` (the script sets it) and logs one line saying it is on. That
-    SDL's device inherits the setting is an inference; the run fails without the line, and its
-    log is the evidence.
+    when `DXX_D3D12_GPU_VALIDATION=1` (the script sets it). That call returns nothing, so once SDL
+    has created its device, `rtrace-gpu.exe` calls `D3D12CreateDevice` on the WARP adapter, which
+    returns SDL's device (D3D12 devices are singletons per adapter). It checks the device is SDL's
+    (its info queue carries SDL's storage filter), prints the debug layer's stored startup-options
+    message (`CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS`) and exits 1 unless that text says
+    GPU-based validation is on. The run fails without `rtrace-gpu`'s line `D3D12 GPU-based
+    validation confirmed on SDL's device`. The startup text's exact form is first seen on the
+    first GitHub run.
+  - **ADR 5 exception**: `rtrace-gpu`'s `_WIN32` code is built only by the MinGW cross-build with
+    `-Werror`, outside ADR 5's clang-tidy and sanitizer gates (owner decision: no new tooling).
+  - **Timeouts**: each trace run has 300 s (`timeout -k 10 300`), the Wine run 300 s, the
+    workflow's R3 step 15 minutes, so a hang fails and the hashes artifact still uploads.
   - **Wine** (`tools/dev/windows.sh wine`, local) is a smoke test: the exe runs, SDL picks D3D12
     and every trace renders all its frames. No hash compare, no validation requirement.
   - **Trigger**: `workflow_dispatch` only, started by hand when the D3D12 path changes (SDL3's
