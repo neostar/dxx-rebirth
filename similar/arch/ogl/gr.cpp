@@ -69,6 +69,9 @@
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/hidden_window.h"
 #endif
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#endif
 
 using std::min;
 using std::max;
@@ -92,6 +95,9 @@ static int sdl_video_flags = SDL_OPENGL;
 #elif SDL_MAJOR_VERSION == 2
 SDL_Window *g_pRebirthSDLMainWindow;
 static int g_iRebirthWindowX, g_iRebirthWindowY;
+#elif SDL_MAJOR_VERSION == 3
+/* Stays null until #41 creates the SDL3 window. */
+SDL_Window *g_pRebirthSDLMainWindow;
 #endif
 #endif
 static ogl_sync sync_helper;
@@ -137,6 +143,14 @@ static void gr_set_mode_from_window_size(SDL_Window *const SDLWindow)
 void gr_set_mode_from_window_size()
 {
 	gr_set_mode_from_window_size(g_pRebirthSDLMainWindow);
+}
+#elif SDL_MAJOR_VERSION == 3
+void gr_set_mode_from_window_size()
+{
+	/* There is no SDL3 window to size the mode from until #41. */
+	static dcx::sdl::link_stub stub{"the mode from the window size", "#41"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
 }
 #endif
 
@@ -518,6 +532,8 @@ int gr_check_fullscreen(void)
 	return !!(sdl_video_flags & SDL_FULLSCREEN);
 #elif SDL_MAJOR_VERSION == 2
 	return !!(SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN);
+#elif SDL_MAJOR_VERSION == 3
+	return 0;	// no window until #41
 #endif
 }
 
@@ -867,6 +883,16 @@ int gr_init()
 		Error("Failed to create SDL GL context: %s", SDL_GetError());
 	if (const auto window_icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
 		SDL_SetWindowIcon(SDLWindow, window_icon);
+#elif SDL_MAJOR_VERSION == 3
+	/* No window and no GL context until #41.  Returning -1 would reach
+	 * arch_init's Error(TXT_CANT_INIT_GFX), whose msgbox_error opens a modal
+	 * alert and then aborts, so end the run here instead.  #41 removes this.
+	 */
+	static dcx::sdl::link_stub stub{"the window and GL context", "#41"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	con_puts(CON_URGENT, "SDL3 link stub: no window to open, exiting");
+	exit(EXIT_FAILURE);
 #endif
 
 	ogl_init_texture_list_internal();

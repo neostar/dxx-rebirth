@@ -1217,7 +1217,7 @@ struct screen_resolution_menu_items
 	{
 		return static_cast<ni_index>(static_cast<unsigned>(i) + num_presets);
 	}
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	static constexpr std::size_t maximum_preset_modes = 0;
 	static constexpr ni_index convert_fixed_field_to_ni(fixed_field_index i)
 	{
