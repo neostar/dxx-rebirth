@@ -8,7 +8,9 @@
  * GL's fixed-function vertex path in the exact transform model (ADR 2, spike #55 insight 2):
  * clip = P * (MV * v) with the two matrices kept apart, no depth remap in either; the pipeline
  * maps depth through a viewport of depth range 0.5..1 with depth clamp, and GL's near and far
- * planes clip through the two clip distances z + w and w - z.  Colour and uv pass through.
+ * planes clip through the two clip distances z + w and w - z.  The colour is clamped to [0, 1]
+ * per vertex, before it is interpolated, as GL_CLAMP_VERTEX_COLOR does (spike T9, vclamp_off);
+ * the fragment shader clamps again.  The uv passes through.
  * Vertex-stage uniform buffers live in (b[n], space1) for SDL_GPU.
  */
 cbuffer vertex_uniforms : register(b0, space1)
@@ -41,7 +43,7 @@ vs_output main(vs_input input)
 	o.pos = clip;
 	o.near_clip = clip.z + clip.w;
 	o.far_clip = clip.w - clip.z;
-	o.color = input.color;
+	o.color = saturate(input.color);
 	o.uv = input.uv;
 	return o;
 }

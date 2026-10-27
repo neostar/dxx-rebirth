@@ -11,8 +11,7 @@
  * triangle, then the whole target in yellow, each in its own frame; and
  * overbright.rtr, textured quads with vertex colours above 1 (#27).
  * test-rtrace checks each committed file is its writer's output;
- * tools/dev/rtrace-tests.sh pins GL's frames of each, and test-sdlgpu
- * replays the sample on SDL_GPU (R3).
+ * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
 
 #pragma once

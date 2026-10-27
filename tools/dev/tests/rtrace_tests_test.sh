@@ -17,8 +17,10 @@ source "$(dirname "$0")/lib.sh"
 # frame 0's as $FAKE_OVERBRIGHT0 when set; either sleeps $FAKE_SLEEP s, test-rtrace in a
 # child whose pid it writes to test-rtrace.child.  With FAKE_GPU=1 it also
 # installs a fake rtrace-gpu in build/<profile>-sdl3/common, which prints
-# the driver line of $FAKE_GPU_DRIVER (default Metal) and logs the sample's
-# two lines, frame 0's as $FAKE_GPU_FRAME0 when set; a pass-through
+# the driver line of $FAKE_GPU_DRIVER (default Metal), none when
+# FAKE_GPU_NO_DRIVER=1, and logs the sample's
+# two lines, frame 0's as $FAKE_GPU_FRAME0 when set, or the overbright
+# trace's, frame 0's as $FAKE_GPU_OVERBRIGHT0 when set; a pass-through
 # gpu-validate.sh fails when FAKE_GPU_INVALID=1.
 make_rtrace_repo()
 {
@@ -55,7 +57,12 @@ exit "$rc"
 EOF
 	cat > "$r/fakes/rtrace-gpu" <<'EOF'
 #!/usr/bin/env bash
-echo "SDL_GPU Driver: ${FAKE_GPU_DRIVER:-Metal}"
+[[ ${FAKE_GPU_NO_DRIVER-} == 1 ]] || echo "SDL_GPU Driver: ${FAKE_GPU_DRIVER:-Metal}"
+if [[ $1 == *overbright.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_OVERBRIGHT0:-0 64x48 5d1b6b445fb7f05a}" '1 64x48 418a435cc9c67e56' \
+		> "$2"
+	exit 0
+fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
@@ -208,7 +215,8 @@ test_timeout_fails()
 
 # Test that without a build/<profile>-sdl3 rtrace-gpu the R3 run is a
 # visible SKIP, and that with one, on Metal, it must log the pinned lines
-# through gpu-validate.sh: a wrong line or a validation failure fails, and
+# of the sample and the overbright trace through gpu-validate.sh: a wrong
+# line of either or a validation failure fails, and
 # another driver, whose frames the pins do not hold for, is a SKIP.
 test_rtrace_gpu_logs_the_pinned_lines()
 {
@@ -224,8 +232,14 @@ test_rtrace_gpu_logs_the_pinned_lines()
 	out=$(FAKE_GPU=1 FAKE_GPU_FRAME0='0 64x48 0000000000000000' \
 		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes are not GL's:"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the sample trace are not GL's:"
 	assert_contains "$out" "0 64x48 0000000000000000"
+	out=$(FAKE_GPU=1 FAKE_GPU_OVERBRIGHT0='0 64x48 1111111111111111' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" \
+		"rtrace-tests: rtrace-gpu's frame hashes of the overbright trace are not GL's:"
+	assert_contains "$out" "0 64x48 1111111111111111"
 	out=$(FAKE_GPU=1 FAKE_GPU_INVALID=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -233,7 +247,21 @@ test_rtrace_gpu_logs_the_pinned_lines()
 	out=$(FAKE_GPU=1 FAKE_GPU_DRIVER=Vulkan "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
-	assert_contains "$out" "SKIP rtrace-gpu (dev): driver Vulkan"
+	assert_contains "$out" "SKIP rtrace-gpu (dev, sample): driver Vulkan"
+	assert_contains "$out" "SKIP rtrace-gpu (dev, overbright): driver Vulkan"
+}
+
+# Test that an rtrace-gpu run naming no SDL_GPU driver fails rather than
+# skipping: it cannot be told apart from a broken run.
+test_rtrace_gpu_without_driver_line_fails()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_GPU=1 FAKE_GPU_NO_DRIVER=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu named no SDL_GPU driver on the sample trace"
+	[[ $out != *"SKIP rtrace-gpu"* ]] || fail "a run without a driver skipped: $out"
 }
 
 # Test that rtrace logging other lines than the overbright trace's pins

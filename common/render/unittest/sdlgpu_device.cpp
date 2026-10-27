@@ -211,6 +211,25 @@ std::size_t block_other_than(const std::span<const std::uint8_t> rgb, const std:
 	return n;
 }
 
+/* The frame hashes of trace, replayed on a Metal device that clears to the
+ * game's colour, as GL's replay clears.
+ */
+[[nodiscard]]
+std::vector<std::uint64_t> replayed_hashes(const std::vector<std::uint8_t> &trace)
+{
+	render::trace::reader r{trace};
+	const auto h{r.header()};
+	BOOST_REQUIRE(h.has_value());
+	auto d{sdlgpu::device::create(
+	    {.target = h.value().target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
+	BOOST_REQUIRE(d->driver() == "metal");
+	std::vector<std::uint64_t> hashes;
+	const auto done{render::replay(
+	    r, *d, [&hashes](const render::replayed_frame &f) { hashes.push_back(f.hash); })};
+	BOOST_TEST(done.has_value());
+	return hashes;
+}
+
 /* M6 (research #71): how long the pipeline set took to build from MSL. */
 void print_m6(const char *which, const sdlgpu::device &d)
 {
@@ -459,20 +478,21 @@ BOOST_AUTO_TEST_CASE(draws_take_pipelines_of_the_set)
  */
 BOOST_AUTO_TEST_CASE(sample_trace_frames_match_gl)
 {
-	const auto bytes{dcx::render::rtrace::sample_trace()};
-	render::trace::reader r{bytes};
-	const auto h{r.header()};
-	BOOST_REQUIRE(h.has_value());
-	/* The game's clear colour, as GL's replay clears. */
-	auto d{sdlgpu::device::create(
-	    {.target = h.value().target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
-	BOOST_REQUIRE(d->driver() == "metal");
-	std::vector<std::uint64_t> hashes;
-	const auto done{render::replay(
-	    r, *d, [&hashes](const render::replayed_frame &f) { hashes.push_back(f.hash); })};
-	BOOST_TEST(done.has_value());
 	const std::vector<std::uint64_t> gl{0x86388f1d5003af2au, 0x9f40fbb36ef64325u};
-	BOOST_TEST(hashes == gl, boost::test_tools::per_element());
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::sample_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
+/* Test R3 on the overbright trace (#27): textured quads, repeated and
+ * clamped, RGBA and RGB, and an untextured triangle, under vertex colours
+ * above 1, hash as GL draws them, which clamps each vertex's colour before
+ * interpolating (spike T9, vclamp_off).  Pinned as the sample's are.
+ */
+BOOST_AUTO_TEST_CASE(overbright_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{0x5d1b6b445fb7f05au, 0x418a435cc9c67e56u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::overbright_trace()) == gl,
+	           boost::test_tools::per_element());
 }
 
 /* Test that the transfer ring grows on a GPU: after a small frame that is

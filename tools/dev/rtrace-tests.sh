@@ -16,11 +16,12 @@
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
-#   <profile> sdl3=1 builds it), rtrace-gpu on the sample, through
-#   no-window.sh and gpu-validate.sh rather than WRAPPER, which must log
-#   the same pinned lines; the pins are Apple's GL on Metal, so a driver
-#   other than Metal is a SKIP (lavapipe compares with FLIP, #25), and so is
-#   a missing rtrace-gpu.
+#   <profile> sdl3=1 builds it), rtrace-gpu on the sample and on the
+#   overbright trace, through no-window.sh and gpu-validate.sh rather than
+#   WRAPPER, each of which must log GL's pinned lines; the pins are Apple's
+#   GL on Metal, so another driver it names is a SKIP (lavapipe compares
+#   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
+#   driver fails.
 # A wrapper may drop the program's status and stdout (leaks.sh), so each
 # outcome is read from a file as well as from the status.  Each run is
 # killed after RTRACE_TEST_TIMEOUT seconds (default 300), which fails it.
@@ -179,33 +180,38 @@ if bounded "$dev_dir/no-window.sh" "$root/$build/common/rtrace" "$tmp/no-frames.
 	echo "rtrace-tests: rtrace did not fail on a trace without a frame" >&2
 	rc=1
 fi
-# R3: rtrace-gpu, the sample through SDL_GPU, logs GL's lines.
+# R3: rtrace-gpu, each synthetic trace through SDL_GPU, logs GL's lines.
 rtrace_gpu=$root/build/$profile-sdl3/common/rtrace-gpu
+# Run rtrace-gpu on trace $1, named $2, which must log lines $3 and $4.
+check_gpu()
+{
+	local trace=$1 name=$2 out=$tmp/gpu-$2 driver gpu_program=$rtrace_gpu
+	if ! bounded "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$gpu_program" "$trace" \
+		"$out.log" > "$out.out" 2>&1; then
+		cat "$out.out" >&2
+		echo "rtrace-tests: rtrace-gpu failed on the $name trace" >&2
+		return 1
+	fi
+	driver=$(sed -n 's/.*SDL_GPU Driver: //p' "$out.out" | head -n 1)
+	if [[ -z $driver ]]; then
+		cat "$out.out" >&2
+		echo "rtrace-tests: rtrace-gpu named no SDL_GPU driver on the $name trace" >&2
+		return 1
+	elif [[ $driver != Metal ]]; then
+		printf 'SKIP rtrace-gpu (%s, %s): driver %s; the pinned lines are Metal'"'"'s, %s\n' \
+			"$profile" "$name" "$driver" 'FLIP compares other drivers (#25)'
+	elif ! logs_lines "$out.log" "$3" "$4"; then
+		echo "rtrace-tests: rtrace-gpu's frame hashes of the $name trace are not GL's:" >&2
+		cat "$out.log" >&2
+		return 1
+	fi
+}
 if [[ ! -x $rtrace_gpu ]]; then
 	printf 'SKIP rtrace-gpu (%s): no build/%s-sdl3/common/rtrace-gpu; %s\n' "$profile" \
 		"$profile" "build.sh $profile sdl3=1 build/$profile-sdl3/common/rtrace-gpu builds it"
 else
-	gpu_program=$rtrace_gpu
-	if ! bounded "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$gpu_program" "$sample" \
-		"$tmp/gpu.log" > "$tmp/gpu.out" 2>&1; then
-		cat "$tmp/gpu.out" >&2
-		echo "rtrace-tests: rtrace-gpu failed" >&2
-		rc=1
-	else
-		driver=$(sed -n 's/.*SDL_GPU Driver: //p' "$tmp/gpu.out" | head -n 1)
-		if [[ $driver != Metal ]]; then
-			printf 'SKIP rtrace-gpu (%s): driver %s; the pinned lines are Metal'"'"'s, %s\n' \
-				"$profile" "${driver:-unknown}" 'FLIP compares other drivers (#25)'
-		else
-			mapfile -t lines < "$tmp/gpu.log"
-			if [[ ${#lines[@]} -ne 2 || ${lines[0]} != "${expected[0]}" ||
-				${lines[1]} != "${expected[1]}" ]]; then
-				echo "rtrace-tests: rtrace-gpu's frame hashes are not GL's:" >&2
-				cat "$tmp/gpu.log" >&2
-				rc=1
-			fi
-		fi
-	fi
+	check_gpu "$sample" sample "${expected[@]}" || rc=1
+	check_gpu "$overbright" overbright "${expected_overbright[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"
