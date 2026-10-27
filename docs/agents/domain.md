@@ -24,9 +24,10 @@ Platform research, read before working in its area:
 
 ## Before recommending a change to the plan
 
-The approved plan of the port is `~/.claude/plans/ok-i-want-the-greedy-sutton.md`; the spike's
-measured findings are `~/Developer/dxx-rebirth-spike/FINDINGS.md`. Read the findings before
-recommending a change to the plan: our measurements win over general advice.
+The plan is the open tickets, their native dependencies and the ADRs; the rubric that tickets
+cite (R1-R16) is `docs/agents/rubric.md`. The spike's measured findings are
+`~/Developer/dxx-rebirth-spike/FINDINGS.md`: read them before recommending a change to the
+plan, as our measurements win over general advice.
 
 ## Use the glossary's vocabulary
 

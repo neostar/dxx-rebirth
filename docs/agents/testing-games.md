@@ -2,7 +2,7 @@
 
 Research for #78, read 2026-10-22. It answers: which tests game and engine developers recommend
 for a port like ours, which they find wasteful, and how they build the useful ones, compared with
-our rubric (R1-R16 in the approved plan, outside the repo; `domain.md` points to it), ADRs 4-6,
+our rubric (R1-R16, `docs/agents/rubric.md`), ADRs 4-6,
 the unit tests and `tools/dev/`. The R-numbers used here: R1 every GL frame stays bit-identical to
 the base commit; R3 synthetic SDL_GPU frames match GL; R4 recorded scenes on SDL_GPU match GL
 (Metal bit-exact, Vulkan/D3D12 within FLIP bounds); R11 SDL_GPU frame time no worse than GL;
