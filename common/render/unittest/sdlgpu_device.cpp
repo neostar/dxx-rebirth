@@ -214,16 +214,20 @@ std::size_t block_other_than(const std::span<const std::uint8_t> rgb, const std:
 }
 
 /* The frames of trace, replayed on a device that clears to the game's
- * colour, as GL's replay clears.
+ * colour, as GL's replay clears, with SDL's depth clip as asked.
  */
 [[nodiscard]]
-std::vector<render::replayed_frame> replayed_frames(const std::vector<std::uint8_t> &trace)
+std::vector<render::replayed_frame> replayed_frames(const std::vector<std::uint8_t> &trace,
+                                                    const bool depth_clip = false)
 {
 	render::trace::reader r{trace};
 	const auto h{r.header()};
 	BOOST_REQUIRE(h.has_value());
-	auto d{sdlgpu::device::create(
-	    {.target = h.value().target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
+	auto d{sdlgpu::device::create({.target = h.value().target,
+	                               .debug_mode = true,
+	                               .driver = {},
+	                               .clear_rgba = {},
+	                               .depth_clip = depth_clip})};
 	std::vector<render::replayed_frame> frames;
 	const auto done{
 	    render::replay(r, *d, [&frames](const render::replayed_frame &f) { frames.push_back(f); })};
@@ -619,6 +623,26 @@ std::size_t pixels_of(const render::replayed_frame &f, const std::array<std::uin
 	return f.rgb.size() / 3 - pixels_other_than(f.rgb, p);
 }
 
+constexpr std::array<std::uint8_t, 3> yellow{{255, 255, 0}};
+
+}
+
+/* Test ADR 2's depth pairing rule on the walls trace's near-plane frame,
+ * on any driver: with depth clamp and the near and far clip distances the
+ * red quad at 0.15 deep and the yellow one at 0.25 both show, as on GL;
+ * with SDL's enable_depth_clip on as well, the red quad, nearer than twice
+ * the near plane (z_ndc < 0), vanishes and the yellow one stays.
+ */
+BOOST_AUTO_TEST_CASE(depth_clip_drops_what_is_nearer_than_twice_the_near_plane)
+{
+	const auto clamped{replayed_frames(dcx::render::rtrace::walls_trace(), false)};
+	const auto clipped{replayed_frames(dcx::render::rtrace::walls_trace(), true)};
+	BOOST_REQUIRE(clamped.size() == 3u);
+	BOOST_REQUIRE(clipped.size() == 3u);
+	BOOST_TEST(pixels_of(clamped[1], red) > 0u);
+	BOOST_TEST(pixels_of(clamped[1], yellow) > 0u);
+	BOOST_TEST(pixels_of(clipped[1], red) == 0u);
+	BOOST_TEST(pixels_of(clipped[1], yellow) == pixels_of(clamped[1], yellow));
 }
 
 /* Test the winding of the walls trace's corridor, on any driver: front

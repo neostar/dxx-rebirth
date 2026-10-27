@@ -62,6 +62,12 @@ struct config
 	std::array<std::uint8_t, 4> clear_rgba{};
 	/* Asked of every sampler, clamped to 16 by the probe. */
 	float anisotropy{max_anisotropy_limit};
+	/* Test surface: SDL's enable_depth_clip in every pipeline, which breaks
+	 * the exact transform model (ADR 2's depth pairing rule): geometry
+	 * nearer than about twice the near plane is clipped.  The game keeps
+	 * it false, depth clamp.
+	 */
+	bool depth_clip{false};
 };
 
 /* Live SDL_GPU objects of each kind: textures (the targets), buffers

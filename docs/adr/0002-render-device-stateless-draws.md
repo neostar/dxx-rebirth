@@ -4,6 +4,7 @@ Date: 2026-10-20. Status: accepted.
 Amended 2026-10-23 (owner): the `fan` helper is `render::ambient::fan`, on the front end's state.
 Amended 2026-10-27 (owner, decided 2026-10-22): the renderer is chosen at startup, not switched at run time.
 Amended 2026-10-27 (owner, #16): the device gains `select_eye` and `copy_region`, GL-only behind caps.
+Amended 2026-10-27 (#28): the depth pairing rule.
 
 ## Context
 
@@ -25,6 +26,18 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   never matrices. The GL adapter replays the same GL calls as today, so R1 holds by construction;
   the SDL_GPU adapter builds matrices with the exact model from the spike (clip = P·(MV·v), viewport
   depth 0.5..1, depth clamp plus near/far clip distances).
+- **Depth pairing rule** (#28): no depth remap with depth clamp plus the near and far clip
+  distances (the exact model above, `enable_depth_clip = false`), or a remap of [-1, 1] to [0, 1]
+  with depth clip; never one half of each. SDL documents the flag as
+  "true to enable depth clip, false to enable depth clamp" (`SDL_GPURasterizerState`,
+  `docs/reference/sdl3/SDL_gpu.h`, 3.4.18), and adds: "the D3D12 driver will enable depth clamping
+  even if enable_depth_clip is true". Depth clip keeps 0 <= z <= w in clip space; without a remap
+  the clip depth of `gluPerspective` is 0 at 2·near·far/(far + near), about twice the near plane,
+  so the exact model with depth clip drops everything nearer. `test-sdlgpu`'s
+  `depth_clip_drops_what_is_nearer_than_twice_the_near_plane` renders the walls trace's near-plane
+  frame both ways: a quad at 1.5 near planes vanishes with clip and shows with clamp, as on GL.
+  Depth clamp without the clip distances draws what lies before the near plane (spike #55: 8134
+  px off GL). The rule holds while no shader writes its own depth (SDL#12740).
 - The **front end** (`similar/arch/ogl`) keeps the game's current blend and alpha reference, as GL
   did, and builds each draw state from them. Game code calling `gr_settransblend` is unchanged.
   `render::ambient::fan(vertices, texture)` (`common/render/ambient.h`) builds the common case's

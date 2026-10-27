@@ -441,11 +441,11 @@ SDL_GPUColorTargetBlendState blend_state(const render::blend b)
 	return s;
 }
 
-/* The closed pipeline set, indexed by (blend, depth, cull); returns how long
- * it took, shaders included (M6).
+/* The closed pipeline set, indexed by (blend, depth, cull), clipping depth
+ * as asked; returns how long it took, shaders included (M6).
  */
 std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger &l,
-                                         const device_caps &caps,
+                                         const device_caps &caps, const bool depth_clip,
                                          std::vector<pipeline_handle> &pipelines)
 {
 	const auto start{std::chrono::steady_clock::now()};
@@ -494,8 +494,10 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 		info.rasterizer_state.cull_mode =
 		    c == render::cull::front ? SDL_GPU_CULLMODE_FRONT : SDL_GPU_CULLMODE_NONE;
 		info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
-		/* Depth clamp: the exact transform model (pos_color_uv.vert.hlsl). */
-		info.rasterizer_state.enable_depth_clip = false;
+		/* Depth clamp: the exact transform model (pos_color_uv.vert.hlsl,
+		 * ADR 2's depth pairing rule); depth_clip only to show the rule.
+		 */
+		info.rasterizer_state.enable_depth_clip = depth_clip;
 		info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
 		info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
 		info.depth_stencil_state.enable_depth_test = z == render::depth::test_and_write;
@@ -793,7 +795,7 @@ std::unique_ptr<device> device::create(const config &c)
 	s->record = sdlgpu::frame{c.target};
 	for (std::size_t i{0}; i != sampler_set_size; ++i)
 		s->samplers.at(i) = create_sampler(d, l, sampler_key_at(i), s->caps);
-	s->pipeline_time = build_pipelines(d, l, s->caps, s->pipelines);
+	s->pipeline_time = build_pipelines(d, l, s->caps, c.depth_clip, s->pipelines);
 	const device_caps caps{s->caps};
 	return std::make_unique<device>(passkey{}, caps, std::move(s));
 }
