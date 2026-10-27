@@ -9,8 +9,9 @@
 # D3D12 backend warns without it), with the latter's MIT license.  The sources are SConstruct's own
 # list for rtrace-gpu (read from it, so the two never drift); SCons itself
 # is not used, as its configure wants the whole game's dependencies.
-# libstdc++, libgcc and winpthread are linked in statically: SDL3.dll is
-# the DLLs beside the exe are SDL's.
+# libstdc++, libgcc and winpthread are linked in statically, so the only
+# DLLs beside the exe are SDL3.dll and WinPixEventRuntime.dll; d3d12.dll
+# and dxgi.dll are Windows' own.
 set -eu
 [[ $# -eq 2 && -n $1 && -n $2 ]] || { echo "usage: $0 SRC OUT" >&2; exit 2; }
 src=$1 out=$2
@@ -44,7 +45,7 @@ for s in "${sources[@]}"; do
 		-c "$src/$s" -o "$o"
 	objects+=("$o")
 done
-"$cxx" -o "$out/rtrace-gpu.exe" "${objects[@]}" "$sdl/lib/libSDL3.dll.a" -ld3d12 \
+"$cxx" -o "$out/rtrace-gpu.exe" "${objects[@]}" "$sdl/lib/libSDL3.dll.a" -ld3d12 -ldxgi \
 	-static -mconsole
 cp "$sdl/bin/SDL3.dll" "$pix/WinPixEventRuntime.dll" "$out/"
 cp "$pix/license.txt" "$out/WinPixEventRuntime-license.txt"
