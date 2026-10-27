@@ -3,6 +3,7 @@
 Date: 2026-10-20. Status: accepted.
 Amended 2026-10-23 (owner): the `fan` helper is `render::ambient::fan`, on the front end's state.
 Amended 2026-10-27 (owner, decided 2026-10-22): the renderer is chosen at startup, not switched at run time.
+Amended 2026-10-27 (owner, #16): the device gains `select_eye` and `copy_region`, GL-only behind caps.
 
 ## Context
 
@@ -15,7 +16,9 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
 ## Decision
 
 - The seam is `dcx::render::device`, an interface with `draw`, `texture` and three frame operations
-  (`clear`, `present`, `read_pixels`). Adapters: GL, SDL_GPU, recording, fake.
+  (`clear`, `present`, `read_pixels`), plus `select_eye` and `copy_region` for stereo, which only
+  a device whose caps report them implements (the base throws `std::logic_error`). Adapters: GL,
+  SDL_GPU, recording, fake.
 - A **draw call** is self-contained: topology, vertices, texture slot, draw state, viewport and
   transforms. No state carries from one draw to the next.
 - Transforms are **transform recipes** (`perspective`, `ortho`, `translate_scale`, `identity`),
