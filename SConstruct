@@ -5190,6 +5190,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-blit', (
 			'common/render/unittest/blit.cpp',
 			)),
+		RuntimeTest('test-texture-slots', (
+			'common/render/unittest/texture_slots.cpp',
+			)),
 		RuntimeTest('test-gl-texture-names', (
 			'common/render/unittest/gl_texture_names.cpp',
 			)),

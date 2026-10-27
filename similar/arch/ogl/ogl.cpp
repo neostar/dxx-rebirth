@@ -63,6 +63,7 @@
 #include "common/render/gl_device.h"
 #include "common/render/overlay_uv.h"
 #include "common/render/palette_expand.h"
+#include "common/render/texture_slots.h"
 #include "gauges.h"
 #include "object.h"
 #include "args.h"
@@ -164,9 +165,9 @@ static render::texture_slot ogl_texture_slot(const ogl_texture &t)
 	{
 		if (&t != ogl_movie_frame)
 			throw std::logic_error("ogl_texture_slot: a texture outside the texture list that is not the movie frame");
-		return {static_cast<uint32_t>(ogl_texture_list.size() + 1)};
+		return render::movie_frame_slot(ogl_texture_list.size());
 	}
-	return {static_cast<uint32_t>(&t - ogl_texture_list.data() + 1)};
+	return render::pool_slot(static_cast<std::size_t>(&t - ogl_texture_list.data()));
 }
 
 /* The texture of slot, as ogl_texture_slot numbers them; null for the
@@ -174,10 +175,16 @@ static render::texture_slot ogl_texture_slot(const ogl_texture &t)
  */
 static ogl_texture *ogl_texture_of(const render::texture_slot slot)
 {
-	if (slot.index >= 1 && slot.index <= ogl_texture_list.size())
-		return &ogl_texture_list[slot.index - 1];
-	if (slot.index == ogl_texture_list.size() + 1)
-		return ogl_movie_frame;
+	const auto place{render::slot_place_of(slot, ogl_texture_list.size())};
+	switch (place.owner)
+	{
+		case render::slot_owner::pool:
+			return &ogl_texture_list[place.index];
+		case render::slot_owner::movie_frame:
+			return ogl_movie_frame;
+		case render::slot_owner::none:
+			break;
+	}
 	return nullptr;
 }
 
