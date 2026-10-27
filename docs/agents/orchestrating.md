@@ -24,10 +24,13 @@ repository; its header lists them).
   shaders (Review bar below), and the implementer and fix rounds of a game-code or shader ticket
   of 5 points or more: there a HIGH missed, or a claim the review refutes, costs more than the
   model. The metrics log's `model`, `high`/`medium`/`low` and `refuted` columns test this split.
-- **Time box**: 60 + 15 × story points minutes, wait time included: about an hour is fixed per
-  ticket (worktree, prefix build, CI, review, merge). Measured on 17 tickets (2026-10-22): 1 pt
-  about 72 min, 3 pt 82, 5 pt 135, 8 pt 172. At the box, comment on the ticket what is done,
-  what is open, and why it took longer. The overrun is data for the estimates, not a failure.
+- **Time box**: 60 + 15 × story points agent minutes, the sum of a ticket's implement, review
+  and fix runs (the board's Agent minutes). On 32 tickets (2026-10-27) the medians fit it, with a
+  wide spread per size (5 pt: 44 to 367). Claim to close takes about 3.5 times the box: gates
+  run alone, signing waits for the owner, two implementers at most. So forecast a date from
+  throughput (points closed per working day), never from boxes. At the box, comment on the ticket
+  what is done, what is open, and why it took longer. The overrun is data for the estimates, not a
+  failure.
 - **Research tickets**: the brief says "follow Researcher in `issue-tracker.md`". Research does
   not count toward the two implementers; its reviewer re-fetches a sample of the quotes.
 - **Review prompts** tell reviewers that the artefacts ADR 5 requires for a new fork directory
