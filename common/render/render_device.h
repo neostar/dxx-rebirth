@@ -103,6 +103,13 @@ inline constexpr bool fields_complete{
  */
 inline constexpr float default_alpha_ref{0.02f};
 
+/* The alpha reference of a draw with the alpha test off, as GL has it
+ * before the first ogl_start_frame: no fragment's alpha is below 0, so none
+ * is discarded.  The GL adapter turns GL_ALPHA_TEST off for it, as the code
+ * not yet drawing through the device expects.
+ */
+inline constexpr float alpha_test_off{0.f};
+
 /* The fixed-function state of one draw call.  alpha_ref is explicit per draw
  * (fragments with alpha below it are discarded), so no draw inherits the
  * alpha test of an earlier one.  line_width applies to lines and points, in

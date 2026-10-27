@@ -76,6 +76,7 @@ struct gl_model
 	bool depth_lequal{false};
 	bool cull_front{false};
 	float width{1};
+	float point{1};
 	render::viewport view{.x = 0, .y = 0, .size = {.width = 0, .height = 0}};
 	gl::matrix mode{gl::matrix::modelview};
 	mat4 projection{identity_matrix};
@@ -164,6 +165,11 @@ struct gl_model
 		++calls;
 		width = w;
 	}
+	void point_size(const float w)
+	{
+		++calls;
+		point = w;
+	}
 };
 
 static_assert(gl::ops<gl_model>);
@@ -178,6 +184,7 @@ const std::array<render::vertex, 3> triangle{{
 render::draw_call view_fan()
 {
 	render::ambient a;
+	a.alpha_test = true;
 	a.depth = render::depth::test_and_write;
 	a.cull = render::cull::front;
 	a.viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
@@ -221,8 +228,13 @@ void check_state(const gl_model &g, const render::draw_call &call)
 	BOOST_TEST(g.is_enabled(gl::capability::blend) == f.has_value());
 	if (f)
 		BOOST_TEST((g.blend == *f));
-	BOOST_TEST(g.is_enabled(gl::capability::alpha_test));
-	BOOST_TEST(g.alpha_ref == s.alpha_ref);
+	if (s.alpha_ref == render::alpha_test_off)
+		BOOST_TEST(!g.is_enabled(gl::capability::alpha_test));
+	else
+	{
+		BOOST_TEST(g.is_enabled(gl::capability::alpha_test));
+		BOOST_TEST(g.alpha_ref == s.alpha_ref);
+	}
 	const bool depth_on{s.depth == render::depth::test_and_write};
 	BOOST_TEST(g.is_enabled(gl::capability::depth_test) == depth_on);
 	if (depth_on)
@@ -334,6 +346,7 @@ BOOST_AUTO_TEST_CASE(draw_right_after_recorded_change_behind_shadow)
 	gl_model g;
 	gl::state_shadow shadow;
 	render::ambient a;
+	a.alpha_test = true;
 	a.depth = render::depth::test_and_write;
 	a.cull = render::cull::front;
 	a.viewport = {.x = 0, .y = 0, .size = {.width = 640, .height = 480}};
@@ -420,4 +433,44 @@ BOOST_AUTO_TEST_CASE(line_width_only_for_lines)
 	call.topology = render::topology::lines;
 	shadow.apply(g, call);
 	BOOST_TEST(g.width == 2.f);
+}
+
+/* Test that a draw with the alpha test off turns GL_ALPHA_TEST off and
+ * leaves the alpha function as it was, as GL is before the first
+ * ogl_start_frame, and that the next draw with a reference turns it on with
+ * that reference.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_off_disables_test)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	auto menu{view_fan()};
+	menu.state.alpha_ref = render::alpha_test_off;
+	shadow.apply(g, view_fan());
+	shadow.apply(g, menu);
+	BOOST_TEST(!g.is_enabled(gl::capability::alpha_test));
+	BOOST_TEST(g.alpha_ref == render::default_alpha_ref);
+	shadow.apply(g, view_fan());
+	check_state(g, view_fan());
+}
+
+/* Test that points get their size from the draw's line width and leave
+ * the line width alone, as glPointSize and glLineWidth are separate.
+ */
+BOOST_AUTO_TEST_CASE(points_set_point_size)
+{
+	gl_model g;
+	gl::state_shadow shadow;
+	g.width = 3.f;
+	auto call{view_fan()};
+	call.topology = render::topology::points;
+	call.state.line_width = 2.f;
+	shadow.apply(g, call);
+	BOOST_TEST(g.point == 2.f);
+	BOOST_TEST(g.width == 3.f);
+	call.topology = render::topology::lines;
+	call.state.line_width = 4.f;
+	shadow.apply(g, call);
+	BOOST_TEST(g.width == 4.f);
+	BOOST_TEST(g.point == 2.f);
 }

@@ -243,6 +243,10 @@ struct gl_calls
 	{
 		glLineWidth(w);
 	}
+	static void point_size(const float w)
+	{
+		glPointSize(w);
+	}
 };
 
 static_assert(gl::ops<gl_calls>);

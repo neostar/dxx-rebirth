@@ -37,13 +37,21 @@ struct ambient
 	render::blend blend_function{render::blend::normal};
 	bool blending{true};
 	float alpha_ref{default_alpha_ref};
+	/* GL_ALPHA_TEST: off until the first ogl_start_frame turns it on (the
+	 * title and menus draw without it); only a new GL context
+	 * (ogl_create_device) turns it off again.
+	 */
+	bool alpha_test{false};
+	/* glLineWidth: 1 in a new GL context, linedotscale from the first
+	 * ogl_start_frame.
+	 */
+	float line_width{1.f};
 	render::depth depth{render::depth::off};
 	render::cull cull{render::cull::none};
 	render::viewport viewport{.x = 0, .y = 0, .size = {.width = 0, .height = 0}};
 	render::transforms transforms{.projection = screen_ortho, .modelview = identity{}};
 	/* The draw state of a draw with wrap: blend none while blending is
-	 * off.  The line width is not recorded yet: no line goes through the
-	 * device before #13 and #14, so it stays at its default.
+	 * off, alpha_test_off while the alpha test is.
 	 */
 	[[nodiscard]]
 	constexpr draw_state state(const render::wrap wrap) const
@@ -52,9 +60,24 @@ struct ambient
 		    .blend = blending ? blend_function : render::blend::none,
 		    .depth = depth,
 		    .cull = cull,
-		    .alpha_ref = alpha_ref,
+		    .alpha_ref = alpha_test ? alpha_ref : alpha_test_off,
 		    .wrap = wrap,
-		    .line_width = 1.f,
+		    .line_width = line_width,
+		};
+	}
+	/* An untextured draw of vertices as topology t in the ambient state, as
+	 * the 2D primitives draw.
+	 */
+	[[nodiscard]]
+	constexpr draw_call call(const topology t, const std::span<const vertex> vertices) const
+	{
+		return draw_call{
+		    .topology = t,
+		    .vertices = vertices,
+		    .texture = texture_slot::none,
+		    .state = state(render::wrap::clamp),
+		    .viewport = viewport,
+		    .transforms = transforms,
 		};
 	}
 	/* A triangle fan of vertices with texture, in the ambient state; an

@@ -1284,6 +1284,8 @@ void ogl_start_frame(grs_canvas &canvas)
 	ambient.blend_function = render::blend::normal;
 	ambient.blending = true;
 	ambient.alpha_ref = render::default_alpha_ref;
+	ambient.alpha_test = true;
+	ambient.line_width = linedotscale;
 	ambient.depth = render::depth::test_and_write;
 	ambient.cull = render::cull::front;
 	ambient.transforms = {render::view_perspective, render::identity{}};
@@ -1443,6 +1445,17 @@ void ogl_create_device()
 	if (ogl_device_instance)
 		device->take_textures(*ogl_device_instance);
 	ogl_device_instance = std::move(device);
+	/* A new GL context has the alpha test off and lines 1 pixel wide; one
+	 * kept across a mode change keeps what it had.  The code not yet
+	 * drawing through the device reads both, so record GL's own.
+	 */
+	GLint alpha_test{};
+	glGetIntegerv(GL_ALPHA_TEST, &alpha_test);
+	GLfloat line_width{};
+	glGetFloatv(GL_LINE_WIDTH, &line_width);
+	auto &ambient{ogl_ambient()};
+	ambient.alpha_test = alpha_test != 0;
+	ambient.line_width = line_width;
 }
 
 void ogl_record_2d_state()

@@ -24,8 +24,8 @@ extern int linedotscale;
 
 extern int GL_TEXTURE_2D_enabled;
 
-/* The blend, alpha reference, depth test, culling, viewport and transforms
- * the GL state holds, which draws through the render device are built from
+/* The blend, alpha test and reference, depth test, culling, line width,
+ * viewport and transforms the GL state holds, which draws through the render device are built from
  * (ADR 2).  Every change of that GL state outside the device records itself
  * here.
  */

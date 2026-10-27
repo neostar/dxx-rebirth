@@ -80,7 +80,9 @@ constexpr std::optional<blend_factors> blend_function(const blend b)
 	return std::nullopt;
 }
 
-/* Whether a draw of t rasterizes with the line width. */
+/* Whether a draw of t rasterizes with the line width: glLineWidth for
+ * lines, glPointSize for points.
+ */
 [[nodiscard]]
 constexpr bool uses_line_width(const topology t)
 {
@@ -102,6 +104,7 @@ constexpr bool uses_line_width(const topology t)
  * translate(array<float, 3>)     glTranslatef
  * scale(array<float, 3>)         glScalef
  * line_width(float)              glLineWidth
+ * point_size(float)              glPointSize
  */
 template <typename T>
 concept ops = requires(T &gl, const blend_factors &f, const viewport &v, const perspective &p,
@@ -120,6 +123,7 @@ concept ops = requires(T &gl, const blend_factors &f, const viewport &v, const p
 	gl.translate(a);
 	gl.scale(a);
 	gl.line_width(0.f);
+	gl.point_size(0.f);
 };
 
 /* Replays a projection recipe as ogl_start_frame and ogl_end_frame build it,
@@ -158,13 +162,16 @@ void replay(Gl &gl, const modelview &m)
  * changes GL behind the shadow's back, so the GL state of a draw is right
  * while two things hold:
  * (a) the front end's ambient state, which every draw call is built from,
- *     equals GL's blend, alpha reference, depth test, culling, viewport and
- *     transforms at each draw: a part changed behind the shadow's back then
- *     costs a redundant call, never a missing one;
- * (b) code outside the device leaves the alpha test on, glDepthFunc LEQUAL,
- *     glCullFace FRONT and the modelview matrix current, which the shadow
- *     sets once and assumes; ogl_start_frame does so before every 3D draw
- *     today.
+ *     equals GL's blend, alpha test and reference, depth test, culling,
+ *     line width, viewport and transforms at each draw: a part changed
+ *     behind the shadow's back then costs a redundant call, never a missing
+ *     one.  A draw with the alpha test off (alpha_test_off) turns
+ *     GL_ALPHA_TEST off and leaves the alpha function alone, as GL is
+ *     before the first ogl_start_frame;
+ * (b) code outside the device leaves glDepthFunc LEQUAL, glCullFace FRONT
+ *     and the modelview matrix current, which the shadow sets once and
+ *     assumes; ogl_start_frame does so before every 3D draw today.  Only
+ *     the device draws points, so the point size is the shadow's alone.
  */
 class state_shadow
 {
@@ -177,6 +184,7 @@ class state_shadow
 	std::optional<bool> cull_on_;
 	bool cull_face_set_{false};
 	std::optional<float> line_width_;
+	std::optional<float> point_size_;
 	std::optional<render::viewport> viewport_;
 	std::optional<render::projection> projection_;
 	std::optional<render::modelview> modelview_;
@@ -210,8 +218,9 @@ class state_shadow
 		}
 		else
 			enable(gl, blend_on_, capability::blend, false);
-		enable(gl, alpha_test_on_, capability::alpha_test, true);
-		if (alpha_ref_ != s.alpha_ref)
+		const bool alpha_test_on{s.alpha_ref != alpha_test_off};
+		enable(gl, alpha_test_on_, capability::alpha_test, alpha_test_on);
+		if (alpha_test_on && alpha_ref_ != s.alpha_ref)
 		{
 			gl.alpha_func_gequal(s.alpha_ref);
 			alpha_ref_ = s.alpha_ref;
@@ -230,7 +239,15 @@ class state_shadow
 			gl.cull_face_front();
 			cull_face_set_ = true;
 		}
-		if (uses_line_width(call.topology) && line_width_ != s.line_width)
+		if (call.topology == topology::points)
+		{
+			if (point_size_ != s.line_width)
+			{
+				gl.point_size(s.line_width);
+				point_size_ = s.line_width;
+			}
+		}
+		else if (uses_line_width(call.topology) && line_width_ != s.line_width)
 		{
 			gl.line_width(s.line_width);
 			line_width_ = s.line_width;
