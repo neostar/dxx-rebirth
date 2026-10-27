@@ -29,6 +29,12 @@ WARNING-CreateInstance-status-message(INFO / SPEC): msgNum: 601872502 - Validati
 SDL_GPU Driver: Vulkan
 sdlgpu: debug mode on'
 
+d3d12='INFO: Validation layers enabled, expect debug level performance!
+INFO: SDL_GPU Driver: D3D12
+INFO: D3D12 Adapter: Microsoft Basic Render Driver
+INFO: D3D12 Driver: 10.0.26100.1
+INFO: sdlgpu: debug mode on'
+
 # Test that a run with validation active and no message passes with the
 # program's own exit status.
 test_clean_run_passes_with_its_status()
@@ -204,6 +210,42 @@ redundant setDepthBias."
 		assert_contains "$out" "re-justify"
 		[[ $rc -eq 1 ]] || fail "SDL3 $version: status $rc, expected 1"
 	done
+}
+
+# Test that a D3D12 run with the debug layer on and no message passes, also
+# when its lines end in CR LF, as SDL's log and a Windows program's write
+# them.
+test_d3d12_clean_run_passes()
+{
+	assert_contains "$(validate "$d3d12")" "probe: no validation messages
+status 0"
+	assert_contains "$(validate "${d3d12//$'\n'/$'\r\n'}"$'\r')" "probe: no validation messages
+status 0"
+}
+
+# Test that a D3D12 run without the debug layer (no Graphics Tools, or
+# Wine) fails, and so does one with only part of it: SDL warns then.
+test_d3d12_without_debug_layer_fails()
+{
+	local out
+	out=$(validate "${d3d12/INFO: Validation layers enabled, expect debug level performance!/WARNING: Validation layers not found, continuing without validation}")
+	assert_contains "$out" "probe: the D3D12 debug layer was not active"
+	assert_contains "$out" "status 1"
+	out=$(validate "${d3d12/INFO: Validation layers enabled, expect debug level performance!/WARNING: Validation layers partially enabled, some warnings may not be available}")
+	assert_contains "$out" "probe: the D3D12 debug layer was not active"
+}
+
+# Test that a D3D12 debug layer message, which SDL logs as an error or a
+# warning, fails a run that exits 0.
+test_d3d12_debug_layer_message_fails()
+{
+	assert_contains "$(validate "$d3d12
+ERROR: D3D12 ERROR: ID3D12CommandList::DrawInstanced: bad [ EXECUTION ERROR #1]")" \
+		"probe: 1 from SDL's GPU debug mode
+status 1"
+	assert_contains "$(validate "$d3d12
+WARNING: D3D12 WARNING: ID3D12Device::CreateCommittedResource: clear value [ STATE_CREATION WARNING #820]")" \
+		"status 1"
 }
 
 run_tests

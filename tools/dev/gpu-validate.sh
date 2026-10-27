@@ -6,7 +6,9 @@
 #
 # Turns on Metal API validation (MTL_DEBUG_LAYER=1, logging instead of
 # aborting), Metal shader validation (MTL_SHADER_VALIDATION=1, reporting to
-# stderr instead of os_log) and the Vulkan validation layer's errors,
+# stderr instead of os_log), the D3D12 debug layer (SDL's debug mode loads
+# it when Windows' Graphics Tools feature is installed and logs its
+# messages as errors and warnings) and the Vulkan validation layer's errors,
 # warnings and performance warnings, with synchronization and thread-safety
 # validation (vk_layer_settings.txt); SDL's GPU debug mode is CMD's own: it
 # creates its device with debug_mode true, which on Vulkan also loads the
@@ -24,7 +26,8 @@
 #     fragment for a draw's),
 #     the Vulkan layer's "Validation Error/Warning" messages;
 #   - no SDL_GPU device, its debug mode not on (no `sdlgpu: debug mode
-#     on` line), or its validation not active (on Vulkan, the
+#     on` line), or its validation not active (on D3D12, SDL's
+#     "Validation layers enabled" line missing; on Vulkan, the
 #     layer's status must list synchronization validation and no disables,
 #     naming any it lists).
 # Otherwise CMD's own exit status.
@@ -48,8 +51,10 @@ export VK_LAYER_SETTINGS_PATH
 export SDL_ASSERT=ignore SDL_LOGGING='assert=warn,gpu=info,*=warn'
 log=$(mktemp "${TMPDIR:-/tmp}/gpu-validate.XXXXXX")
 trap 'rm -f "$log"' EXIT
-"$@" > "$log" 2>&1
-rc=$?
+# A Windows program's lines, SDL's log among them, end in CR LF: drop the
+# CRs, so that every match below sees the line's own end.
+"$@" 2>&1 | tr -d '\r' > "$log"
+rc=${PIPESTATUS[0]}
 cat "$log"
 
 problems=()
@@ -107,6 +112,11 @@ elif matches 'SDL_GPU Driver: Vulkan' >/dev/null; then
 	elif [[ $disables != None ]]; then
 		problems+=("Vulkan validation disabled: $disables")
 	fi
+elif matches 'SDL_GPU Driver: D3D12' >/dev/null; then
+	# SDL prints this only when both the DXGI and the D3D12 debug layers
+	# loaded; with neither or one of them it warns instead.
+	matches 'Validation layers enabled' >/dev/null ||
+		problems+=("the D3D12 debug layer was not active (Windows' Graphics Tools feature)")
 else
 	problems+=("no SDL_GPU device was created, so nothing was validated")
 fi
