@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/render/frame_setup.h"
 #include "common/render/moved_draw.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
@@ -647,6 +648,91 @@ BOOST_AUTO_TEST_CASE(direct_draw_after_moved_draw_is_not_moved)
 	const auto rgb{drawing(d)};
 	BOOST_TEST((column(rgb, target.width / 4) == std::array<std::uint8_t, 3>{{0, 255, 0}}));
 	BOOST_TEST((column(rgb, target.width * 3 / 4) == std::array<std::uint8_t, 3>{{255, 0, 0}}));
+}
+
+namespace {
+
+/* How a flash reaches the picture. */
+enum class flash_path : std::uint8_t
+{
+	none,
+	/* draw_palette_flash on the device. */
+	device,
+	/* The GL calls ogl_do_palfx made before the render device, replayed. */
+	direct_gl,
+};
+
+/* The picture after a green quad and the flash of the palette step
+ * (r, g, b), by path.
+ */
+std::vector<std::uint8_t> flashed_picture(const flash_path path, const float r, const float g,
+                                          const float b)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	d.clear({.color = true, .depth = true});
+	const quad base{{{0.2f, 0.6f, 0.3f, 1}}};
+	d.draw(base.call);
+	if (path == flash_path::device)
+	{
+		render::ambient a;
+		a.viewport = {.x = 0, .y = 0, .size = target};
+		const auto flash{render::flash_of(r, g, b, true)};
+		BOOST_REQUIRE(flash.has_value());
+		render::draw_palette_flash(d, a, flash.value());
+	}
+	else if (path == flash_path::direct_gl)
+	{
+		GLfloat alast_r = r, alast_g = g, alast_b = b;
+		glDisable(GL_TEXTURE_2D);
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glEnableClientState(GL_COLOR_ARRAY);
+		glEnable(GL_BLEND);
+		if (r <= 0 && g <= 0 && b <= 0)
+		{
+			alast_r = static_cast<GLfloat>(r * -2.5);
+			alast_g = static_cast<GLfloat>(g * -2.5);
+			alast_b = static_cast<GLfloat>(b * -2.5);
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+		}
+		else
+			glBlendFunc(GL_ONE, GL_ONE);
+		const std::array<GLfloat, 16> color_array{{alast_r, alast_g, alast_b, 1.0, alast_r, alast_g,
+		                                           alast_b, 1.0, alast_r, alast_g, alast_b, 1.0,
+		                                           alast_r, alast_g, alast_b, 1.0}};
+		const std::array<GLfloat, 8> vertices{{0, 0, 0, 1, 1, 1, 1, 0}};
+		glVertexPointer(2, GL_FLOAT, 0, vertices.data());
+		glColorPointer(4, GL_FLOAT, 0, color_array.data());
+		glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+		glDisableClientState(GL_VERTEX_ARRAY);
+		glDisableClientState(GL_COLOR_ARRAY);
+	}
+	return drawing(d);
+}
+
+}
+
+/* Test that a darkening palette flash (palfx_neg) gives the picture the
+ * direct GL calls gave before the render device, and changes the picture.
+ */
+BOOST_AUTO_TEST_CASE(negative_palette_flash_matches_direct_gl)
+{
+	const auto device{flashed_picture(flash_path::device, -0.1f, -0.2f, 0.f)};
+	BOOST_TEST(device == flashed_picture(flash_path::direct_gl, -0.1f, -0.2f, 0.f),
+	           boost::test_tools::per_element());
+	BOOST_TEST(device != flashed_picture(flash_path::none, 0, 0, 0));
+}
+
+/* Test that an adding palette flash with a negative component (additive_c,
+ * which GL clamps to 0) gives the picture the direct GL calls gave, and
+ * changes the picture.
+ */
+BOOST_AUTO_TEST_CASE(mixed_sign_palette_flash_matches_direct_gl)
+{
+	const auto device{flashed_picture(flash_path::device, 0.3f, -0.1f, 0.2f)};
+	BOOST_TEST(device == flashed_picture(flash_path::direct_gl, 0.3f, -0.1f, 0.2f),
+	           boost::test_tools::per_element());
+	BOOST_TEST(device != flashed_picture(flash_path::none, 0, 0, 0));
 }
 
 /* Test that copy_region copies the rectangle of the target to another
