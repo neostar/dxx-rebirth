@@ -64,6 +64,13 @@ repository; its header lists them).
   implementer's commits, merge them into `sdl-gpu-port`, then run
   `tools/dev/ci.sh --tested sdl-gpu-port`: it passes only when the merged tree is one a passing
   gate checked (signing changes commits, not trees). Push.
+- **Batches** (owner 2026-10-27): a gate's cost is fixed per run (R1 baseline and capture,
+  leaks, sanitizers, and the full run when any branch touches upstream game code), so gate
+  what is reviewed and ready as one linear chain of 2-4 tickets when the machine frees: stack
+  each branch on the one before, check each range-diff, run one `ci.sh --gate` on the chain's
+  tip, and sign and merge the chain in one sitting with the owner. A ticket that unblocks
+  another (a native dependency) goes in the next gate, alone if need be. When a batch fails,
+  read which ticket the failing step names; split and re-gate only when the log can't tell.
 - **Finish**: close with a comment giving review rounds and anything that surprised you, then
   `board.sh done N ROUNDS`. Remove the ticket's worktree (`git worktree remove`; the branch
   stays).
