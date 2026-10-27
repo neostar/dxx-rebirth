@@ -18,6 +18,10 @@
 #include "args.h"
 #include "window.h"
 #include "dxxsconf.h"
+#if SDL_MAJOR_VERSION == 3
+#include "vers_id.h"
+#include "common/sdl/sdl_init.h"
+#endif
 
 #if DXX_USE_SDLIMAGE
 #include <SDL_image.h>
@@ -49,7 +53,11 @@ static void arch_close(void)
 		digi_close();
 	}
 #if DXX_USE_SDLIMAGE
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3_image needs neither IMG_Init nor IMG_Quit. */
+#else
 	IMG_Quit();
+#endif
 #endif
 	SDL_Quit();
 }
@@ -63,10 +71,33 @@ arch_atexit arch_init()
 {
 	int t;
 
+#if SDL_MAJOR_VERSION == 3
+	/* The identifier is the bundle identifier of common/arch/cocoa/Info.plist
+	 * and, on Wayland, the application id.
+	 */
+	const dcx::sdl::app_metadata metadata{
+		.name = "D" DXX_STRINGIZE(DXX_BUILD_DESCENT) "X-Rebirth",
+		.version = DXX_VERSION_STR,
+		.identifier = "com.dxx-rebirth.d" DXX_STRINGIZE(DXX_BUILD_DESCENT) "x-rebirth",
+	};
+	const auto report{dcx::sdl::init_video(metadata)};
+	if (report.metadata_refused)
+		con_printf(CON_NORMAL, "SDL refused the application metadata: %s", report.metadata_error.c_str());
+	for (const auto name : report.refused_hints)
+		if (name)
+			con_printf(CON_NORMAL, "SDL refused the hint %s", name);
+	if (!report.initialised)
+		Error("SDL library initialisation failed: %s.",SDL_GetError());
+#else
 	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		Error("SDL library initialisation failed: %s.",SDL_GetError());
+#endif
 #if DXX_USE_SDLIMAGE
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3_image needs neither IMG_Init nor IMG_Quit. */
+#else
 	IMG_Init(0);
+#endif
 #endif
 #if SDL_MAJOR_VERSION == 2
 	/* In SDL1, grabbing input grabbed both the keyboard and the mouse.
@@ -87,6 +118,8 @@ arch_atexit arch_init()
 	/* Support the Alt+Shift+F4 hotkey for renaming the Guide-Bot
 	 */
 	SDL_SetHint(SDL_HINT_WINDOWS_NO_CLOSE_ON_ALT_F4, "1");
+#elif SDL_MAJOR_VERSION == 3
+	/* The hints are set before SDL_Init, in dcx::sdl::init_video. */
 #endif
 
 	key_init();

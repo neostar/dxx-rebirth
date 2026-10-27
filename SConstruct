@@ -5043,7 +5043,8 @@ class DXXCommon(LazyObjectConstructor):
 		# manually from a shell.  The only capability lost for non-native tests
 		# is that the `check` target will not attempt to run them.
 		runnable_runtime_tests = [] if user_settings._enumerated_build_platform == user_settings._enumerated_host_platform else None
-		for test in runtime_test_boost_tests:
+		# Tests of the SDL3 arm run in the SDL3 build only.
+		for test in (*runtime_test_boost_tests, *(self.sdl3_runtime_tests if user_settings.sdl3 else ())):
 			LIBS = [] if (env_LIBS is None or not test.use_default_libs) else env_LIBS.copy()
 			LIBS.extend((
 				'boost_unit_test_framework',
@@ -5097,6 +5098,7 @@ class DXXCommon(LazyObjectConstructor):
 	runtime_test_boost_tests: collections.abc.Sequence[RuntimeTest] = None
 	rtrace_programs: collections.abc.Sequence[RuntimeTest] = None
 	sdlgpu_programs: collections.abc.Sequence[RuntimeTest] = None
+	sdl3_runtime_tests: collections.abc.Sequence[RuntimeTest] = ()
 
 class DXXArchive(DXXCommon):
 	PROGRAM_NAME: typing.Final[str] = 'DXX-Archive'
@@ -5269,6 +5271,11 @@ class DXXArchive(DXXCommon):
 			'common/render/trace.cpp',
 			)),
 			)
+	sdl3_runtime_tests = (
+		RuntimeTest('test-sdl-init', (
+			'common/sdl/unittest/sdl_init.cpp',
+			) + (('common/sdl/macos_defaults.mm',) if sys.platform == 'darwin' else ()), use_default_libs=True),
+		)
 	del RuntimeTest, _rtrace_sources
 
 	def get_objects_common(self,
@@ -5601,7 +5608,6 @@ class DXXProgram(DXXCommon):
 'similar/3d/interp.cpp',
 'similar/arch/sdl/digi.cpp',
 'similar/arch/sdl/digi_audio.cpp',
-'similar/arch/sdl/init.cpp',
 'similar/main/ai.cpp',
 'similar/main/aipath.cpp',
 'similar/main/automap.cpp',
@@ -5682,6 +5688,11 @@ class DXXProgram(DXXCommon):
 		transform_env = lambda self, env: {
 			'CPPDEFINES' : tuple(itertools.chain(env['CPPDEFINES'], env.__dxx_CPPDEFINE_SHAREPATH))
 			},
+		transform_target=_apply_target_name,
+	), LazyObjectState(sources=(
+'similar/arch/sdl/init.cpp',
+),
+		transform_env=_apply_env_version_seq,
 		transform_target=_apply_target_name,
 	), LazyObjectState(sources=(
 'similar/main/playsave.cpp',
