@@ -3,3 +3,4 @@
 # compilation database, which build/dev's lacks.
 common/render/sdlgpu_device.cpp
 common/render/unittest/sdlgpu_device.cpp
+common/render/rtrace/gpu_main.cpp

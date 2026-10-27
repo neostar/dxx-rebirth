@@ -5234,6 +5234,16 @@ class DXXArchive(DXXCommon):
 			'common/render/replay.cpp',
 			'common/render/trace.cpp',
 			)),
+		# rtrace through SDL_GPU (R3): run by hand or by a check through
+		# gpu-validate.sh, on the trace it is given.
+		RuntimeTest('rtrace-gpu', (
+			'common/render/rtrace/gpu_main.cpp',
+			'common/render/rtrace/replay_file.cpp',
+			'common/render/sdlgpu_device.cpp',
+			'common/render/sdlgpu_frame.cpp',
+			'common/render/replay.cpp',
+			'common/render/trace.cpp',
+			)),
 			)
 	del RuntimeTest, _rtrace_sources
 
