@@ -8,9 +8,11 @@
 #include "common/render/caps.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <ostream>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -181,65 +183,64 @@ sdlgpu::device_caps caps_with(const bool nearest_anisotropy)
 
 }
 
-/* Test that a nearest sampler keeps anisotropy, with linear mipmaps, on a
- * device that allows it (Metal, Vulkan): the GL look.
- */
-BOOST_AUTO_TEST_CASE(nearest_sampler_keeps_anisotropy_where_allowed)
+namespace dcx::render::sdlgpu {
+
+/* Lets BOOST_TEST print a sampler_choice it finds unequal. */
+std::ostream &operator<<(std::ostream &o, const sampler_choice &c)
 {
-	const auto c{sdlgpu::choose_sampler(render::filter::nearest, true, caps_with(true))};
-	BOOST_TEST(!c.linear);
-	BOOST_TEST(c.linear_mipmap);
-	BOOST_TEST(c.anisotropic);
+	return o << "{linear " << c.linear << ", linear_mipmap " << c.linear_mipmap << ", anisotropic "
+	         << c.anisotropic << '}';
 }
 
-/* Test that a nearest sampler drops anisotropy on a device without it
- * (D3D12), which would reject the filter, and stays nearest throughout.
- */
-BOOST_AUTO_TEST_CASE(nearest_sampler_drops_anisotropy_where_not_allowed)
-{
-	const auto c{sdlgpu::choose_sampler(render::filter::nearest, true, caps_with(false))};
-	BOOST_TEST(!c.linear);
-	BOOST_TEST(!c.linear_mipmap);
-	BOOST_TEST(!c.anisotropic);
 }
 
-/* Test that a trilinear sampler keeps anisotropy on every device, and has
- * none where the key does not ask.
+/* Test every sampler the filter, the key's wish for anisotropy, the probe's
+ * anisotropy and the device's nearest anisotropy can ask for.  A nearest
+ * sampler keeps anisotropy, with linear mipmaps, only where the probe found
+ * some and the device allows it with nearest filtering (Metal, Vulkan, not
+ * D3D12); a trilinear sampler needs only the probe; with none the mipmaps
+ * stay nearest for nearest.
  */
-BOOST_AUTO_TEST_CASE(trilinear_sampler_keeps_anisotropy_everywhere)
+BOOST_AUTO_TEST_CASE(sampler_choice_over_every_combination)
 {
-	for (const bool nearest_ok : {false, true})
+	struct row
 	{
-		const auto c{
-		    sdlgpu::choose_sampler(render::filter::trilinear, true, caps_with(nearest_ok))};
-		BOOST_TEST(c.linear);
-		BOOST_TEST(c.linear_mipmap);
-		BOOST_TEST(c.anisotropic);
-		BOOST_TEST(!sdlgpu::choose_sampler(render::filter::trilinear, false, caps_with(nearest_ok))
-		                .anisotropic);
-	}
-}
-
-/* Test that no sampler has anisotropy where the probe found none. */
-BOOST_AUTO_TEST_CASE(sampler_without_probed_anisotropy_has_none)
-{
-	for (const bool nearest_ok : {false, true})
+		render::filter filter;
+		bool want_anisotropy;
+		bool probed_anisotropy;
+		bool nearest_anisotropy;
+		sdlgpu::sampler_choice expected;
+	};
+	constexpr auto nearest{render::filter::nearest};
+	constexpr auto trilinear{render::filter::trilinear};
+	constexpr sdlgpu::sampler_choice plain_nearest{false, false, false};
+	constexpr sdlgpu::sampler_choice aniso_nearest{false, true, true};
+	constexpr sdlgpu::sampler_choice plain_trilinear{true, true, false};
+	constexpr sdlgpu::sampler_choice aniso_trilinear{true, true, true};
+	constexpr std::array rows{
+	    row{nearest, false, false, false, plain_nearest},
+	    row{nearest, false, false, true, plain_nearest},
+	    row{nearest, false, true, false, plain_nearest},
+	    row{nearest, false, true, true, plain_nearest},
+	    row{nearest, true, false, false, plain_nearest},
+	    row{nearest, true, false, true, plain_nearest},
+	    row{nearest, true, true, false, plain_nearest},
+	    row{nearest, true, true, true, aniso_nearest},
+	    row{trilinear, false, false, false, plain_trilinear},
+	    row{trilinear, false, false, true, plain_trilinear},
+	    row{trilinear, false, true, false, plain_trilinear},
+	    row{trilinear, false, true, true, plain_trilinear},
+	    row{trilinear, true, false, false, plain_trilinear},
+	    row{trilinear, true, false, true, plain_trilinear},
+	    row{trilinear, true, true, false, aniso_trilinear},
+	    row{trilinear, true, true, true, aniso_trilinear},
+	};
+	for (const auto &r : rows)
 	{
-		auto none{caps_with(nearest_ok)};
-		none.common.anisotropic = false;
-		BOOST_TEST(!sdlgpu::choose_sampler(render::filter::nearest, true, none).anisotropic);
+		auto caps{caps_with(r.nearest_anisotropy)};
+		caps.common.anisotropic = r.probed_anisotropy;
+		BOOST_TEST(sdlgpu::choose_sampler(r.filter, r.want_anisotropy, caps) == r.expected);
 	}
-}
-
-/* Test that a nearest sampler the key gives no anisotropy keeps nearest
- * mipmaps on a device that allows nearest anisotropy.
- */
-BOOST_AUTO_TEST_CASE(nearest_sampler_without_anisotropy_keeps_nearest_mipmaps)
-{
-	const auto c{sdlgpu::choose_sampler(render::filter::nearest, false, caps_with(true))};
-	BOOST_TEST(!c.linear);
-	BOOST_TEST(!c.linear_mipmap);
-	BOOST_TEST(!c.anisotropic);
 }
 
 /* Test that the probe carries the query's answer into the caps, and that

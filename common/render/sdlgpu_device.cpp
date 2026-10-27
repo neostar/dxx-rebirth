@@ -204,6 +204,14 @@ SDL_GPUSampleCount to_sample_count(const std::uint32_t samples)
 	}
 }
 
+/* The name of d's driver; empty where SDL reports none. */
+[[nodiscard]]
+std::string driver_name(SDL_GPUDevice *const d)
+{
+	const char *const name{SDL_GetGPUDeviceDriver(d)};
+	return name ? name : "";
+}
+
 [[nodiscard]]
 format_queries queries_of(SDL_GPUDevice *const d)
 {
@@ -217,10 +225,7 @@ format_queries queries_of(SDL_GPUDevice *const d)
 	        [d](const std::uint32_t samples) {
 		        return SDL_GPUTextureSupportsSampleCount(d, color_format, to_sample_count(samples));
 	        },
-	    .anisotropy_with_nearest = driver_allows_nearest_anisotropy([d] {
-		    const char *const name{SDL_GetGPUDeviceDriver(d)};
-		    return name ? name : "";
-	    }()),
+	    .anisotropy_with_nearest = driver_allows_nearest_anisotropy(driver_name(d)),
 	};
 }
 
@@ -275,7 +280,6 @@ sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const 
                               const device_caps &caps)
 {
 	const auto choice{choose_sampler(key.filter, key.anisotropic, caps)};
-	const bool anisotropic{choice.anisotropic};
 	const auto address{key.wrap == render::wrap::repeat ? SDL_GPU_SAMPLERADDRESSMODE_REPEAT
 	                                                    : SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE};
 	SDL_GPUSamplerCreateInfo info{};
@@ -286,8 +290,8 @@ sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const 
 	info.address_mode_u = address;
 	info.address_mode_v = address;
 	info.address_mode_w = address;
-	info.max_anisotropy = anisotropic ? caps.max_anisotropy : 1.f;
-	info.enable_anisotropy = anisotropic;
+	info.max_anisotropy = choice.anisotropic ? caps.max_anisotropy : 1.f;
+	info.enable_anisotropy = choice.anisotropic;
 	info.max_lod = 1000.f;
 	return {d, SDL_CreateGPUSampler(d, &info), &l, "SDL_CreateGPUSampler"};
 }
@@ -938,8 +942,7 @@ std::chrono::nanoseconds device::pipeline_build_time() const
 
 std::string device::driver() const
 {
-	const char *const name{SDL_GetGPUDeviceDriver(state_->gpu.get())};
-	return name ? name : "";
+	return driver_name(state_->gpu.get());
 }
 
 device::buffer_sizes device::upload_buffer_sizes() const
