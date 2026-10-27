@@ -3,8 +3,8 @@
 # Wine, in tools/dev/windows/Dockerfile.
 #
 #   windows.sh build OUT   cross-build rtrace-gpu.exe and its DLLs into OUT
-#   windows.sh wine OUT    run rtrace-d3d12.sh on OUT's build under x64 Wine,
-#                          D3D12 through vkd3d-proton on lavapipe
+#   windows.sh wine OUT    smoke-test OUT's build under x64 Wine (rtrace-d3d12.sh
+#                          --smoke): D3D12 through vkd3d-proton on lavapipe
 #
 # The image is built from toolchain.pins (base image, apt snapshot, SDL3)
 # and tagged by a hash of the Dockerfile and the pins, so a stale one is
@@ -13,9 +13,10 @@
 # container with --network none, the source tree mounted read-only.  The
 # wine run draws to an Xvfb inside the container (Wine's DXGI needs a
 # display); nothing reaches the host's screen and nothing plays sound.
-# Wine has no D3D12 debug layer, so its run fails on the missing
-# validation (gpu-validate.sh) even when every frame hash matches: it
-# proves the build loads and renders, the GitHub run proves the rest.
+# The wine run is a smoke test only (owner decision on #49): the exe runs,
+# SDL picks D3D12 and every trace renders all its frames.  Wine has no
+# D3D12 debug layer and vkd3d-proton is not D3D12, so it asks for no
+# validation and compares no hashes; the GitHub run checks the rest.
 # The Docker daemon must be running (on the Mac: `orb start`).
 set -eu
 dev_dir=$(cd "$(dirname "$0")" && pwd)
@@ -75,7 +76,7 @@ case $mode in
 			sleep 1
 			wine cmd /c exit >/dev/null 2>&1
 			rc=0
-			/src/tools/dev/rtrace-d3d12.sh "$d" wine || rc=$?
+			/src/tools/dev/rtrace-d3d12.sh --smoke "$d" wine || rc=$?
 			wineserver -k || true
 			exit "$rc"' ;;
 esac

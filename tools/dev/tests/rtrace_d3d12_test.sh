@@ -17,6 +17,12 @@ INFO: D3D12 Adapter: Microsoft Basic Render Driver
 INFO: D3D12 Driver: 10.0.26100.1
 INFO: sdlgpu: debug mode on
 rtrace-gpu: D3D12 GPU-based validation on'
+# What a run under Wine prints: no debug layer, no GPU-based validation
+# asked for, and a Vulkan device behind D3D12.
+wine_lines='WARNING: Validation layers not found, continuing without validation
+INFO: SDL_GPU Driver: D3D12
+INFO: D3D12 Adapter: llvmpipe (LLVM 20.1.2, 256 bits)
+INFO: sdlgpu: debug mode on'
 
 # Make a directory holding a fake rtrace-gpu.exe and print its path.  The
 # fake prints $FAKE_OUT (default: the D3D12 lines above) with CR LF line
@@ -190,6 +196,50 @@ test_launcher_runs_the_program()
 	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 3
 }
 
+# Test that the smoke mode (Wine) passes a run that renders every frame on
+# D3D12 without the debug layer, GPU-based validation, WARP or GL's hashes,
+# does not ask the program for GPU-based validation, and records no hashes.
+test_smoke_run_passes_without_validation_or_warp()
+{
+	local d out
+	d=$(fake_build)
+	out=$(FAKE_OUT=$wine_lines FAKE_HASH=0000000000000000 check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: adapter: llvmpipe"
+	assert_contains "$out" "rtrace-d3d12: smoke test passed"
+	assert_contains "$out" "status 0"
+	assert_eq "$(cat "$d/calls.log")" "sample.rtr direct3d12 unset
+overbright.rtr direct3d12 unset
+flash.rtr direct3d12 unset"
+	assert_not_contains "$out" "rtrace-d3d12: passed"
+}
+
+# Test that the smoke mode fails a trace that does not render all its
+# frames, a run on another driver or on none, and a failing program, and
+# runs the program through a launcher.
+test_smoke_run_fails_on_missing_frames_driver_or_status()
+{
+	local d out l
+	d=$(fake_build)
+	out=$(FAKE_OUT=$wine_lines FAKE_LINES='0 64x48 86388f1d5003af2a' check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace did not render all its frames"
+	assert_contains "$out" "status 1"
+	out=$(FAKE_OUT="${wine_lines/Driver: D3D12/Driver: Vulkan}" check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace ran on Vulkan, not D3D12"
+	assert_contains "$out" "status 1"
+	out=$(FAKE_OUT="no driver here" check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: the sample trace ran on no driver, not D3D12"
+	assert_contains "$out" "status 1"
+	out=$(FAKE_OUT=$wine_lines FAKE_STATUS=3 check --smoke "$d")
+	assert_contains "$out" "rtrace-d3d12: rtrace-gpu failed on the sample trace"
+	assert_contains "$out" "status 1"
+	l=$(make_scratch) || die "make_scratch failed"
+	printf '#!/bin/sh\necho launched >> "%s/launches"\nexec "$@"\n' "$l" > "$l/launch"
+	chmod +x "$l/launch"
+	out=$(FAKE_OUT=$wine_lines check --smoke "$d" "$l/launch")
+	assert_contains "$out" "status 0"
+	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 3
+}
+
 # Test the usage errors and a directory without the build.
 test_usage_and_missing_build()
 {
@@ -201,6 +251,7 @@ test_usage_and_missing_build()
 	assert_contains "$(check --hashes)" "status 2"
 	assert_contains "$(check "$d")" "rtrace-d3d12: no rtrace-gpu.exe in $d"
 	assert_contains "$(check "$d")" "status 1"
+	assert_contains "$(check --smoke "$d")" "status 1"
 }
 
 run_tests
