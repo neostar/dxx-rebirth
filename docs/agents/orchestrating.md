@@ -14,6 +14,8 @@ For the session that owns the tickets, the merges and every push. Implementers a
   round's brief lists each review finding with its file:line.
 - **Agents at once**: at most two implementer agents (fix rounds included); reviewers and research
   runs may run beside them.
+- **Models**: agents run on Sonnet. The full review of game code and shaders (Review bar below)
+  runs on Opus (`model: "opus"`): a HIGH missed there costs more than the review.
 - **Time box**: 60 + 15 × story points minutes, wait time included: about an hour is fixed per
   ticket (worktree, prefix build, CI, review, merge). Measured on 17 tickets (2026-10-22): 1 pt
   about 72 min, 3 pt 82, 5 pt 135, 8 pt 172. At the box, comment on the ticket what is done,
