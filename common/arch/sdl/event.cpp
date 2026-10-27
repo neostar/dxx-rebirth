@@ -27,6 +27,9 @@
 #include "joy.h"
 #include "args.h"
 #include "partial_range.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script_harness.h"
 #include "console.h"
@@ -47,9 +50,11 @@ struct event_poll_state
 
 }
 
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 extern SDL_Window *g_pRebirthSDLMainWindow;
+#endif
 
+#if SDL_MAJOR_VERSION == 2
 static void windowevent_handler(const SDL_WindowEvent &windowevent)
 {
 	switch (windowevent.event)
@@ -104,10 +109,17 @@ void harness_push_input()
 		}
 		SDL_Event event{};
 		const bool down{e.action == input_action::key_down};
+#if SDL_MAJOR_VERSION == 3
+		event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+		event.key.down = down;
+		event.key.key = input_key_entry(key_properties, e.key).sym;
+		if (!SDL_PushEvent(&event))
+#else
 		event.key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
 		event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
 		event.key.keysym.sym = input_key_entry(key_properties, e.key).sym;
 		if (SDL_PushEvent(&event) < 0)
+#endif
 			UserError("DXX_DBG_INPUT_SCRIPT: pushing an event failed: %s", SDL_GetError());
 	}
 }
@@ -131,7 +143,7 @@ window_event_result event_poll()
 		SDL_PumpEvents();
 #if SDL_MAJOR_VERSION == 1
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_ALLEVENTS);
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
 #endif
 		if (peep <= 0)
@@ -167,6 +179,15 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 			case SDL_WINDOWEVENT:
 				windowevent_handler(event.window);
 				continue;
+#elif SDL_MAJOR_VERSION == 3
+			case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+			{
+				/* Dropped until #41 sends d_window_size_event from SDL3's window events. */
+				static dcx::sdl::link_stub stub{"the window resize event", "#41"};
+				if (stub.first_use())
+					con_printf(CON_NORMAL, "%s", stub.message().c_str());
+				continue;
+			}
 #endif
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
@@ -256,7 +277,7 @@ void event_flush()
 		SDL_PumpEvents();
 #if SDL_MAJOR_VERSION == 1
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_ALLEVENTS);
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 		const auto peep = SDL_PeepEvents(events.data(), events.size(), SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
 #endif
 		if (peep != events.size())
@@ -352,6 +373,10 @@ static void event_change_focus()
 #elif SDL_MAJOR_VERSION == 2
 	SDL_SetWindowGrab(g_pRebirthSDLMainWindow, enable_grab ? SDL_TRUE : SDL_FALSE);
 	SDL_SetRelativeMouseMode(enable_grab ? SDL_TRUE : SDL_FALSE);
+#elif SDL_MAJOR_VERSION == 3
+	SDL_SetWindowMouseGrab(g_pRebirthSDLMainWindow, enable_grab);
+	SDL_SetWindowKeyboardGrab(g_pRebirthSDLMainWindow, enable_grab);
+	SDL_SetWindowRelativeMouseMode(g_pRebirthSDLMainWindow, enable_grab);
 #endif
 	if (activate_focus)
 		mouse_disable_cursor();
