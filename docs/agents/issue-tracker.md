@@ -60,9 +60,9 @@ A prompt that says "follow Working a ticket" adds only the ticket number and the
 5. **Plants**: for every check or guard you write, plant its removal once (delete it or make it
    pass everything) and run its test: the test must go red. Restore it before committing.
 6. **Time box**: at the box, commit what is green and go to the report.
-7. **Report**, once the merge gate, `tools/dev/ci.sh --gate` (ADR 6), passes on your branch merged
-   with the current `sdl-gpu-port` tip; it adds the container leg or the full run when the
-   changed paths need them. Start `ci.sh` and other long builds first, in the background, and
+7. **Report**, once the unit tests, `tools/dev/check.sh --fast` and R1 (`tools/dev/r1.sh`, for
+   game code) pass on your committed branch. The orchestrator runs the merge gate alone on the
+   machine, so leave `ci.sh --gate` to it. Start long builds first, in the background, and
    work while they run. Give start and end times; commits by subject; each item as done, with the
    real run that proves it (the command on the real tools, its output, beside the tests with
    fakes), or open, with why; the test seams; the plants, each with the test that went red; anything surprising.
