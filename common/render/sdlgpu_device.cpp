@@ -217,6 +217,10 @@ format_queries queries_of(SDL_GPUDevice *const d)
 	        [d](const std::uint32_t samples) {
 		        return SDL_GPUTextureSupportsSampleCount(d, color_format, to_sample_count(samples));
 	        },
+	    .anisotropy_with_nearest = driver_allows_nearest_anisotropy([d] {
+		    const char *const name{SDL_GetGPUDeviceDriver(d)};
+		    return name ? name : "";
+	    }()),
 	};
 }
 
@@ -265,31 +269,20 @@ texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
 	return {d, SDL_CreateGPUTexture(d, &info), &l, "SDL_CreateGPUTexture"};
 }
 
-/* The sampler of key as ogl_loadtexture sets a texture's filters
- * (gl_device.cpp's upload): nearest, with anisotropy nearest between
- * mipmaps; trilinear; anisotropy only where the probe found it.
- */
+/* The sampler of key: choose_sampler's choice mapped to SDL's create info. */
 [[nodiscard]]
 sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const sampler_key &key,
                               const device_caps &caps)
 {
-	const bool anisotropic{key.anisotropic && caps.common.anisotropic};
+	const auto choice{choose_sampler(key.filter, key.anisotropic, caps)};
+	const bool anisotropic{choice.anisotropic};
 	const auto address{key.wrap == render::wrap::repeat ? SDL_GPU_SAMPLERADDRESSMODE_REPEAT
 	                                                    : SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE};
 	SDL_GPUSamplerCreateInfo info{};
-	if (key.filter == render::filter::nearest)
-	{
-		info.min_filter = SDL_GPU_FILTER_NEAREST;
-		info.mag_filter = SDL_GPU_FILTER_NEAREST;
-		info.mipmap_mode =
-		    anisotropic ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
-	}
-	else
-	{
-		info.min_filter = SDL_GPU_FILTER_LINEAR;
-		info.mag_filter = SDL_GPU_FILTER_LINEAR;
-		info.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
-	}
+	info.min_filter = choice.linear ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
+	info.mag_filter = info.min_filter;
+	info.mipmap_mode =
+	    choice.linear_mipmap ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
 	info.address_mode_u = address;
 	info.address_mode_v = address;
 	info.address_mode_w = address;

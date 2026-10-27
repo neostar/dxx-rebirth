@@ -174,6 +174,9 @@ querying feature support" (S0 `:145-148`) and offers queries where hardware diff
   result, not a given.
 - **Anisotropy**: SDL passes `max_anisotropy` unclamped (S4 `:6822`, S5 `:3351`) and has no limit
   query; Vulkan guarantees 16 where anisotropy is supported (V-K9).
+- **Anisotropy with nearest filtering**: false on D3D12, so a nearest sampler drops anisotropy
+  there. SDL has no query, so the probe decides by driver name (`SDL_GetGPUDeviceDriver`: true
+  for "metal" and "vulkan" only). Evidence: the WARP run's `CreateSampler2: Filter unrecognized`.
 - **Mipmaps**: `SDL_GenerateMipmapsForGPUTexture` needs SAMPLER and COLOR_TARGET usage and runs
   outside a pass (S1 `:3097-3106`).
 - **Present modes**: VSYNC always; Metal adds IMMEDIATE on macOS only, no MAILBOX

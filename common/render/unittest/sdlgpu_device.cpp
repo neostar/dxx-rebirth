@@ -345,6 +345,7 @@ BOOST_AUTO_TEST_CASE(device_caps_come_from_the_probe)
 	BOOST_TEST(d->caps().anisotropic);
 	BOOST_TEST(d->probed().max_anisotropy == 16.f);
 	BOOST_TEST(d->probed().supports_samples(1));
+	BOOST_TEST(d->probed().anisotropy_with_nearest);
 }
 
 /* Test that the presented image reads zero before the first present, and

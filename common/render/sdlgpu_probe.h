@@ -9,9 +9,10 @@
  * The SDL_GPU adapter's capability probe (docs/agents/sdl-gpu-backends.md,
  * area 5): what a device supports, asked once at creation through the
  * queries a device answers, so that no part of the adapter branches on a
- * backend's name.  Free of SDL: the device fills format_queries from
- * SDL_GPUTextureSupportsFormat and SDL_GPUTextureSupportsSampleCount, tests
- * from a list.
+ * backend's name, except driver_allows_nearest_anisotropy (SDL has no query
+ * for it).  Free of SDL: the device fills format_queries from
+ * SDL_GPUTextureSupportsFormat, SDL_GPUTextureSupportsSampleCount and
+ * SDL_GetGPUDeviceDriver, tests from a list.
  */
 
 #pragma once
@@ -22,8 +23,10 @@
 #include <expected>
 #include <functional>
 #include <stdexcept>
+#include <string_view>
 
 #include "common/render/caps.h"
+#include "common/render/render_device.h"
 
 namespace dcx::render::sdlgpu {
 
@@ -35,12 +38,30 @@ enum class depth_format : std::uint8_t
 
 /* What the probe asks a device: whether it can make a depth target of a
  * format, and a colour target (R8G8B8A8_UNORM) of a sample count.
+ * anisotropy_with_nearest is no format query but a fact the driver gives.
  */
 struct format_queries
 {
 	std::function<bool(depth_format)> depth_supported;
 	std::function<bool(std::uint32_t samples)> samples_supported;
+	/* Whether a nearest-filtered sampler may enable anisotropy; see
+	 * driver_allows_nearest_anisotropy.  Without an answer: no.
+	 */
+	bool anisotropy_with_nearest{false};
 };
+
+/* Whether a driver accepts anisotropy on a nearest-filtered sampler.  SDL
+ * has no query for it, so this is by SDL's driver name.  D3D12 allows
+ * anisotropy only with linear filtering, and SDL's SDLToD3D12_Filter ORs
+ * the anisotropy bit onto the basic filter, so CreateSampler fails with
+ * "Filter unrecognized"; Metal and Vulkan accept it.  An unknown driver
+ * gets no anisotropy on nearest samplers: the safe side.
+ */
+[[nodiscard]]
+constexpr bool driver_allows_nearest_anisotropy(const std::string_view driver)
+{
+	return driver == "metal" || driver == "vulkan";
+}
 
 /* SDL_GPU accepts at most this anisotropy everywhere: Vulkan guarantees 16
  * where anisotropy is supported, and SDL has no limit query.
@@ -57,6 +78,8 @@ struct device_caps
 	std::uint8_t sample_counts;
 	float max_anisotropy;
 	render::caps common;
+	/* Anisotropy with nearest filtering: false on D3D12. */
+	bool anisotropy_with_nearest{false};
 	[[nodiscard]]
 	constexpr bool supports_samples(const std::uint32_t samples) const
 	{
@@ -114,7 +137,34 @@ inline std::expected<device_caps, probe_failure> probe_caps(const format_queries
 	return device_caps{.depth = depth_format::d32_float,
 	                   .sample_counts = counts,
 	                   .max_anisotropy = anisotropy,
-	                   .common = {.anisotropic = anisotropy > 1.f}};
+	                   .common = {.anisotropic = anisotropy > 1.f},
+	                   .anisotropy_with_nearest = q.anisotropy_with_nearest};
+}
+
+/* What a sampler asks of the device: linear or nearest min/mag, linear or
+ * nearest between mipmaps, anisotropy on or off.
+ */
+struct sampler_choice
+{
+	bool linear;
+	bool linear_mipmap;
+	bool anisotropic;
+	constexpr bool operator==(const sampler_choice &) const = default;
+};
+
+/* The sampler of a texture filter, as ogl_loadtexture sets one
+ * (gl_device.cpp's upload): nearest, with anisotropy nearest between
+ * mipmaps; trilinear.  Anisotropy only where the probe found it, and on a
+ * nearest sampler only where the device allows it with nearest filtering.
+ */
+[[nodiscard]]
+constexpr sampler_choice choose_sampler(const render::filter f, const bool want_anisotropy,
+                                        const device_caps &caps)
+{
+	const bool linear{f != render::filter::nearest};
+	const bool anisotropic{want_anisotropy && caps.common.anisotropic &&
+	                       (linear || caps.anisotropy_with_nearest)};
+	return {.linear = linear, .linear_mipmap = linear || anisotropic, .anisotropic = anisotropic};
 }
 
 }

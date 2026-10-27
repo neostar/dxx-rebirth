@@ -166,3 +166,93 @@ BOOST_AUTO_TEST_CASE(probe_rejects_missing_queries)
 	r.depth_supported = nullptr;
 	BOOST_CHECK_THROW(std::ignore = sdlgpu::probe_caps(r, 1), std::invalid_argument);
 }
+
+namespace {
+
+[[nodiscard]]
+sdlgpu::device_caps caps_with(const bool nearest_anisotropy)
+{
+	return sdlgpu::device_caps{.depth = sdlgpu::depth_format::d32_float,
+	                           .sample_counts = 1,
+	                           .max_anisotropy = 16.f,
+	                           .common = {.anisotropic = true},
+	                           .anisotropy_with_nearest = nearest_anisotropy};
+}
+
+}
+
+/* Test that a nearest sampler keeps anisotropy, with linear mipmaps, on a
+ * device that allows it (Metal, Vulkan): the GL look.
+ */
+BOOST_AUTO_TEST_CASE(nearest_sampler_keeps_anisotropy_where_allowed)
+{
+	const auto c{sdlgpu::choose_sampler(render::filter::nearest, true, caps_with(true))};
+	BOOST_TEST(!c.linear);
+	BOOST_TEST(c.linear_mipmap);
+	BOOST_TEST(c.anisotropic);
+}
+
+/* Test that a nearest sampler drops anisotropy on a device without it
+ * (D3D12), which would reject the filter, and stays nearest throughout.
+ */
+BOOST_AUTO_TEST_CASE(nearest_sampler_drops_anisotropy_where_not_allowed)
+{
+	const auto c{sdlgpu::choose_sampler(render::filter::nearest, true, caps_with(false))};
+	BOOST_TEST(!c.linear);
+	BOOST_TEST(!c.linear_mipmap);
+	BOOST_TEST(!c.anisotropic);
+}
+
+/* Test that a trilinear sampler keeps anisotropy on every device, and has
+ * none where the key does not ask.
+ */
+BOOST_AUTO_TEST_CASE(trilinear_sampler_keeps_anisotropy_everywhere)
+{
+	for (const bool nearest_ok : {false, true})
+	{
+		const auto c{
+		    sdlgpu::choose_sampler(render::filter::trilinear, true, caps_with(nearest_ok))};
+		BOOST_TEST(c.linear);
+		BOOST_TEST(c.linear_mipmap);
+		BOOST_TEST(c.anisotropic);
+		BOOST_TEST(!sdlgpu::choose_sampler(render::filter::trilinear, false, caps_with(nearest_ok))
+		                .anisotropic);
+	}
+}
+
+/* Test that no sampler has anisotropy where the probe found none. */
+BOOST_AUTO_TEST_CASE(sampler_without_probed_anisotropy_has_none)
+{
+	for (const bool nearest_ok : {false, true})
+	{
+		auto none{caps_with(nearest_ok)};
+		none.common.anisotropic = false;
+		BOOST_TEST(!sdlgpu::choose_sampler(render::filter::nearest, true, none).anisotropic);
+	}
+}
+
+/* Test that a nearest sampler the key gives no anisotropy keeps nearest
+ * mipmaps on a device that allows nearest anisotropy.
+ */
+BOOST_AUTO_TEST_CASE(nearest_sampler_without_anisotropy_keeps_nearest_mipmaps)
+{
+	const auto c{sdlgpu::choose_sampler(render::filter::nearest, false, caps_with(true))};
+	BOOST_TEST(!c.linear);
+	BOOST_TEST(!c.linear_mipmap);
+	BOOST_TEST(!c.anisotropic);
+}
+
+/* Test that the probe carries the query's answer into the caps, and that
+ * only Metal and Vulkan are said to allow nearest anisotropy.
+ */
+BOOST_AUTO_TEST_CASE(probe_reports_anisotropy_with_nearest)
+{
+	auto q{device_with({sdlgpu::depth_format::d32_float}, {1})};
+	BOOST_TEST(!sdlgpu::probe_caps(q, 16).value().anisotropy_with_nearest);
+	q.anisotropy_with_nearest = true;
+	BOOST_TEST(sdlgpu::probe_caps(q, 16).value().anisotropy_with_nearest);
+	BOOST_TEST(sdlgpu::driver_allows_nearest_anisotropy("metal"));
+	BOOST_TEST(sdlgpu::driver_allows_nearest_anisotropy("vulkan"));
+	BOOST_TEST(!sdlgpu::driver_allows_nearest_anisotropy("direct3d12"));
+	BOOST_TEST(!sdlgpu::driver_allows_nearest_anisotropy(""));
+}
