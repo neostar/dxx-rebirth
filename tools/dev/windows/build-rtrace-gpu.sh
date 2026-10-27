@@ -44,7 +44,7 @@ for s in "${sources[@]}"; do
 		-c "$src/$s" -o "$o"
 	objects+=("$o")
 done
-"$cxx" -o "$out/rtrace-gpu.exe" "${objects[@]}" "$sdl/lib/libSDL3.dll.a" \
+"$cxx" -o "$out/rtrace-gpu.exe" "${objects[@]}" "$sdl/lib/libSDL3.dll.a" -ld3d12 \
 	-static -mconsole
 cp "$sdl/bin/SDL3.dll" "$pix/WinPixEventRuntime.dll" "$out/"
 cp "$pix/license.txt" "$out/WinPixEventRuntime-license.txt"
