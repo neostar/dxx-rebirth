@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/render/moved_draw.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
@@ -592,4 +593,29 @@ BOOST_AUTO_TEST_CASE(presented_reads_zero_before_a_present)
 	              render::pixel_format::rgb8, rgb);
 	const std::array<std::uint8_t, std::size_t{2} * 2 * 3> zero{};
 	BOOST_TEST(rgb == zero, boost::test_tools::per_element());
+}
+
+/* Test that a GL draw outside the device after a moved draw is not moved:
+ * a quad over the whole target moved to its right half, then the left half
+ * drawn with glDrawArrays as the code not yet drawing through the device
+ * draws, leave the left half green and the right half red.
+ */
+BOOST_AUTO_TEST_CASE(direct_draw_after_moved_draw_is_not_moved)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	render::ambient a;
+	a.viewport = {.x = 0, .y = 0, .size = target};
+	const quad whole{red};
+	render::draw_moved(d, a, render::topology::fan, whole.vertices,
+	                   {.translate = {{0.5f, 0, 0}}, .scale = {{0.5f, 1, 1}}}, a.line_width);
+	const std::array<GLfloat, 8> left_half{{0, 0, 0.5f, 0, 0.5f, 1, 0, 1}};
+	glColor4f(0, 1, 0, 1);
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glVertexPointer(2, GL_FLOAT, 0, left_half.data());
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	const auto rgb{drawing(d)};
+	BOOST_TEST((column(rgb, target.width / 4) == std::array<std::uint8_t, 3>{{0, 255, 0}}));
+	BOOST_TEST((column(rgb, target.width * 3 / 4) == std::array<std::uint8_t, 3>{{255, 0, 0}}));
 }

@@ -59,6 +59,7 @@
 #include "byteutil.h"
 #include "internal.h"
 #include "common/render/gl_device.h"
+#include "common/render/moved_draw.h"
 #include "common/render/overlay_uv.h"
 #include "common/render/palette_expand.h"
 #include "gauges.h"
@@ -713,21 +714,15 @@ static std::vector<render::vertex> ogl_circle_vertices(const std::span<const GLf
 
 /* Draws vertices as t through the render device in the ambient state,
  * moved by glTranslatef(translate) and glScalef(scale) from the identity
- * modelview, with line_width for lines.  The code not yet drawing through
- * the device expects the identity modelview the game draws 2D and 3D with,
- * which glPopMatrix restored before; an empty draw in the ambient state restores
- * it now, through the state shadow, so the shadow knows the modelview GL
- * holds (popping it behind the shadow's back would leave the shadow
- * believing the moved one is current, and skip it on the next such draw).
+ * modelview, with line_width for lines, and restores the identity
+ * modelview the game draws 2D and 3D with through the state shadow
+ * (render::draw_moved; popping it behind the shadow's back would leave the
+ * shadow believing the moved one is current, and skip it on the next such
+ * draw).
  */
 static void ogl_draw_moved(const render::topology t, const std::span<const render::vertex> vertices, const std::array<float, 3> &translate, const std::array<float, 3> &scale, const float line_width)
 {
-	auto call{ogl_ambient().call(t, vertices)};
-	call.transforms.modelview = render::translate_scale{.translate = translate, .scale = scale};
-	call.state.line_width = line_width;
-	auto &device{ogl_device()};
-	device.draw(call);
-	device.draw(ogl_ambient().call(render::topology::fan, {}));
+	render::draw_moved(ogl_device(), ogl_ambient(), t, vertices, {.translate = translate, .scale = scale}, line_width);
 }
 
 /* Where the vertex reticle draws: its modelview recipe and the width of
