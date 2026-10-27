@@ -5,13 +5,13 @@
  * terms and a link to the Git history.
  */
 
-#include "common/debug/frame_hash_harness.h"
+#include "common/render/gl_errors.h"
 
 #include <array>
 #include <cstddef>
 
 #define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE Rebirth frame hash harness
+#define BOOST_TEST_MODULE Rebirth GL errors
 #include <boost/test/unit_test.hpp>
 
 namespace {
@@ -42,7 +42,7 @@ BOOST_AUTO_TEST_CASE(no_pending_error_drains_nothing)
 }
 
 /* Test that every pending error is drained, the first is kept, and the drain stops at the
- * first no_error, so the readback's own error is the next one returned.
+ * first no_error, so the caller's own error is the next one returned.
  */
 BOOST_AUTO_TEST_CASE(pending_errors_are_drained)
 {

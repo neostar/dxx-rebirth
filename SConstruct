@@ -5131,9 +5131,6 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-hash', (
 			'common/debug/unittest/frame_hash.cpp',
 			)),
-		RuntimeTest('test-frame-hash-harness', (
-			'common/debug/unittest/frame_hash_harness.cpp',
-			)),
 		RuntimeTest('test-frame-hash-log', (
 			'common/debug/unittest/frame_hash_log.cpp',
 			)),
@@ -5173,6 +5170,9 @@ class DXXArchive(DXXCommon):
 			)),
 		RuntimeTest('test-frame-setup', (
 			'common/render/unittest/frame_setup.cpp',
+			)),
+		RuntimeTest('test-gl-errors', (
+			'common/render/unittest/gl_errors.cpp',
 			)),
 		RuntimeTest('test-transform-matrix', (
 			'common/render/unittest/transform_matrix.cpp',

@@ -7,8 +7,8 @@
 
 /*
  * Taking the GL errors pending in a context, which the game never checks
- * with glGetError: the GL adapter (gl_device.h) and the debug harness'
- * frame hash readback use it.
+ * with glGetError: the GL adapter (gl_device.h) takes them for the debug
+ * harness' frame hash readback.
  */
 
 #pragma once
@@ -31,10 +31,10 @@ struct drained_gl_errors
 	Error first;
 };
 
-/* Take the GL errors pending before the frame hash readback, which the
- * game never checks with glGetError, so that the readback's error check
- * sees only its own: call get_error until it returns no_error, at most
- * max_drained_gl_errors times.
+/* Take the GL errors pending, which the game never checks with glGetError,
+ * so that the caller's next error check sees only its own (the frame hash
+ * readback's, gl_device::drain_errors): call get_error until it returns
+ * no_error, at most max_drained_gl_errors times.
  */
 template <typename GetError, typename Error = std::invoke_result_t<GetError &>>
 requires(std::equality_comparable<Error>)

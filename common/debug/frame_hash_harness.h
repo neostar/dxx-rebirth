@@ -9,8 +9,6 @@
 
 #include <cstdlib>
 
-#include "common/render/gl_errors.h"
-
 namespace dcx {
 
 /* DXX_DBG_FRAMEHASH: the file the debug harness writes one frame hash
