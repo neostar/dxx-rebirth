@@ -9,9 +9,11 @@
  * The SDL_GPU adapter of the render device (ADR 2), headless (#24): it
  * draws into an offscreen R8G8B8A8_UNORM colour target with D32_FLOAT
  * depth, which read_pixels reads, and needs no window; the swapchain blit
- * comes with #50.  It clears, presents and reads back; draws and textures
- * come with #26 and #27.  Built from the spike's headless replayer (#55,
- * K1) and research #71 (docs/agents/sdl-gpu-backends.md, areas 3, 5, 8).
+ * comes with #50.  It clears, presents and reads back, and draws
+ * untextured triangles in 2D (#26) through the frame record and the GPU
+ * command seam (sdlgpu_frame.h); textures come with #27.  Built from the
+ * spike's headless replayer (#55, K1) and research #71
+ * (docs/agents/sdl-gpu-backends.md, areas 2, 3, 5, 8).
  *
  * SDL's video subsystem must be initialised: SDL_CreateGPUDevice needs it,
  * though no window is made.  On macOS that makes the process a foreground
@@ -31,6 +33,7 @@
 #include <utility>
 
 #include "common/render/device.h"
+#include "common/render/sdlgpu_frame.h"
 #include "common/render/sdlgpu_probe.h"
 
 namespace dcx::render::sdlgpu {
@@ -119,11 +122,6 @@ class resource_ledger
 	}
 };
 
-/* The closed pipeline set: one pipeline per (blend, depth, cull), 5 x 2 x
- * 2, built at creation (research #71, area 3).
- */
-inline constexpr std::size_t pipeline_set_size{std::size_t{5} * 2 * 2};
-
 class device final : public render::device
 {
 	struct state;
@@ -150,8 +148,12 @@ class device final : public render::device
 	device(device &&) = delete;
 	device &operator=(device &&) = delete;
 
-	/* Not yet: throw std::logic_error, naming the ticket that brings them. */
+	/* Records the call for the next flush (present, or a readback of the
+	 * image being drawn).  Throws std::logic_error, naming the ticket, on
+	 * what frame::draw refuses.
+	 */
 	void draw(const draw_call &call) override;
+	/* Not yet: throws std::logic_error, naming #27. */
 	void texture(texture_slot slot, const texture_image *image) override;
 
 	void clear(clear_targets targets) override;
@@ -173,6 +175,9 @@ class device final : public render::device
 	/* M6: how long the pipeline set took to build, shaders included. */
 	[[nodiscard]]
 	std::chrono::nanoseconds pipeline_build_time() const;
+	/* The driver SDL chose: metal, vulkan or direct3d12. */
+	[[nodiscard]]
+	std::string driver() const;
 };
 
 }

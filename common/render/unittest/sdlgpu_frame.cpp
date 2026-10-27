@@ -346,6 +346,9 @@ BOOST_AUTO_TEST_CASE(clears_and_undefined_targets)
 		BOOST_TEST(
 		    (c.passes.front() == sdlgpu::pass_ops{.clear_color = true, .clear_depth = false}));
 		BOOST_TEST(c.draws.empty());
+		/* No vertex buffer exists to bind before a frame with vertices. */
+		BOOST_TEST(c.vertex_buffer_binds == 0u);
+		BOOST_TEST(c.untextured_binds == 0u);
 	}
 	{
 		sdlgpu::frame f{target};

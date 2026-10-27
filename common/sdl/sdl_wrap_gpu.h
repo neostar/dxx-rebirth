@@ -36,6 +36,21 @@ map_for_reading(SDL_GPUDevice *const d, SDL_GPUTransferBuffer *const b, const st
 	return {p, size};
 }
 
+/* Maps transfer buffer b, of size bytes, for writing, cycling it when
+ * cycle is true: its bytes, or an empty span when SDL fails (SDL_GetError
+ * says why).  The caller unmaps it.
+ */
+[[nodiscard]]
+inline std::span<std::byte> map_for_writing(SDL_GPUDevice *const d, SDL_GPUTransferBuffer *const b,
+                                            const std::size_t size, const bool cycle)
+{
+	auto *const p{static_cast<std::byte *>(SDL_MapGPUTransferBuffer(d, b, cycle))};
+	if (p == nullptr)
+		return {};
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): SDL maps all size bytes
+	return {p, size};
+}
+
 /* Logs SDL's last error after what failed, as an error of SDL's GPU
  * category, which gpu-validate.sh fails a run on.
  */

@@ -17,15 +17,24 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
+#include "common/render/ambient.h"
 #include "common/render/device.h"
 #include "common/render/readback.h"
+#include "common/render/render_device.h"
+#include "common/render/replay.h"
+#include "common/render/rtrace/sample_trace.h"
+#include "common/render/trace.h"
 #include "common/sdl/dxx-sdl.h"
 
 #define BOOST_TEST_DYN_LINK
@@ -68,6 +77,63 @@ sdlgpu::config test_config(const render::extent target)
 {
 	return {.target = target, .debug_mode = true, .driver = {}, .clear_rgba = clear_rgba};
 }
+
+constexpr render::extent target{.width = 64, .height = 48};
+constexpr std::array<float, 2> no_uv{{0, 0}};
+
+/* An untextured quad in the game's 2D projection from row y0 (0 the
+ * bottom, 1 the top) up, in colour rgba, drawn with state s over the whole
+ * target.  The call views the quad's vertices.
+ */
+struct quad
+{
+	std::array<render::vertex, 4> vertices;
+	render::draw_call call;
+	explicit quad(const std::array<float, 4> &rgba, const float y0 = 0,
+	              const render::draw_state &s = {})
+	    : vertices{{
+	          {.pos = {{0, y0, 0}}, .rgba = rgba, .uv = no_uv},
+	          {.pos = {{1, y0, 0}}, .rgba = rgba, .uv = no_uv},
+	          {.pos = {{1, 1, 0}}, .rgba = rgba, .uv = no_uv},
+	          {.pos = {{0, 1, 0}}, .rgba = rgba, .uv = no_uv},
+	      }},
+	      call{.topology = render::topology::fan,
+		       .vertices = vertices,
+		       .texture = render::texture_slot::none,
+		       .state = s,
+		       .viewport = {.x = 0, .y = 0, .size = target},
+		       .transforms = {.projection = render::screen_ortho, .modelview = render::identity{}}}
+	{}
+	quad(const quad &) = delete;
+	quad &operator=(const quad &) = delete;
+	quad(quad &&) = delete;
+	quad &operator=(quad &&) = delete;
+	~quad() = default;
+};
+
+/* The image being drawn on d, a device for target, as RGB. */
+[[nodiscard]]
+std::vector<std::uint8_t> drawing(render::device &d)
+{
+	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
+	d.read_pixels(render::read_source::drawing, {.x = 0, .y = 0, .size = target},
+	              render::pixel_format::rgb8, rgb);
+	return rgb;
+}
+
+/* How many pixels of rgb are not p. */
+[[nodiscard]]
+std::size_t pixels_other_than(const std::span<const std::uint8_t> rgb,
+                              const std::array<std::uint8_t, 3> p)
+{
+	std::size_t n{0};
+	for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+		if (rgb[i] != p[0] || rgb[i + 1] != p[1] || rgb[i + 2] != p[2])
+			++n;
+	return n;
+}
+
+constexpr std::array<std::uint8_t, 3> clear_rgb{{clear_rgba[0], clear_rgba[1], clear_rgba[2]}};
 
 /* M6 (research #71): how long the pipeline set took to build from MSL. */
 void print_m6(const char *which, const sdlgpu::device &d)
@@ -151,8 +217,8 @@ BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
 	const auto live{ledger->counts()};
 	BOOST_TEST(live.pipelines == sdlgpu::pipeline_set_size);
 	BOOST_TEST(live.samplers == 2u);
-	/* Colour, depth and the presented copy. */
-	BOOST_TEST(live.textures == 3u);
+	/* Colour, depth, the presented copy and the white texture. */
+	BOOST_TEST(live.textures == 4u);
 	/* The shaders are released once the pipeline set is built. */
 	BOOST_TEST(live.shaders == 0u);
 	d->clear({.color = true, .depth = true});
@@ -214,6 +280,114 @@ BOOST_AUTO_TEST_CASE(default_clear_is_zero)
 	               render::pixel_format::rgba8, pixel);
 	const std::array<std::uint8_t, 4> zero{};
 	BOOST_TEST(pixel == zero, boost::test_tools::per_element());
+}
+
+/* Test that an untextured quad over the whole target reads back in its
+ * colour, in every pixel.
+ */
+BOOST_AUTO_TEST_CASE(untextured_quad_reads_back_its_colour)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const quad q{{{1, 0, 0, 1}}};
+	d->draw(q.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), {{255, 0, 0}}) == 0u);
+}
+
+/* Test that GL's bottom-left origin holds: a quad over the top half fills
+ * the first half of the rows read back, and a GL viewport of the bottom
+ * half puts a full quad in the last half.
+ */
+BOOST_AUTO_TEST_CASE(draws_keep_gls_orientation)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const quad top{{{1, 0, 0, 1}}, 0.5f};
+	d->draw(top.call);
+	quad bottom{{{0, 1, 0, 1}}};
+	bottom.call.viewport = {.x = 0, .y = 0, .size = {.width = 64, .height = 24}};
+	d->draw(bottom.call);
+	const auto rgb{drawing(*d)};
+	const std::span<const std::uint8_t> all{rgb};
+	BOOST_TEST(pixels_other_than(all.first(all.size() / 2), {{255, 0, 0}}) == 0u);
+	BOOST_TEST(pixels_other_than(all.subspan(all.size() / 2), {{0, 255, 0}}) == 0u);
+}
+
+/* Test that a quad whose alpha is under its alpha reference is discarded,
+ * that a normal-blended half-alpha quad mixes with the clear colour and
+ * that one drawn without blending replaces it: each draw state takes its
+ * own pipeline.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_and_blend)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	d->clear({.color = true, .depth = true});
+	const quad faint{{{1, 1, 1, 0.01f}}, 0, {.blend = render::blend::none}};
+	d->draw(faint.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), clear_rgb) == 0u);
+	const quad half{{{1, 1, 1, 0.5f}}};
+	d->draw(half.call);
+	const auto rgb{drawing(*d)};
+	/* 0.5 * 255 + 0.5 * c, rounded either way by the GPU. */
+	for (std::size_t c{0}; c != 3; ++c)
+	{
+		const int expected{(255 + clear_rgba[c]) / 2};
+		BOOST_TEST(std::abs(int{rgb[c]} - expected) <= 1);
+	}
+	const quad unblended{{{1, 1, 1, 0.5f}}, 0, {.blend = render::blend::none}};
+	d->draw(unblended.call);
+	BOOST_TEST(pixels_other_than(drawing(*d), {{255, 255, 255}}) == 0u);
+}
+
+/* Test that draws in every state of the pipeline set take a pipeline of
+ * the set built at creation, none new, and that the frame's transfer and
+ * vertex buffers die with the device.
+ */
+BOOST_AUTO_TEST_CASE(draws_take_pipelines_of_the_set)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	d->clear({.color = true, .depth = true});
+	for (const auto b : {render::blend::normal, render::blend::additive_a,
+	                     render::blend::additive_c, render::blend::palfx_neg, render::blend::none})
+		for (const auto z : {render::depth::off, render::depth::test_and_write})
+			for (const auto c : {render::cull::none, render::cull::front})
+			{
+				const quad q{{{0.2f, 0.2f, 0.2f, 1}}, 0, {.blend = b, .depth = z, .cull = c}};
+				d->draw(q.call);
+			}
+	d->present();
+	const auto live{ledger->counts()};
+	BOOST_TEST(live.pipelines == sdlgpu::pipeline_set_size);
+	BOOST_TEST(live.shaders == 0u);
+	BOOST_TEST(live.buffers == 2u);
+	d.reset();
+	BOOST_TEST((ledger->counts() == sdlgpu::resource_counts{}));
+}
+
+/* Test R3 on the first synthetic trace: the sample trace's frames
+ * (sample_trace.h, the writer of the committed
+ * common/render/rtrace/synthetic/sample.rtr) hash as GL draws them.  The
+ * hashes are the ones tools/dev/rtrace-tests.sh pins, from Apple's GL on
+ * an M1 Max, which runs on Metal: they hold bit for bit only for SDL_GPU on
+ * Metal, which the test asserts; on lavapipe (#25) R3 compares with FLIP.
+ */
+BOOST_AUTO_TEST_CASE(sample_trace_frames_match_gl)
+{
+	const auto bytes{dcx::render::rtrace::sample_trace()};
+	render::trace::reader r{bytes};
+	const auto h{r.header()};
+	BOOST_REQUIRE(h.has_value());
+	/* The game's clear colour, as GL's replay clears. */
+	auto d{sdlgpu::device::create(
+	    {.target = h.value().target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
+	BOOST_REQUIRE(d->driver() == "metal");
+	std::vector<std::uint64_t> hashes;
+	const auto done{render::replay(
+	    r, *d, [&hashes](const render::replayed_frame &f) { hashes.push_back(f.hash); })};
+	BOOST_TEST(done.has_value());
+	const std::vector<std::uint64_t> gl{0x86388f1d5003af2au, 0x9f40fbb36ef64325u};
+	BOOST_TEST(hashes == gl, boost::test_tools::per_element());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

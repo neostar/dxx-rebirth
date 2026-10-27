@@ -28,6 +28,7 @@
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
 #include "common/render/rtrace/gl_host.h"
+#include "common/render/rtrace/sample_trace.h"
 #include "common/render/trace.h"
 #include "common/render/transform_matrix.h"
 
@@ -48,7 +49,7 @@ namespace {
 
 using bytes = std::vector<std::uint8_t>;
 
-constexpr render::extent target{.width = 64, .height = 48};
+constexpr render::extent target{render::rtrace::sample_target};
 
 /* The frames a replay of the trace in t gives, and how it ended. */
 struct outcome
@@ -96,13 +97,6 @@ render::draw_call flat_draw(const render::topology t, const std::span<const rend
 
 constexpr std::array<float, 4> red{{1, 0, 0, 1}};
 constexpr std::array<float, 2> no_uv{{0, 0}};
-
-/* A shaded triangle, whose edges and colours GL rasterizes unevenly. */
-constexpr std::array<render::vertex, 3> shaded_triangle{{
-    {.pos = {{0.1f, 0.1f, 0}}, .rgba = {{1, 0, 0, 1}}, .uv = no_uv},
-    {.pos = {{0.9f, 0.3f, 0}}, .rgba = {{0, 1, 0, 1}}, .uv = no_uv},
-    {.pos = {{0.4f, 0.95f, 0}}, .rgba = {{0, 0, 1, 1}}, .uv = no_uv},
-}};
 
 bool every_pixel_is(const std::span<const std::uint8_t> rgb, const std::array<std::uint8_t, 3> p)
 {
@@ -195,22 +189,6 @@ std::array<std::uint8_t, 3> column(const std::span<const std::uint8_t> rgb, cons
 {
 	const std::size_t i{(std::size_t{target.height / 2} * target.width + x) * 3};
 	return {rgb[i], rgb[i + 1], rgb[i + 2]};
-}
-
-/* The committed sample trace (common/render/rtrace/synthetic/sample.rtr):
- * the shaded triangle, then the whole target in yellow.
- */
-bytes sample_trace()
-{
-	trace::writer w{target};
-	w.clear({.color = true, .depth = true});
-	w.draw(flat_draw(render::topology::triangles, shaded_triangle));
-	w.present({.frame = 0});
-	w.clear({.color = true, .depth = true});
-	const quad yellow{{{1, 1, 0, 1}}};
-	w.draw(yellow.call);
-	w.present({.frame = 1});
-	return w.take();
 }
 
 }
@@ -308,7 +286,7 @@ BOOST_AUTO_TEST_CASE(replay_twice_gives_identical_hashes)
 {
 	trace::writer w{target};
 	w.clear({.color = true, .depth = true});
-	w.draw(flat_draw(render::topology::triangles, shaded_triangle));
+	w.draw(flat_draw(render::topology::triangles, render::rtrace::sample_shaded_triangle));
 	w.present({.frame = 0});
 	w.clear({.color = true, .depth = true});
 	const quad q{red};
@@ -378,7 +356,7 @@ BOOST_AUTO_TEST_CASE(sample_trace_is_the_writers)
 	std::ifstream in{args[1], std::ios::binary};
 	BOOST_REQUIRE(in.good());
 	const bytes committed{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-	BOOST_TEST((committed == sample_trace()));
+	BOOST_TEST((committed == render::rtrace::sample_trace()));
 }
 
 /* Test that a textured draw samples the texture of its own slot, not the

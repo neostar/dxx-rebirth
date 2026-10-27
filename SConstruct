@@ -5229,6 +5229,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-sdlgpu', (
 			'common/render/unittest/sdlgpu_device.cpp',
 			'common/render/sdlgpu_device.cpp',
+			'common/render/sdlgpu_frame.cpp',
+			'common/render/replay.cpp',
+			'common/render/trace.cpp',
 			)),
 			)
 	del RuntimeTest, _rtrace_sources

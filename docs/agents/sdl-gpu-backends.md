@@ -133,7 +133,8 @@ texture is bound and load_op is not LOAD" (S0 `:2036`; depth: "any load ops are 
    On Apple GPUs a load "is significantly slower than MTLLoadAction.dontCare or
    MTLLoadAction.clear" (V-A2). If #53 finds the splits costly, replace a depth-clear split with a
    **depth-reset draw** in the pass: a viewport quad, depth compare ALWAYS, colour writes off (M2).
-3. The **pipeline cache** (#26). Inference, to confirm in #26: every topology reaches SDL as a
+3. The **pipeline cache** (#26, `pipeline_key` in `common/render/sdlgpu_frame.h`). Built so in
+   #26; lines (#32) and points remain to confirm it: every topology reaches SDL as a
    triangle list (fans by `fan_to_list`, lines expanded on the CPU in #32, points undecided), so
    the key is (blend, depth, cull) = at most 5 x 2 x 2 = 20 pipelines per (colour format, depth
    format, sample count), plus the depth-reset pipeline; SDL builds its own blit pipelines for

@@ -22,6 +22,8 @@
 
 #include "common/render/device.h"
 #include "common/render/readback.h"
+#include "common/render/render_device.h"
+#include "common/render/sdlgpu_frame.h"
 #include "common/render/sdlgpu_probe.h"
 #include "common/sdl/dxx-sdl.h"
 #include "common/sdl/sdl_deleter.h"
@@ -118,6 +120,7 @@ class handle
 
 using texture_handle =
     handle<SDL_GPUTexture, SDL_ReleaseGPUTexture, resource_ledger::kind::texture>;
+using buffer_handle = handle<SDL_GPUBuffer, SDL_ReleaseGPUBuffer, resource_ledger::kind::buffer>;
 using transfer_handle =
     handle<SDL_GPUTransferBuffer, SDL_ReleaseGPUTransferBuffer, resource_ledger::kind::buffer>;
 using sampler_handle =
@@ -277,6 +280,41 @@ sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l,
 	return {d, SDL_CreateGPUSampler(d, &info), &l, "SDL_CreateGPUSampler"};
 }
 
+/* The 1x1 opaque white texture untextured draws bind (sdlgpu_frame.h),
+ * uploaded before the device is handed out.
+ */
+[[nodiscard]]
+texture_handle create_white(SDL_GPUDevice *const d, resource_ledger &l)
+{
+	texture_handle white{create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, {1, 1})};
+	constexpr std::uint32_t bytes{4};
+	SDL_GPUTransferBufferCreateInfo info{};
+	info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+	info.size = bytes;
+	const transfer_handle upload{d, SDL_CreateGPUTransferBuffer(d, &info), &l,
+	                             "SDL_CreateGPUTransferBuffer"};
+	const auto mapped{sdl::map_for_writing(d, upload.get(), bytes, false)};
+	if (mapped.empty())
+		sdl_failed("SDL_MapGPUTransferBuffer");
+	std::ranges::fill(mapped, std::byte{0xff});
+	SDL_UnmapGPUTransferBuffer(d, upload.get());
+	command_buffer cb{d};
+	SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb.get())};
+	if (copy == nullptr)
+		sdl_failed("SDL_BeginGPUCopyPass");
+	SDL_GPUTextureTransferInfo from{};
+	from.transfer_buffer = upload.get();
+	SDL_GPUTextureRegion to{};
+	to.texture = white.get();
+	to.w = 1;
+	to.h = 1;
+	to.d = 1;
+	SDL_UploadToGPUTexture(copy, &from, &to, false);
+	SDL_EndGPUCopyPass(copy);
+	cb.submit_and_wait(d);
+	return white;
+}
+
 /* The shader format the device takes, asked of the device rather than read
  * from its backend's name: MSL, then SPIR-V, then DXIL.
  */
@@ -406,41 +444,196 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 		 .offset = offsetof(render::vertex, uv)},
 	}};
 	pipelines.reserve(pipeline_set_size);
-	for (const auto b : {render::blend::normal, render::blend::additive_a,
-	                     render::blend::additive_c, render::blend::palfx_neg, render::blend::none})
-		for (const auto z : {render::depth::off, render::depth::test_and_write})
-			for (const auto c : {render::cull::none, render::cull::front})
-			{
-				SDL_GPUColorTargetDescription target{};
-				target.format = color_format;
-				target.blend_state = blend_state(b);
-				SDL_GPUGraphicsPipelineCreateInfo info{};
-				info.vertex_shader = vertex.get();
-				info.fragment_shader = fragment.get();
-				info.vertex_input_state.vertex_buffer_descriptions = &buffer;
-				info.vertex_input_state.num_vertex_buffers = 1;
-				info.vertex_input_state.vertex_attributes = attributes.data();
-				info.vertex_input_state.num_vertex_attributes = attributes.size();
-				info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
-				info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-				info.rasterizer_state.cull_mode =
-				    c == render::cull::front ? SDL_GPU_CULLMODE_FRONT : SDL_GPU_CULLMODE_NONE;
-				info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
-				/* Depth clamp: the exact transform model (pos_color_uv.vert.hlsl). */
-				info.rasterizer_state.enable_depth_clip = false;
-				info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
-				info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
-				info.depth_stencil_state.enable_depth_test = z == render::depth::test_and_write;
-				info.depth_stencil_state.enable_depth_write = z == render::depth::test_and_write;
-				info.target_info.color_target_descriptions = &target;
-				info.target_info.num_color_targets = 1;
-				info.target_info.depth_stencil_format = to_sdl(caps.depth);
-				info.target_info.has_depth_stencil_target = true;
-				pipelines.emplace_back(d, SDL_CreateGPUGraphicsPipeline(d, &info), &l,
-				                       "SDL_CreateGPUGraphicsPipeline");
-			}
+	/* In the set's order, so that index_of finds each key's pipeline. */
+	for (std::size_t i{0}; i != pipeline_set_size; ++i)
+	{
+		const auto [b, z, c]{key_at(i)};
+		SDL_GPUColorTargetDescription target{};
+		target.format = color_format;
+		target.blend_state = blend_state(b);
+		SDL_GPUGraphicsPipelineCreateInfo info{};
+		info.vertex_shader = vertex.get();
+		info.fragment_shader = fragment.get();
+		info.vertex_input_state.vertex_buffer_descriptions = &buffer;
+		info.vertex_input_state.num_vertex_buffers = 1;
+		info.vertex_input_state.vertex_attributes = attributes.data();
+		info.vertex_input_state.num_vertex_attributes = attributes.size();
+		info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+		info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+		info.rasterizer_state.cull_mode =
+		    c == render::cull::front ? SDL_GPU_CULLMODE_FRONT : SDL_GPU_CULLMODE_NONE;
+		info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+		/* Depth clamp: the exact transform model (pos_color_uv.vert.hlsl). */
+		info.rasterizer_state.enable_depth_clip = false;
+		info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+		info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+		info.depth_stencil_state.enable_depth_test = z == render::depth::test_and_write;
+		info.depth_stencil_state.enable_depth_write = z == render::depth::test_and_write;
+		info.target_info.color_target_descriptions = &target;
+		info.target_info.num_color_targets = 1;
+		info.target_info.depth_stencil_format = to_sdl(caps.depth);
+		info.target_info.has_depth_stencil_target = true;
+		pipelines.emplace_back(d, SDL_CreateGPUGraphicsPipeline(d, &info), &l,
+		                       "SDL_CreateGPUGraphicsPipeline");
+	}
 	return std::chrono::steady_clock::now() - start;
 }
+
+/* The GPU command seam's SDL_GPU adapter (sdlgpu_frame.h): one frame's
+ * calls into one command buffer.  The vertex upload is the transfer ring:
+ * the frame's transfer buffer is mapped with cycle=true, so a buffer still
+ * in flight is never written, and copied to the vertex buffer in a copy
+ * pass of its own before the frame's first render pass (research #71,
+ * area 2).  Both buffers grow by grown_capacity and keep their size.
+ */
+class sdl_commands final : public commands
+{
+  public:
+	/* What the commands draw with, owned by the device. */
+	struct resources
+	{
+		resource_ledger &ledger;
+		transfer_handle &transfer;
+		std::size_t &transfer_capacity;
+		buffer_handle &vertices;
+		std::size_t &vertex_capacity;
+		const std::vector<pipeline_handle> &pipelines;
+		SDL_GPUTexture *color;
+		SDL_GPUTexture *depth;
+		SDL_GPUTexture *white;
+		SDL_GPUSampler *clamp;
+		SDL_FColor clear_color;
+	};
+
+  private:
+	SDL_GPUDevice *device_;
+	SDL_GPUCommandBuffer *cb_;
+	const resources &r_;
+	SDL_GPURenderPass *pass_{nullptr};
+
+  public:
+	sdl_commands(SDL_GPUDevice *const d, SDL_GPUCommandBuffer *const cb, const resources &r)
+	    : device_{d}, cb_{cb}, r_{r}
+	{}
+	sdl_commands(const sdl_commands &) = delete;
+	sdl_commands &operator=(const sdl_commands &) = delete;
+	sdl_commands(sdl_commands &&) = delete;
+	sdl_commands &operator=(sdl_commands &&) = delete;
+	/* A pass left open by an exception is ended, so that the command
+	 * buffer can be cancelled.
+	 */
+	~sdl_commands() override
+	{
+		if (pass_ != nullptr)
+			SDL_EndGPURenderPass(pass_);
+	}
+
+	void upload_vertices(const std::span<const vertex> v) override
+	{
+		const auto bytes{std::as_bytes(v)};
+		upload_plan plan;
+		const std::size_t offset{plan.reserve(bytes.size())};
+		const std::size_t transfer_size{grown_capacity(r_.transfer_capacity, plan.size())};
+		if (transfer_size > std::numeric_limits<std::uint32_t>::max())
+			throw std::length_error("sdlgpu: a frame's uploads past a transfer buffer's size");
+		if (transfer_size != r_.transfer_capacity)
+		{
+			SDL_GPUTransferBufferCreateInfo info{};
+			info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+			info.size = static_cast<std::uint32_t>(transfer_size);
+			r_.transfer = {device_, SDL_CreateGPUTransferBuffer(device_, &info), &r_.ledger,
+			               "SDL_CreateGPUTransferBuffer"};
+			r_.transfer_capacity = transfer_size;
+		}
+		if (const auto c{grown_capacity(r_.vertex_capacity, bytes.size())}; c != r_.vertex_capacity)
+		{
+			SDL_GPUBufferCreateInfo info{};
+			info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+			info.size = static_cast<std::uint32_t>(c);
+			r_.vertices = {device_, SDL_CreateGPUBuffer(device_, &info), &r_.ledger,
+			               "SDL_CreateGPUBuffer"};
+			r_.vertex_capacity = c;
+		}
+		const auto mapped{sdl::map_for_writing(device_, r_.transfer.get(), plan.size(), true)};
+		if (mapped.empty())
+			sdl_failed("SDL_MapGPUTransferBuffer");
+		std::ranges::copy(bytes, mapped.subspan(offset).begin());
+		SDL_UnmapGPUTransferBuffer(device_, r_.transfer.get());
+		SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb_)};
+		if (copy == nullptr)
+			sdl_failed("SDL_BeginGPUCopyPass");
+		SDL_GPUTransferBufferLocation from{};
+		from.transfer_buffer = r_.transfer.get();
+		from.offset = static_cast<std::uint32_t>(offset);
+		SDL_GPUBufferRegion to{};
+		to.buffer = r_.vertices.get();
+		to.size = static_cast<std::uint32_t>(bytes.size());
+		SDL_UploadToGPUBuffer(copy, &from, &to, true);
+		SDL_EndGPUCopyPass(copy);
+	}
+	void begin_pass(const pass_ops &ops) override
+	{
+		SDL_GPUColorTargetInfo color_info{};
+		color_info.texture = r_.color;
+		color_info.clear_color = r_.clear_color;
+		color_info.load_op = ops.clear_color ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+		color_info.store_op = SDL_GPU_STOREOP_STORE;
+		SDL_GPUDepthStencilTargetInfo depth_info{};
+		depth_info.texture = r_.depth;
+		depth_info.clear_depth = 1.f;
+		depth_info.load_op = ops.clear_depth ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+		depth_info.store_op = SDL_GPU_STOREOP_STORE;
+		depth_info.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+		depth_info.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+		pass_ = SDL_BeginGPURenderPass(cb_, &color_info, 1, &depth_info);
+		if (pass_ == nullptr)
+			sdl_failed("SDL_BeginGPURenderPass");
+	}
+	void end_pass() override
+	{
+		SDL_EndGPURenderPass(std::exchange(pass_, nullptr));
+	}
+	void bind_pipeline(const pipeline_key &key) override
+	{
+		SDL_BindGPUGraphicsPipeline(pass_, r_.pipelines.at(index_of(key)).get());
+	}
+	void set_viewport(const gpu_viewport &v) override
+	{
+		const SDL_GPUViewport viewport{.x = v.x,
+		                               .y = v.y,
+		                               .w = v.w,
+		                               .h = v.h,
+		                               .min_depth = v.min_depth,
+		                               .max_depth = v.max_depth};
+		SDL_SetGPUViewport(pass_, &viewport);
+	}
+	void bind_vertex_buffer() override
+	{
+		const SDL_GPUBufferBinding binding{.buffer = r_.vertices.get(), .offset = 0};
+		SDL_BindGPUVertexBuffers(pass_, 0, &binding, 1);
+	}
+	void bind_untextured() override
+	{
+		const SDL_GPUTextureSamplerBinding binding{.texture = r_.white, .sampler = r_.clamp};
+		SDL_BindGPUFragmentSamplers(pass_, 0, &binding, 1);
+	}
+	void push_vertex_uniforms(const vertex_uniforms &u) override
+	{
+		SDL_PushGPUVertexUniformData(cb_, 0, &u, sizeof u);
+	}
+	void push_fragment_uniforms(const fragment_uniforms &u) override
+	{
+		SDL_PushGPUFragmentUniformData(cb_, 0, &u, sizeof u);
+	}
+	void draw(const std::uint32_t first_vertex, const std::uint32_t count) override
+	{
+		SDL_DrawGPUPrimitives(pass_, count, 1, first_vertex, 0);
+	}
+};
+
+/* The uniform blocks as the shaders lay them out. */
+static_assert(sizeof(vertex_uniforms) == 128);
+static_assert(sizeof(fragment_uniforms) == 16);
 
 }
 
@@ -455,53 +648,50 @@ struct device::state
 	texture_handle depth;
 	/* A copy of the colour target as the last present left it. */
 	texture_handle presented;
+	texture_handle white;
 	std::array<sampler_handle, 2> samplers;
 	std::vector<pipeline_handle> pipelines;
 	std::chrono::nanoseconds pipeline_time{};
-	/* The clears recorded since the last flush; a target not yet drawn to
-	 * is undefined, so its first pass clears it.
+	/* The transfer ring and the vertex buffer, made by the first frame
+	 * with vertices.
 	 */
-	clear_targets pending{.color = false, .depth = false};
+	transfer_handle transfer;
+	std::size_t transfer_capacity{0};
+	buffer_handle vertices;
+	std::size_t vertex_capacity{0};
+	/* The draws and clears since the last flush. */
+	sdlgpu::frame record{{1, 1}};
+	/* A target not yet drawn to is undefined, so its first pass clears it. */
 	bool color_defined{false};
 	bool depth_defined{false};
 	bool has_presented{false};
 
-	/* Encodes the pending clears into cb as one render pass. */
-	void encode_pending(SDL_GPUCommandBuffer *const cb)
+	/* Encodes the recorded frame into cb. */
+	void flush(SDL_GPUCommandBuffer *const cb)
 	{
-		const bool clear_color{pending.color || !color_defined};
-		const bool clear_depth{pending.depth || !depth_defined};
-		if (!clear_color && !clear_depth)
-			return;
-		SDL_GPUColorTargetInfo color_info{};
-		color_info.texture = color.get();
 		const auto unit{[](const std::uint8_t c) { return static_cast<float>(c) / 255.f; }};
-		color_info.clear_color = {.r = unit(cfg.clear_rgba[0]),
-		                          .g = unit(cfg.clear_rgba[1]),
-		                          .b = unit(cfg.clear_rgba[2]),
-		                          .a = unit(cfg.clear_rgba[3])};
-		color_info.load_op = clear_color ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
-		color_info.store_op = SDL_GPU_STOREOP_STORE;
-		SDL_GPUDepthStencilTargetInfo depth_info{};
-		depth_info.texture = depth.get();
-		depth_info.clear_depth = 1.f;
-		depth_info.load_op = clear_depth ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
-		depth_info.store_op = SDL_GPU_STOREOP_STORE;
-		depth_info.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-		depth_info.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-		SDL_GPURenderPass *const pass{SDL_BeginGPURenderPass(cb, &color_info, 1, &depth_info)};
-		if (pass == nullptr)
-			sdl_failed("SDL_BeginGPURenderPass");
-		SDL_EndGPURenderPass(pass);
+		const sdl_commands::resources r{.ledger = *ledger,
+		                                .transfer = transfer,
+		                                .transfer_capacity = transfer_capacity,
+		                                .vertices = vertices,
+		                                .vertex_capacity = vertex_capacity,
+		                                .pipelines = pipelines,
+		                                .color = color.get(),
+		                                .depth = depth.get(),
+		                                .white = white.get(),
+		                                .clamp = samplers[0].get(),
+		                                .clear_color = {.r = unit(cfg.clear_rgba[0]),
+		                                                .g = unit(cfg.clear_rgba[1]),
+		                                                .b = unit(cfg.clear_rgba[2]),
+		                                                .a = unit(cfg.clear_rgba[3])}};
+		sdl_commands c{gpu.get(), cb, r};
+		(void)record.encode(c, {.color = !color_defined, .depth = !depth_defined});
 	}
-	/* Marks what encode_pending encoded as done, once its buffer is
-	 * submitted.
-	 */
-	void pending_done()
+	/* Marks the targets drawn to, once flush's buffer is submitted. */
+	void flushed()
 	{
 		color_defined = true;
 		depth_defined = true;
-		pending = {.color = false, .depth = false};
 	}
 };
 
@@ -528,6 +718,8 @@ std::unique_ptr<device> device::create(const config &c)
 	s->depth = create_target(d, l, to_sdl(s->caps.depth), SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
 	                         c.target);
 	s->presented = create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, c.target);
+	s->white = create_white(d, l);
+	s->record = sdlgpu::frame{c.target};
 	s->samplers = {create_sampler(d, l, SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE, s->caps),
 	               create_sampler(d, l, SDL_GPU_SAMPLERADDRESSMODE_REPEAT, s->caps)};
 	s->pipeline_time = build_pipelines(d, l, s->caps, s->pipelines);
@@ -535,9 +727,9 @@ std::unique_ptr<device> device::create(const config &c)
 	return std::make_unique<device>(passkey{}, caps, std::move(s));
 }
 
-void device::draw(const draw_call &)
+void device::draw(const draw_call &call)
 {
-	throw std::logic_error("sdlgpu: draws come with #26");
+	state_->record.draw(call);
 }
 
 void device::texture(texture_slot, const texture_image *)
@@ -547,15 +739,14 @@ void device::texture(texture_slot, const texture_image *)
 
 void device::clear(const clear_targets targets)
 {
-	state_->pending.color = state_->pending.color || targets.color;
-	state_->pending.depth = state_->pending.depth || targets.depth;
+	state_->record.clear(targets);
 }
 
 void device::present()
 {
 	auto &s{*state_};
 	command_buffer cb{s.gpu.get()};
-	s.encode_pending(cb.get());
+	s.flush(cb.get());
 	SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb.get())};
 	if (copy == nullptr)
 		sdl_failed("SDL_BeginGPUCopyPass");
@@ -567,7 +758,7 @@ void device::present()
 	                            false);
 	SDL_EndGPUCopyPass(copy);
 	cb.submit();
-	s.pending_done();
+	s.flushed();
 	s.has_presented = true;
 }
 
@@ -596,7 +787,7 @@ void device::read_pixels(const read_source source, const read_rect &rect, const 
 	command_buffer cb{d};
 	const bool drawing{source == read_source::drawing};
 	if (drawing)
-		s.encode_pending(cb.get());
+		s.flush(cb.get());
 	SDL_GPUCopyPass *const copy{SDL_BeginGPUCopyPass(cb.get())};
 	if (copy == nullptr)
 		sdl_failed("SDL_BeginGPUCopyPass");
@@ -614,7 +805,7 @@ void device::read_pixels(const read_source source, const read_rect &rect, const 
 	SDL_EndGPUCopyPass(copy);
 	cb.submit_and_wait(d);
 	if (drawing)
-		s.pending_done();
+		s.flushed();
 	const auto mapped{sdl::map_for_reading(d, download.get(), bytes)};
 	if (mapped.empty())
 		sdl_failed("SDL_MapGPUTransferBuffer");
@@ -643,6 +834,12 @@ std::shared_ptr<const resource_ledger> device::ledger() const
 std::chrono::nanoseconds device::pipeline_build_time() const
 {
 	return state_->pipeline_time;
+}
+
+std::string device::driver() const
+{
+	const char *const name{SDL_GetGPUDeviceDriver(state_->gpu.get())};
+	return name ? name : "";
 }
 
 }
