@@ -264,6 +264,45 @@ up but decouples audio from the game's clock: use it only where nothing compares
 time. Unit-level audio tests use `MIX_CreateMixer` + `MIX_Generate`: no driver, pacing or file.
 Informs #66, #45, #46, #47.
 
+## 9. Platform-only hints and their defaults
+
+**What SDL does.** A hint or code path scoped to one audio driver, one platform or one decoder
+build is inert on every other. The game runs on macOS (CoreAudio) and in the Linux container
+(dummy driver, `PIPEWIRE`/`PULSEAUDIO`/`ALSA` absent), so a wrong default for WASAPI, PipeWire,
+PulseAudio, ALSA or a non-Homebrew decoder set shows only on GitHub's Windows runner or on a
+player's machine. `R/` = `docs/reference/`. The complete set at 3.4.18 / 3.2.4, drawn from
+`R/sdl3/SDL_hints.h` (every audio hint, `:260-589`, plus the Android pair `:118`, `:145`),
+the driver sources where a hint's reader lives, and the SDL3_mixer headers and decoder sources:
+
+| Hint or behaviour (R/ line) | Scope | Default | The game sets | Owner |
+|---|---|---|---|---|
+| Driver order (`R/sdl3/src/audio/SDL_audio.c:28-99`, `:982`, `:1035-1036`) | Linux: PipeWire preferred, PulseAudio, PipeWire, ALSA; Windows: WASAPI (`DSOUND` is listed behind `#ifdef`, source not pinned); macOS: CoreAudio; `disk`, `dummy` demand-only | first driver that initialises; with none: "No available audio device" (`:1061`) | nothing; area 8's environment variable on CI | #66 |
+| Open with no device (`R/sdl3/src/audio/SDL_audio.c:509`, `:1904-1912`) | all; hit on a Windows runner with no sound device (inference: not run) | "No default audio device available" | the audio module treats a failed open as "run silent" and logs it; CI Windows sets `SDL_AUDIODRIVER=dummy` in the workflow, not in the game (area 8) | #45, #66 |
+| `SDL_HINT_AUDIO_DEVICE_STREAM_ROLE` (`R/sdl3/SDL_hints.h:444`; WASAPI branch `#if 0`, `R/sdl3/src/audio/wasapi/SDL_wasapi.c:765-783`; PipeWire `R/sdl3/src/audio/pipewire/SDL_pipewire.c:1130-1136`) | PipeWire (and Android AAudio); WASAPI ignores it | "Game" on PipeWire | default | #45 |
+| `SDL_HINT_AUDIO_DEVICE_STREAM_NAME` (`R/sdl3/SDL_hints.h:399`; `SDL_pulseaudio.c:757-765`; `SDL_pipewire.c:1118-1128`) | PulseAudio, PipeWire | PulseAudio: "Audio Stream", ignoring app metadata; PipeWire: app metadata name, then identifier, then "SDL Audio Stream" | `SDL_SetAppMetadata` with the game's name before audio init; PulseAudio then still shows "Audio Stream", accepted | #45 |
+| `SDL_HINT_AUDIO_DEVICE_APP_ICON_NAME` (`R/sdl3/SDL_hints.h:350`; `SDL_pipewire.c:1110-1113`) | PulseAudio, PipeWire | "applications-games" | default | #45 |
+| `SDL_HINT_AUDIO_DEVICE_RAW_STREAM` (`R/sdl3/SDL_hints.h:464`; `SDL_wasapi.c:785-787`) | WASAPI, Windows 8.1+ | "0": the OS may process (recording-oriented) | default | none |
+| `SDL_HINT_AUDIO_CATEGORY` (`R/sdl3/SDL_hints.h:314`; `R/sdl3/src/audio/coreaudio/SDL_coreaudio.m:421`) | iOS code only | no-op on macOS (Superseded table) | not set | none |
+| `SDL_HINT_AUDIO_ALSA_DEFAULT_DEVICE`, `..._PLAYBACK_DEVICE`, `..._RECORDING_DEVICE` (`R/sdl3/SDL_hints.h:260`, `:278`, `:296`; `R/sdl3/src/audio/alsa/SDL_alsa_audio.c:346-351`) | ALSA | PCM named "default" | not set: a hint set in code would override the user's ALSA choice; the hint names remain the user's environment variables | none |
+| `SDL_HINT_AUDIO_INCLUDE_MONITORS` (`R/sdl3/SDL_hints.h:589`; `SDL_pulseaudio.c:1088`; `SDL_wasapi.c:1007`) | PulseAudio; header says "only" PulseAudio but WASAPI reads it too, as "recording on playback devices" | false | default: the game opens the default playback device, never a list | none |
+| `SDL_HINT_AUDIO_DISK_OUTPUT_FILE`, `SDL_HINT_AUDIO_DISK_INPUT_FILE` (`R/sdl3/SDL_hints.h:475`, `:486`; `SDL_diskaudio.c:30`) | disk driver | "sdlaudio.raw" / "sdlaudio-in.raw", relative to the working directory | R12 capture runs set an absolute output path per run; two runs in one directory overwrite each other | #66 |
+| `SDL_HINT_AUDIO_DISK_TIMESCALE`, `SDL_HINT_AUDIO_DUMMY_TIMESCALE` (`R/sdl3/SDL_hints.h:499`, `:526`) | disk, dummy | "1.0" | area 8 | #66 |
+| FluidSynth system SoundFont fallback (`R/sdl3_mixer/src/decoder_fluidsynth.c:133-142`) | `SDL_PLATFORM_UNIX` only | three fixed `/usr/share` paths when no SoundFont property is set; none on Windows | #46 passes its own SoundFont (area 6) so every platform behaves alike; whether macOS defines `SDL_PLATFORM_UNIX` is in a header not pinned, and the paths are absent there | #46 |
+| Decoder set (`R/sdl3_mixer/SDL_mixer.h:340-352`, `:770-773`) | per build: Homebrew has FLUIDSYNTH and no TIMIDITY (spike facts); a Windows or container build may differ | fixed at `MIX_Init` by what the build links | at start-up log `MIX_GetAudioDecoder` for every index; #46 fails with a clear message when no MIDI decoder is listed, instead of the silent load of area 6 | #46 |
+| `SDL_HINT_ANDROID_LOW_LATENCY_AUDIO`, `SDL_HINT_ANDROID_AAUDIO_INPUT_PRESET` (`R/sdl3/SDL_hints.h:118`, `:145`) | Android | "1" / unset | not a target | none |
+
+**Rule.** The hints are process-wide and silent on the wrong driver, so the audio module sets
+none of them to a platform-specific value; a hint in the module's code is a value the game wants
+on every driver, set with `SDL_SetHint` (area 1) so the user's environment variable wins.
+Platform differences enter only as logged facts (driver name, device format, decoder list) and as
+the open-failure fallback above.
+
+**Recommendation.** #45 sets `SDL_SetAppMetadata` and nothing else from this table, and treats
+a failed device open as silent play. #46 supplies its own SoundFont and checks the decoder list.
+#66 documents the disk path and the Windows-runner driver. On an SDL or SDL3_mixer pin bump, re-read
+`SDL_hints.h`'s audio hints, the driver `bootstrap` list and the SDL3_mixer property lists, and add
+any new platform-scoped item here.
+
 ## Superseded or inaccurate advice
 
 | Advice | Status | Applies to us? |

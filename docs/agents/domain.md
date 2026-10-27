@@ -32,10 +32,16 @@ absolute path, since worktrees lack it. Its index is `tools/dev/reference-docs.t
 **Both lanes**: `GLOSSARY.md`; ADR 1 (each upstream line changed costs a rebase); `rubric.md`
 (the R items the ticket cites); `testing-games.md`; `~/Developer/dxx-rebirth-spike/FINDINGS.md`.
 
+**Platform-only defaults**: code that creates an SDL object (device, texture, window, audio
+stream, gamepad) or sets a hint checks the area doc's table of properties and hints that only one
+platform or backend reads. Those defaults go wrong silently on macOS and surface only on that
+platform: `sdl-gpu-backends.md` §9, and the "Platform-only" section of `sdl-window.md`,
+`sdl-input.md` and `sdl-audio.md`. The reviewer holds the code to the table.
+
 **SDL_GPU lane** (the render device, its SDL_GPU adapter, shaders, backend parity):
 
 - ADR 2: the render device's contract and transform recipes.
-- `sdl-gpu-backends.md`, read whole; §5 is the capability probe.
+- `sdl-gpu-backends.md`, read whole; §5 is the capability probe, §9 the backend-only properties.
 - `R/sdl3/SDL_gpu.h` (the API); `R/sdl3/src/gpu/` (what Metal, Vulkan and D3D12 really do, in
   `metal/`, `vulkan/` and `d3d12/`); `R/sdl3/test/testgpu_*.c` (SDL's own usage).
 - Shaders: HLSL in `shaders/hlsl/`, generated headers rebuilt by `tools/shaders/build.sh` (R9);

@@ -142,6 +142,10 @@ whether a database entry matches a virtual device, stick or pad, is **measure**.
   borrow. SDL accepts mappings from a hint, `SDL_HINT_GAMECONTROLLERCONFIG`, and
   `SDL_AddGamepadMapping` after init [S25]. Our inference: a test pins one mapping string,
   attaches a virtual gamepad of the same VID/PID, and asserts the button and axis outputs.
+  Platform default: `SDL_AddGamepadMappingsFromIO` and `...FromFile` drop, without an error, any
+  line lacking a `platform:` field that matches the running OS (`SDL_gamepad.h:361-363`;
+  `sdl-input.md`, "Platform-only hints"), so a fixture written on the Mac silently vanishes in
+  the Linux container; use `SDL_AddGamepadMapping` or the hint, which have no such filter.
 - **Steam Input.** Valve checks Deck compatibility by review: "The default controller
   configuration must provide users with the ability to access all content" [S29]. The Steamworks
   Steam Input pages returned only site navigation to `curl`; no Valve statement on regression

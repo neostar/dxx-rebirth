@@ -20,9 +20,10 @@ input consequences. Read the summary, then only the area of your ticket.
 | Gamepad/joystick | Mapped devices via the gamepad API, the rest (HOTAS) via joystick | #44 |
 | Saved bindings | Pin the gamepad virtual layout to SDL2's 21 buttons (SDL3: 26) | #44 |
 | Hot-plug | Open by instance ID from `SDL_EVENT_*_ADDED`; append new joysticks | #44 |
-| Backends | SDL's defaults: HIDAPI on; GameInput, RawInput, WGI off on Windows | #44 |
+| Backends | SDL's defaults: HIDAPI on (its Xbox drivers off on Windows); GameInput, RawInput, WGI off | #44 |
 | Pumping | One `SDL_PumpEvents` + `SDL_PeepEvents` batch per frame; measure first | #42-#44 |
 | Tests (R12) | `SDL_PushEvent` for keys, mouse, wheel; virtual joysticks for pads | #42-#44 |
+| Platform-only hints | Set `MAC_PRESS_AND_HOLD` and `JOYSTICK_ENHANCED_REPORTS`; test mapping fixtures need the platform field; leave the rest (table) | #42, #44 |
 
 ## Version and the SDL2 baselines
 
@@ -225,7 +226,8 @@ South/East as their accept/cancel buttons" [S5:506]. Mapping DB lines with SDL2'
 with SDL v2.0.10 and newer" and documents `SDL_AddGamepadMappingsFromFile` for SDL3 [S28
 README.md:15-18]. Driver priority: HIDAPI first, then GameInput, RawInput, DirectInput/XInput,
 WGI on Windows; IOKit and GameController (`SDL_IOS_JoystickDriver`) on macOS [S27:51-111].
-Defaults: HIDAPI on for desktop [S29 SDL_hidapijoystick_c.h:60-70]; GameInput off outside GDK
+Defaults: HIDAPI on for desktop [S29 SDL_hidapijoystick_c.h:60-70], except its Xbox drivers, which
+default off on Windows (XInput carries those pads there; "Platform-only hints" below); GameInput off outside GDK
 [S30 SDL_gameinputjoystick.cpp:30-35]; RawInput, WGI off; XInput on [S31
 SDL_rawinputjoystick.c:1025, SDL_windows_gaming_input.c:589, SDL_xinputjoystick.c:49].
 
@@ -242,7 +244,8 @@ off until we set the hint, and a measurement should come first.
 `SDL_GameControllerAddMappingsFromRW` and `...FromFile` map to `SDL_AddGamepadMappingsFromIO`
 and `SDL_AddGamepadMappingsFromFile`, which exist [S37 SDL_oldnames.h:224-225]. SDL3's
 `SDL_GetBasePath` returns `const char *`, owned by SDL [S34 SDL_filesystem.h:101]; the SDL3
-branch keeps the pointer and drops `SDL_free(base)`. Set no backend hints. Rumble
+branch keeps the pointer and drops `SDL_free(base)`. Select no backend (no driver hint on or off); the
+one gamepad hint to set, `SDL_HINT_JOYSTICK_ENHANCED_REPORTS`, is in "Platform-only hints" below. Rumble
 (`SDL_RumbleGamepad`, `SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN` [S35 SDL_gamepad.h:798-817, 1536])
 stays out of #44: the game has none today.
 
@@ -323,6 +326,52 @@ SDL3, so it is no independent baseline). The debug harness's `harness_push_input
 (`event.cpp:88-113`) needs an SDL3 branch (`event.key.down`, `event.key.key`). Gamepad tests
 attach a virtual gamepad and a virtual 3-axis, 32-button flight stick, with the background-events
 hint, on the dummy video driver.
+
+## Platform-only hints and their defaults (#42-#44)
+
+**What SDL does.** A hint or behaviour scoped to one OS or one controller driver does nothing
+on the others, so a wrong default stays invisible on the Mac and shows only where that backend
+runs: Windows on GitHub, one bug per run, or a real controller by hand (#93). The scope is stated
+in `R/sdl3/SDL_hints.h` ("This hint is only used on Windows", "The default is "0" on Windows",
+"Linux"-named hints) and in the sources named in the table. Lines below are `SDL_hints.h` unless a
+file is named; `R/` is `docs/reference/`. The set at 3.4.18, by the bar "a later ticket would set
+it by accident or leave a default that is wrong for us":
+
+| Hint or behaviour (line) | Platform or driver | Default | The game sets | Owner |
+|---|---|---|---|---|
+| `MAC_PRESS_AND_HOLD` (`:2725`; read at `src/video/cocoa/SDL_cocoaevents.m:108`) | macOS | 1: holding a letter opens the accents menu instead of repeating | `"0"` before `SDL_Init`, so a held key repeats in pilot-name and chat fields; manual check on the Mac (key events with text input off are unaffected) | #42 |
+| `JOYSTICK_ENHANCED_REPORTS` (`:1395`; note `:1385-1389`) | HIDAPI: PlayStation (Bluetooth), Switch | 1: report mode changes on open; "can't be disabled on PlayStation controllers without power cycling the controller"; breaks Windows DirectInput for other applications | `"auto"` before `SDL_Init`: the game uses no rumble, LEDs or gyro, so SDL leaves the pad's mode alone | #44 |
+| `R/sdl3/SDL_gamepad.h:361-363`; `src/joystick/SDL_gamepad.c:2434-2447` | `SDL_AddGamepadMappingsFromIO` and `...FromFile` | "Mappings not belonging to the current platform or with no platform field specified will be ignored": a line without a matching `platform:` is dropped, no error. `SDL_AddGamepadMapping` and `SDL_HINT_GAMECONTROLLERCONFIG` have no such filter (`SDL_gamepad.c:2563-2724`). macOS also accepts SDL2's `Mac OS X` (`:2394-2401`) | `gamecontrollerdb.txt` keeps loading through `FromFile`; a test fixture goes in through `SDL_AddGamepadMapping`, or carries the running platform's field (Linux container: `platform:Linux`) | #44 |
+| `JOYSTICK_HIDAPI_XBOX` (`:2078`), `_XBOX_360`, `_XBOX_ONE` (`:2151`), `_GIP` (`:2187`) | HIDAPI, Windows | 0 on Windows, else the value of `JOYSTICK_HIDAPI`; each later one defaults to the one before | default: Xbox pads reach the game through XInput on Windows, through HIDAPI on macOS and Linux, with the same gamepad API | #44 |
+| `XINPUT_ENABLED` (`:4775`), `JOYSTICK_DIRECTINPUT` (`:699`) | Windows | 1, 1 | default: XInput for Xbox pads, DirectInput for HOTAS; `xinput` is a reserved mapping GUID (`SDL_gamepad.h:313`) | #44 |
+| `JOYSTICK_RAWINPUT` (`:2308`), `JOYSTICK_WGI` (`:2408`), `WINDOWS_GAMEINPUT` (`:4573`), `JOYSTICK_GAMEINPUT` (`:1453`) | Windows | 0, 0, 0, 0 (1 on GDK) | default; covered above | #44 |
+| `WINDOWS_CLOSE_ON_ALT_F4` (`:4514`) | Windows | 1: Alt+F4 posts a window close | default; do not bind Alt+F4, SDL posts the close when it sees it | #42 |
+| `WINDOWS_RAW_KEYBOARD` (`:4587`) | Windows | 0: keys through the message loop | default; low-latency raw keys are a candidate only if the latency measurement asks | #42 |
+| `JOYSTICK_LINUX_CLASSIC` (`:2229`), `_LINUX_DEADZONES` (`:2244`), `_LINUX_DIGITAL_HATS` (`:2260`), `_LINUX_HAT_DEADZONES` (`:2278`) | Linux joystick driver | `/dev/input/event*`; raw unfiltered axes; hat axes digital only if they look digital; hat deadzones on | default; a HOTAS hat or throttle on Linux is checked by hand (#93), because virtual joysticks bypass this driver | #44 |
+| `JOYSTICK_IOKIT` (`:2215`), `JOYSTICK_MFI` (`:2294`) | macOS | 1, 1: IOKit and GCController both on | default; no hint selects between them, so which one a given device uses is a hand check (#93) | #44 |
+| `MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK` (`:2645`) | macOS | 0: Ctrl+click stays a left click | default; Ctrl is a game key | #43 |
+| `TRACKPAD_IS_TOUCH_ONLY` (`:3667`) | macOS | 0: trackpad sends mouse events | default | #43 |
+| `HIDAPI_ENUMERATE_ONLY_CONTROLLERS` (`:1206`) | macOS (HIDAPI) | 1: avoids "macOS keyboard capture permission prompts" | default; the game never calls `SDL_hid_enumerate` | #44 |
+| `ALLOW_ALT_TAB_WHILE_GRABBED` (`:60`; `src/events/SDL_keyboard.c:657-668`) | any OS with an Alt+Tab; the Mac has none | 1: with the keyboard grabbed and a fullscreen window, Alt+Tab minimizes the window | default: it is the player's way out of a keyboard grab | #43 |
+| `SteamAPI_InitEx` before `SDL_Init` (`SDL_gamepad.h:51-52`); `ENABLE_STEAM_SCREEN_KEYBOARD` (`:856`, since 3.4.12) | Steam builds | not applicable until a Steam build exists; Steam sets the keyboard hint itself in Big Picture | none now; a Steam build initialises Steam first and starts text input only for a text field | none (future Steam build) |
+
+**Set aside.**
+- Per-driver HIDAPI hints for other pads (`_PS3`, `_PS5`, `_SWITCH`, `_SHIELD`, `_STADIA`, `_WII`, `_LUNA`, `_8BITDO` and the rest) and their LED hints: each defaults to `JOYSTICK_HIDAPI` (on), and none changes what a button or axis reads.
+- `JOYSTICK_HIDAPI_COMBINE_JOY_CONS` (`:1545`, default 1, two Joy-Cons become one pad): device-specific, nothing to set.
+- `JOYSTICK_HIDAPI_STEAM` (`:1801`, default 0, Bluetooth Steam Controllers; permission prompts on iOS and Android): mobile only.
+- `HIDAPI_LIBUSB`, `_LIBUSB_WHITELIST`, `_UDEV` (`:1130`, `:1177`), `JOYSTICK_THREAD` (`:2356`, Windows RawInput only), `EVDEV_DEVICES` and `MUTE_CONSOLE_KEYBOARD` (KMSDRM and console): driver plumbing that needs a real device, none on the Mac or in the container; tested by hand with #93.
+- `WINDOWS_ENABLE_MENU_MNEMONICS` (`:4543`, default 0): the default already keeps Alt free of the menu beep.
+- `MAC_OPTION_AS_ALT`, `MAC_SCROLL_MOMENTUM`, `KEYCODE_OPTIONS`: correct in the sections above.
+- `TIMER_RESOLUTION`: frame timing, in `sdl-window.md` section 5.
+- `MOUSE_FOCUS_CLICKTHROUGH`, `MOUSE_EMULATE_WARP_WITH_RELATIVE`, `MOUSE_AUTO_CAPTURE`: not platform-scoped in the header, and the game neither warps nor depends on the focus click.
+
+**Recommendation.** `init.cpp` sets two hints, `MAC_PRESS_AND_HOLD` (macOS only) and
+`JOYSTICK_ENHANCED_REPORTS`, both before `SDL_Init`; every other row stays at SDL's default, and
+a test pins that `init.cpp` sets nothing else. Test fixtures for mappings carry the platform
+(table row 3). Rows with a "by hand" cell (Linux joystick driver, IOKit and GCController on real
+HOTAS, Windows XInput) go to #93's rig rather than into a criterion #44 cannot meet on the Mac.
+On an SDL pin bump, re-read the platform-scoped hint lists in `SDL_hints.h` and the platform
+paragraphs of `SDL_gamepad.h` and add any new entry here.
 
 ## Design proposal for #42-#44
 

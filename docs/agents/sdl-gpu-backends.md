@@ -41,6 +41,7 @@ present ──► copy pass: vertex upload + texture uploads
 | 6 | Presentation | Frames in flight 2 set once; acquire at present; VSYNC by default, IMMEDIATE on macOS opt-in only (SDL #12715) | #48, #50 |
 | 7 | Measurement | CPU time in-game everywhere; GPU time on Metal via Instruments; SDL call counts as the only D3D12 proxy | #53 |
 | 8 | Device choice | SDL's order, driver by option or `SDL_GPU_DRIVER`; debug mode explicit; hardware Vulkan only in the game, GL fallback | #50, #52 |
+| 9 | Backend-only properties | Each one's default checked; D3D12 targets created with the clear values their load ops use | #28, #35 |
 
 ## 1. Draw-call volume and batching
 
@@ -256,6 +257,39 @@ tests and `gpu-validate.sh` (R6), off in the game. Pass the driver option as the
 and log the chosen backend and `SDL_GetGPUDeviceProperties`' names (#50). The game requires
 hardware Vulkan and falls back to GL (#52) when creation or the probe fails; container tests
 allow lavapipe. Leave `preferLowPower` false.
+
+## 9. Backend-only properties and their defaults
+
+**What SDL does.** A property scoped to one backend is ignored by the other two, so a wrong
+default stays invisible on Metal and lavapipe and shows only where that backend runs: for D3D12,
+the WARP run on GitHub, one bug per run. S0 lists every such property in two places:
+`SDL_CreateGPUDeviceWithProperties` ("With the D3D12 backend", "With the Vulkan backend", "With
+the Metal backend", S0 `:2311-2362`) and `SDL_CreateGPUTexture` ("(Direct3D 12 only)",
+S0 `:2801-2818`). The complete set at 3.4.18:
+
+| Property (S0 line) | Default | The adapter sets |
+|---|---|---|
+| `TEXTURE_CREATE_D3D12_CLEAR_R/G/B/A_FLOAT` (`:2801-2812`) | 0 | the colour target's clear colour, from the constant its load op clears to |
+| `TEXTURE_CREATE_D3D12_CLEAR_DEPTH_FLOAT` (`:2813`) | 0 | the depth clear value (1.0), from the constant its load op clears to (#28) |
+| `TEXTURE_CREATE_D3D12_CLEAR_STENCIL_NUMBER` (`:2816`) | 0 | default: no stencil is cleared |
+| `DEVICE_CREATE_D3D12_SEMANTIC_NAME_STRING` (`:2313`) | "TEXCOORD" | default: `shaders/hlsl/` uses `TEXCOORDn` |
+| `DEVICE_CREATE_D3D12_ALLOW_FEWER_RESOURCE_SLOTS_BOOLEAN` (`:2315`) | false | default (Tier 2 hardware only) |
+| `DEVICE_CREATE_D3D12_AGILITY_SDK_*` (`:2323-2338`) | unset | default |
+| `DEVICE_CREATE_VULKAN_REQUIRE_HARDWARE_ACCELERATION_BOOLEAN` (`:2341`) | false | §8: true in the game, false in container tests |
+| `DEVICE_CREATE_VULKAN_OPTIONS_POINTER` (`:2347`) | none | default |
+| `DEVICE_CREATE_METAL_ALLOW_MACFAMILY1_BOOLEAN` (`:2355`) | false | default |
+
+The clear-value rule: D3D12 fixes a target's optimized clear value at creation; a load-op
+clear to any other value still clears correctly, slower, and the debug layer logs
+`ClearDepthStencilView` (or `ClearRenderTargetView`): "The clear values do not match those
+passed to resource creation" (EXECUTION WARNING #821 for depth). The WARP run fails on it
+(`d3d12-run-40591444825/`, every frame, depth at 1.0 against SDL's 0).
+
+**Recommendation.** Every texture created as a colour or depth target sets its D3D12 clear
+properties from the same constant its load op clears to; a clear value that changes at run time
+(the game's clear colour) re-creates nothing and costs the warning only when it differs. A test
+pins "creation clear value equals load-op clear value" per target, so the mismatch fails locally
+instead of on WARP. On an SDL pin bump, re-read both S0 lists and add any new property here.
 
 ## Design: the SDL_GPU adapter as a deep module
 

@@ -246,6 +246,65 @@ path is the same in tests and in play.
 **Informs** #41 (GL smoke and hashes), #50 and #24 (SDL_GPU), #65 (R1 on Linux), #66.
 **Sources** S6, S8, S20, S22, S23, spike T1 and T3.
 
+## 8. Platform-only properties and their defaults
+
+**SDL3 does.** A property or hint scoped to one platform or video driver is ignored elsewhere, so
+a default that is wrong for the game stays invisible on macOS, our development and test platform,
+and surfaces only on the GitHub Windows run or in the Linux container, one bug per run. This
+section cites the pinned files directly: `R/` is `docs/reference/`, and lines count the pinned
+file. Sources: the platform-scoped lists of `SDL_CreateWindowWithProperties` (`R/sdl3/SDL_video.h:1327-1370`),
+the hints marked for one platform in `R/sdl3/SDL_hints.h`, and the video drivers under
+`R/sdl3/src/video/`. The create properties are all of the "wrap an existing window" kind
+(`COCOA_WINDOW`, `COCOA_VIEW`, `WAYLAND_WL_SURFACE`, `WIN32_HWND`, `X11_WINDOW`,
+`WAYLAND_SURFACE_ROLE_CUSTOM`, and the two below); the game wraps no window, so it sets none of
+them. The full set at 3.4.18 that could matter:
+
+| Property or hint (R/sdl3 file:line) | Scope | Default | The game sets | Owner |
+|---|---|---|---|---|
+| `SDL_PROP_WINDOW_CREATE_WAYLAND_CREATE_EGL_WINDOW_BOOLEAN` (`SDL_video.h:1348`), `..._WIN32_PIXEL_FORMAT_HWND_POINTER` (`:1360`) | Wayland, Windows | unset | default: both exist for windows without `SDL_WINDOW_OPENGL` or for sharing a GL pixel format between windows; neither applies | #41 |
+| `SDL_WINDOW_HIGH_PIXEL_DENSITY` / `SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN` (`SDL_video.h:1420`; `README-highdpi.md:7,16-21`; cocoa `SDL_cocoawindow.m:1247,2534`; wayland `SDL_waylandwindow.c:58,2989`) | macOS, Wayland only; no code path in the windows or x11 drivers | off: macOS renders at window size, Wayland at scale 1.0 [`SDL_waylandwindow.c:58`] | on, every platform (section 4); on Windows and X11 it changes nothing, so the Windows and Linux runs cannot show a missing flag | #48 |
+| `SDL_HINT_VIDEO_X11_SCALING_FACTOR` (`SDL_hints.h:4192`; chain in `src/video/x11/SDL_x11modes.c:51-139`) | X11 | unset; content scale comes from `Xft.dpi` in the X resource database (`:64-101`), then XSETTINGS `Gdk/WindowScalingFactor` and `Xft/DPI` (`:113-121`), then `GDK_SCALE` (`:126-130`), else 1.0 (`:135`) | default; the initial window size multiplies by `SDL_GetDisplayContentScale` (section 4), so a headless or bare X server (scale 1.0) yields an unscaled window. Tests that need a scale set the hint | #48 |
+| `SDL_WINDOWS_DPI_AWARENESS` (no `SDL_HINT_` macro; `src/video/windows/SDL_windowsvideo.c:580-592`) | Windows | unset means Per-Monitor V2 (`:582`) | default; the hint is undocumented in `SDL_hints.h`. `unaware`, `system` or `permonitor` would make Windows bitmap-scale or skip `WM_DPICHANGED`, which section 4's conversions assume | #48 |
+| `SDL_HINT_MOUSE_DPI_SCALE_CURSORS` (`SDL_hints.h:2828`) | Windows ("currently implemented on Windows", `:2822`) | `"0"`, cursors keep their size at 200% | `"1"` only if the game shows an SDL system cursor rather than its own; set before cursors are created | #43 |
+| `SDL_HINT_VIDEO_X11_NET_WM_PING` (`SDL_hints.h:4167`), `SDL_HINT_WINDOWS_ENABLE_MESSAGELOOP` (`:4565`) | X11; Windows | `"1"`; `"1"` (the message loop runs only inside `SDL_PumpEvents`) | default. The X11 hint documents the failure: an app that cannot answer pings in time is shown as hung. Windows has no hint text on it; that a window whose loop stops pumping shows as not responding is inferred. Fix by pumping events in long loads (level load, movies), not by `"0"` | #41 |
+| `SDL_HINT_VIDEO_FORCE_EGL` (`SDL_hints.h:3814`; `SDL_windowsvideo.c:393`, `SDL_cocoavideo.m:144`) | Windows, macOS (WGL and CGL by default); X11 uses GLX; Wayland and `offscreen` use EGL regardless | `"0"` | default; the GL fallback (#52) therefore runs a different context path in each place: WGL on the Windows run, GLX on X11, EGL in the container. A GL bug that shows in one cannot be dismissed from another | #52 |
+| `SDL_HINT_VIDEO_WAYLAND_SCALE_TO_DISPLAY` (`SDL_hints.h:4070`; `SDL_waylandvideo.c:604`) | Wayland | `"0"` | default: it forces 1:1 pixels for windows without `HIGH_PIXEL_DENSITY`, with blur and rounding the header lists; the flag in section 4 is the correct route | #48 |
+
+The Windows-only and X11-only rows above are the ones no local run exercises. Covered elsewhere
+in this doc, each with the right default: `SDL_HINT_TIMER_RESOLUTION` (`SDL_hints.h:3638`,
+section 5), `SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4` (`:4521`) and `MINIMIZE_ON_FOCUS_LOSS` (`:3908`,
+section 1), `SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES` / `_MENU_VISIBILITY` (`:3832`, `:3853`) and
+`SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR` (`:4148`, section 3), `SDL_HINT_VIDEO_WAYLAND_MODE_SCALING`
+(`:4011`, section 3), `SDL_HINT_VIDEO_ALLOW_SCREENSAVER` (`:3703`, section 6),
+`SDL_HINT_MAC_BACKGROUND_APP` (`:2637`, section 7). The `offscreen` driver is never auto-selected:
+`OFFSCREEN_Available` is true only when `SDL_VIDEO_DRIVER` names it (`src/video/offscreen/SDL_offscreenvideo.c:54-60`),
+which section 7 already implies by setting it in the environment.
+
+**Set aside.** `SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE` (`:3870`, default `"1"`), `MAC_OPENGL_ASYNC_DISPATCH`
+(`:2676`): macOS-only, so local runs show them. `MAC_OPTION_AS_ALT`, `MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK`,
+`WINDOWS_RAW_KEYBOARD*`, `WINDOWS_GAMEINPUT`, `MAC_PRESS_AND_HOLD`, `ALLOW_ALT_TAB_WHILE_GRABBED`: input, in `sdl-input.md` "Platform-only hints". `WINDOWS_ERASE_BACKGROUND_MODE`
+(`:4717`, `"initial"`), `FORCE_RAISEWINDOW` (`:917`), `WINDOW_ALLOW_TOPMOST` (`:4489`), `WINDOWS_ENABLE_MENU_MNEMONICS`
+(`:4550`), `INTRESOURCE_ICON*`, `USE_D3D9EX`: cosmetic or unused paths, nothing the game's flow
+reaches. `VIDEO_WAYLAND_MODE_EMULATION`, `PREFER_LIBDECOR`, `ALLOW_LIBDECOR`, `MATCH_EXCLUSIVE_MODE_ON_MOVE`:
+exclusive modes and decorations, outside the borderless-only decision. `VIDEO_DISPLAY_PRIORITY`
+(`:3730`) and `VIDEO_DOUBLE_BUFFER` (`:3753`, Wayland, default off): a user or measurement
+choice. X11 visual, override-redirect and XSync hints, KMSDRM, Vivante, OpenVR, Emscripten
+properties: other targets. `SDL_GL_SetSwapInterval(-1)` (adaptive, glX and WGL drivers only,
+`SDL_video.h:3402-3414`): the game passes only 0 or 1 (`similar/arch/ogl/gr.cpp:774`).
+`SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT` (`:1512`, differs on Windows and Apple): HDR is unused.
+
+**Recommendation.** A later ticket that touches window creation, fullscreen, DPI or the event
+loop opens this table first and sets or leaves each row as written. The two rows that already
+behave differently from macOS are tested rather than trusted: a unit test pins "initial window
+size equals configured size times `SDL_GetDisplayContentScale`" with a fake scale (#48), and the
+Windows run logs `SDL_GetWindowPixelDensity` and `SDL_GetDisplayContentScale` once so a
+density of 1.0 against a scale of 2.0 reads as expected rather than as a bug. Never read the
+absence of an effect on macOS as proof for Windows or X11. On an SDL pin bump, re-read the
+platform-scoped lists in `SDL_video.h` (the property list and "On Windows/Wayland/X11" blocks)
+and the hints marked for one platform, and add any new entry here.
+
+**Informs** #41, #43, #48, #52. **Sources** `R/sdl3/` files named per row; S6, S10, S14.
+
 ## SDL version
 
 3.4.18 (2026-10-02) is the latest SDL3 release; no 3.5 or 3.6 release exists [S1]. Its release
@@ -336,7 +395,8 @@ To re-verify or extend, or to read a quote behind an S id: `docs/agents/sdl-wind
   `src/timer/unix/SDL_systimer.c:95-106`); Apple documents only `mach_absolute_time` here.
 - Apple's App Nap guide is archived and last updated 2016-09-13 [S34]; no current page found
   that restates the heuristics. Apple pages state no dates.
-- X11 content scale sources (Xft.dpi, `SDL_HINT_VIDEO_X11_SCALING_FACTOR`) were not read.
+- X11 content scale: the sources are now read (section 8); what GNOME and KDE on X11 actually
+  report is the measurement below.
 
 **Questions that need a measurement, not a source.**
 
