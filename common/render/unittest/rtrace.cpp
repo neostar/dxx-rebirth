@@ -347,15 +347,15 @@ BOOST_AUTO_TEST_CASE(malformed_trace_reports_its_error_after_its_frames)
 namespace {
 
 /* The bytes of the committed trace the i-th argument after `--` names:
- * tools/dev/rtrace-tests.sh passes the sample's, then the overbright
- * trace's.
+ * tools/dev/rtrace-tests.sh passes the sample's, the overbright
+ * trace's, then the flash trace's.
  */
 [[nodiscard]]
 bytes committed_trace(const std::size_t i)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE_MESSAGE(suite.argc == 3,
-	                      "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT");
+	BOOST_REQUIRE_MESSAGE(suite.argc == 4,
+	                      "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH");
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	std::ifstream in{args[i], std::ios::binary};
@@ -379,6 +379,14 @@ BOOST_AUTO_TEST_CASE(sample_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(overbright_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(2) == render::rtrace::overbright_trace()));
+}
+
+/* Test that the committed flash trace is the writer's: its bytes are what
+ * flash_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(flash_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(3) == render::rtrace::flash_trace()));
 }
 
 /* Test that a textured draw samples the texture of its own slot, not the

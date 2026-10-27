@@ -568,6 +568,18 @@ BOOST_AUTO_TEST_CASE(overbright_trace_frames_match_gl)
 	           boost::test_tools::per_element());
 }
 
+/* Test R3 on the flash trace (#30): the red and the negative palette flash
+ * and the translucent blends over a scene hash as GL draws them.  Pinned as
+ * the sample's are.
+ */
+BOOST_AUTO_TEST_CASE(flash_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{0xa088becd21e46f87u, 0x4142e7869f743d59u,
+	                                    0xc33733e407fec502u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::flash_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
 /* Test that the transfer ring grows on a GPU: after a small frame that is
  * presented and not waited for, a frame of 2000 quads (432 000 bytes of
  * vertices, past the first 64 KiB) draws its first and last quads where

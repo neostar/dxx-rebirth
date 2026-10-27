@@ -30,6 +30,7 @@ make_rtrace_repo()
 	printf 'a stand-in for the sample trace\n' > "$r/common/render/rtrace/synthetic/sample.rtr"
 	printf 'a stand-in for the overbright trace\n' \
 		> "$r/common/render/rtrace/synthetic/overbright.rtr"
+	printf 'a stand-in for the flash trace\n' > "$r/common/render/rtrace/synthetic/flash.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -63,6 +64,11 @@ if [[ $1 == *overbright.rtr ]]; then
 		> "$2"
 	exit 0
 fi
+if [[ $1 == *flash.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_FLASH0:-0 64x48 a088becd21e46f87}" '1 64x48 4142e7869f743d59' \
+		'2 64x48 c33733e407fec502' > "$2"
+	exit 0
+fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
@@ -86,6 +92,13 @@ if [[ $1 == *no-frames.rtr && ${FAKE_FRAMELESS_PASSES-} != 1 ]]; then
 fi
 if [[ $1 == *overbright.rtr ]]; then
 	printf '%s\n' "${FAKE_OVERBRIGHT0:-0 64x48 5d1b6b445fb7f05a}" '1 64x48 418a435cc9c67e56' > "$2"
+	exit 0
+fi
+if [[ $1 == *flash.rtr ]]; then
+	printf '%s\n' "${FAKE_FLASH0:-0 64x48 a088becd21e46f87}" '1 64x48 4142e7869f743d59' \
+		'2 64x48 c33733e407fec502' > "$2"
+	[[ ${FAKE_FLASH_EXTRA-} == 1 ]] && echo '3 64x48 0000000000000000' >> "$2"
+	[[ ${FAKE_FLASH_SHORT-} == 1 ]] && head -n 2 "$2" > "$2.short" && mv "$2.short" "$2"
 	exit 0
 fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
@@ -240,6 +253,10 @@ test_rtrace_gpu_logs_the_pinned_lines()
 	assert_contains "$out" \
 		"rtrace-tests: rtrace-gpu's frame hashes of the overbright trace are not GL's:"
 	assert_contains "$out" "0 64x48 1111111111111111"
+	out=$(FAKE_GPU=1 FAKE_GPU_FLASH0='0 64x48 3333333333333333' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the flash trace are not GL's:"
 	out=$(FAKE_GPU=1 FAKE_GPU_INVALID=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
 		rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
@@ -275,6 +292,24 @@ test_overbright_lines_are_pinned()
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the overbright trace:"
 	assert_contains "$out" "0 64x48 2222222222222222"
+}
+
+# Test that rtrace logging other lines than the flash trace's pins, or an
+# extra one, fails, naming the trace.
+test_flash_lines_are_pinned()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_FLASH0='0 64x48 4444444444444444' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the flash trace:"
+	out=$(FAKE_FLASH_EXTRA=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the flash trace:"
+	out=$(FAKE_FLASH_SHORT=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the flash trace:"
 }
 
 run_tests --parallel

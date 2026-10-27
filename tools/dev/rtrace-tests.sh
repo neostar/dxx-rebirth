@@ -9,15 +9,16 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample and overbright traces to compare with their writers, its report
+#   sample, overbright and flash traces to compare with their writers, its report
 #   written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
+# - rtrace on synthetic/flash.rtr (#30), once: its three pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
-#   <profile> sdl3=1 builds it), rtrace-gpu on the sample and on the
-#   overbright trace, through no-window.sh and gpu-validate.sh rather than
+#   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
+#   overbright trace and the flash trace, through no-window.sh and gpu-validate.sh rather than
 #   WRAPPER, each of which must log GL's pinned lines; the pins are Apple's
 #   GL on Metal, so another driver it names is a SKIP (lavapipe compares
 #   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
@@ -60,14 +61,20 @@ sample=$root/common/render/rtrace/synthetic/sample.rtr
 # macOS 26.7).
 expected_overbright=('0 64x48 5d1b6b445fb7f05a' '1 64x48 418a435cc9c67e56')
 overbright=$root/common/render/rtrace/synthetic/overbright.rtr
+# The flash trace's lines (#30), as Apple's GL draws them (M1 Max, macOS 26.7).
+expected_flash=('0 64x48 a088becd21e46f87' '1 64x48 4142e7869f743d59' '2 64x48 c33733e407fec502')
+flash=$root/common/render/rtrace/synthetic/flash.rtr
 
-# Whether log $1 holds exactly the two lines $2 and $3.
+# Whether log $1 holds exactly the lines $2... and no others.
 logs_lines()
 {
-	local lines
+	local lines i
 	[[ -s $1 ]] || return 1
 	mapfile -t lines < "$1"
-	[[ ${#lines[@]} -eq 2 && ${lines[0]} == "$2" && ${lines[1]} == "$3" ]]
+	[[ ${#lines[@]} -eq $(($# - 1)) ]] || return 1
+	for ((i = 0; i < ${#lines[@]}; i++)); do
+		[[ ${lines[i]} == "${*:i+2:1}" ]] || return 1
+	done
 }
 
 # Print process $1 and all its descendants, one pid a line.
@@ -130,7 +137,7 @@ rc=0
 # The replay tests.
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
-	--report_sink="$report" -- "$sample" "$overbright"; then
+	--report_sink="$report" -- "$sample" "$overbright" "$flash"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -170,6 +177,15 @@ elif ! logs_lines "$tmp/overbright.log" "${expected_overbright[@]}"; then
 	cat "$tmp/overbright.log" >&2
 	rc=1
 fi
+# rtrace on the flash trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$flash" "$tmp/flash.log"; then
+	echo "rtrace-tests: rtrace on the flash trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/flash.log" "${expected_flash[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the flash trace:" >&2
+	cat "$tmp/flash.log" >&2
+	rc=1
+fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
 # must fail; through no-window.sh alone, which keeps the status.
 head -c 20 "$sample" > "$tmp/no-frames.rtr"
@@ -182,7 +198,7 @@ if bounded "$dev_dir/no-window.sh" "$root/$build/common/rtrace" "$tmp/no-frames.
 fi
 # R3: rtrace-gpu, each synthetic trace through SDL_GPU, logs GL's lines.
 rtrace_gpu=$root/build/$profile-sdl3/common/rtrace-gpu
-# Run rtrace-gpu on trace $1, named $2, which must log lines $3 and $4.
+# Run rtrace-gpu on trace $1, named $2, which must log lines $3....
 check_gpu()
 {
 	local trace=$1 name=$2 out=$tmp/gpu-$2 driver gpu_program=$rtrace_gpu
@@ -200,7 +216,7 @@ check_gpu()
 	elif [[ $driver != Metal ]]; then
 		printf 'SKIP rtrace-gpu (%s, %s): driver %s; the pinned lines are Metal'"'"'s, %s\n' \
 			"$profile" "$name" "$driver" 'FLIP compares other drivers (#25)'
-	elif ! logs_lines "$out.log" "$3" "$4"; then
+	elif ! logs_lines "$out.log" "${@:3}"; then
 		echo "rtrace-tests: rtrace-gpu's frame hashes of the $name trace are not GL's:" >&2
 		cat "$out.log" >&2
 		return 1
@@ -212,6 +228,7 @@ if [[ ! -x $rtrace_gpu ]]; then
 else
 	check_gpu "$sample" sample "${expected[@]}" || rc=1
 	check_gpu "$overbright" overbright "${expected_overbright[@]}" || rc=1
+	check_gpu "$flash" flash "${expected_flash[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

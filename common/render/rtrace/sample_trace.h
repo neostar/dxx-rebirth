@@ -9,7 +9,8 @@
  * The writers of the committed synthetic traces in
  * common/render/rtrace/synthetic/: sample.rtr, the first, the shaded
  * triangle, then the whole target in yellow, each in its own frame; and
- * overbright.rtr, textured quads with vertex colours above 1 (#27).
+ * overbright.rtr, textured quads with vertex colours above 1 (#27); and
+ * flash.rtr, the blend modes and the red and negative palette flashes (#30).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -166,6 +167,60 @@ inline std::vector<std::uint8_t> overbright_trace()
 	opaque.texture = {2};
 	w.draw(opaque);
 	w.present({.frame = 1});
+	return w.take();
+}
+
+/* A quad over the whole sample target in one colour. */
+[[nodiscard]]
+inline std::array<vertex, 4> sample_flat_quad(const std::array<float, 4> &rgba)
+{
+	return sample_quad({{rgba, rgba, rgba, rgba}}, 0);
+}
+
+/* Draw the flash trace's scene: an opaque grey over the target, and the
+ * shaded triangle over it, so that a blend shows against both.
+ */
+inline void flash_scene(trace::writer &w)
+{
+	w.clear({.color = true, .depth = true});
+	const auto grey{sample_flat_quad({{0.5f, 0.4f, 0.3f, 1}})};
+	w.draw(sample_draw(topology::fan, grey));
+	w.draw(sample_draw(topology::triangles, sample_shaded_triangle));
+}
+
+/* A full-target quad of rgba drawn with blend b over the scene. */
+inline void flash_quad(trace::writer &w, const blend b, const std::array<float, 4> &rgba)
+{
+	const auto q{sample_flat_quad(rgba)};
+	draw_call c{sample_draw(topology::fan, q)};
+	c.state.blend = b;
+	w.draw(c);
+}
+
+/* The flash trace's bytes (#30): the game's palette flashes over a scene
+ * (ogl_do_palfx), and the other blend modes.  Frame 0, a weapon-hit flash
+ * of mixed sign, additive_c of (0.6, -0.1, -0.2), whose negative
+ * components GL clamps to 0 and whose red it clamps to 1; frame 1, the
+ * negative flash, palfx_neg of a brightness of (-19, -10, 0) out of 63
+ * scaled by 2.5 as ogl_do_palfx does, (0.754, 0.397, 0); frame 2, a
+ * translucent blue quad over the scene under normal blending, a green one
+ * under additive_a and a grey one under additive_c, each at alpha 0.25.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> flash_trace()
+{
+	trace::writer w{sample_target};
+	flash_scene(w);
+	flash_quad(w, blend::additive_c, {{0.6f, -0.1f, -0.2f, 1}});
+	w.present({.frame = 0});
+	flash_scene(w);
+	flash_quad(w, blend::palfx_neg, {{0.754f, 0.397f, 0, 1}});
+	w.present({.frame = 1});
+	flash_scene(w);
+	flash_quad(w, blend::normal, {{0, 0, 1, 0.25f}});
+	flash_quad(w, blend::additive_a, {{0, 1, 0, 0.25f}});
+	flash_quad(w, blend::additive_c, {{0.2f, 0.2f, 0.2f, 0.25f}});
+	w.present({.frame = 2});
 	return w.take();
 }
 
