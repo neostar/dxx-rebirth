@@ -70,6 +70,10 @@ if [[ $1 == *flash.rtr ]]; then
 		'2 64x48 c33733e407fec502' > "$2"
 	exit 0
 fi
+if [[ $1 == *walls.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_WALLS0:-0 64x48 75020e289509a104}" '1 64x48 01416b4d8a73c8c9' '2 64x48 58f167d16748f0ab' > "$2"
+	exit 0
+fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
@@ -100,6 +104,10 @@ if [[ $1 == *flash.rtr ]]; then
 		'2 64x48 c33733e407fec502' > "$2"
 	[[ ${FAKE_FLASH_EXTRA-} == 1 ]] && echo '3 64x48 0000000000000000' >> "$2"
 	[[ ${FAKE_FLASH_SHORT-} == 1 ]] && head -n 2 "$2" > "$2.short" && mv "$2.short" "$2"
+	exit 0
+fi
+if [[ $1 == *walls.rtr ]]; then
+	printf '%s\n' "${FAKE_WALLS0:-0 64x48 75020e289509a104}" '1 64x48 01416b4d8a73c8c9' '2 64x48 58f167d16748f0ab' > "$2"
 	exit 0
 fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
@@ -311,6 +319,22 @@ test_flash_lines_are_pinned()
 	out=$(FAKE_FLASH_SHORT=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the flash trace:"
+}
+
+# Test that rtrace or rtrace-gpu logging other lines than the walls
+# trace's pins fails, naming the trace.
+test_walls_lines_are_pinned()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_WALLS0='0 64x48 5555555555555555' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the walls trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_WALLS0='0 64x48 5555555555555555' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the walls trace are not GL's:"
 }
 
 run_tests --parallel

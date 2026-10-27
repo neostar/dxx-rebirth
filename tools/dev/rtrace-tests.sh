@@ -15,10 +15,11 @@
 #   log the same two frame hash lines, each the one pinned below;
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
 # - rtrace on synthetic/flash.rtr (#30), once: its three pinned lines;
+# - rtrace on synthetic/walls.rtr (#28), once: its three pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
-#   overbright trace and the flash trace, through no-window.sh and gpu-validate.sh rather than
+#   overbright, flash and walls traces, through no-window.sh and gpu-validate.sh rather than
 #   WRAPPER, each of which must log GL's pinned lines; the pins are Apple's
 #   GL on Metal, so another driver it names is a SKIP (lavapipe compares
 #   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
@@ -176,6 +177,15 @@ elif ! logs_lines "$tmp/flash.log" "${expected_flash[@]}"; then
 	cat "$tmp/flash.log" >&2
 	rc=1
 fi
+# rtrace on the walls trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$walls" "$tmp/walls.log"; then
+	echo "rtrace-tests: rtrace on the walls trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/walls.log" "${expected_walls[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the walls trace:" >&2
+	cat "$tmp/walls.log" >&2
+	rc=1
+fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
 # must fail; through no-window.sh alone, which keeps the status.
 head -c 20 "$sample" > "$tmp/no-frames.rtr"
@@ -219,6 +229,7 @@ else
 	check_gpu "$sample" sample "${expected[@]}" || rc=1
 	check_gpu "$overbright" overbright "${expected_overbright[@]}" || rc=1
 	check_gpu "$flash" flash "${expected_flash[@]}" || rc=1
+	check_gpu "$walls" walls "${expected_walls[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

@@ -201,7 +201,9 @@ inline void flash_quad(trace::writer &w, const blend b, const std::array<float, 
 /* The flash trace's bytes (#30): the game's palette flashes over a scene
  * (ogl_do_palfx), and the other blend modes.  Frame 0, a weapon-hit flash
  * of mixed sign, additive_c of (0.6, -0.1, -0.2), whose negative
- * components GL clamps to 0 and whose red it clamps to 1; frame 1, the
+ * components the colour target clamps to 0 before blending (a flat colour,
+ * so this pins the blend factors, not the vertex shader's clamp, which the
+ * walls trace's frame 2 pins) and whose red the sum clamps to 1; frame 1, the
  * negative flash, palfx_neg of a brightness of (-19, -10, 0) out of 63
  * scaled by 2.5 as ogl_do_palfx does, (0.754, 0.397, 0); frame 2, a
  * translucent blue quad over the scene under normal blending, a green one

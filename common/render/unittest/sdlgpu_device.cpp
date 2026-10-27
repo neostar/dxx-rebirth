@@ -213,22 +213,34 @@ std::size_t block_other_than(const std::span<const std::uint8_t> rgb, const std:
 	return n;
 }
 
-/* The frame hashes of trace, replayed on a Metal device that clears to the
- * game's colour, as GL's replay clears.
+/* The frames of trace, replayed on a device that clears to the game's
+ * colour, as GL's replay clears.
  */
 [[nodiscard]]
-std::vector<std::uint64_t> replayed_hashes(const std::vector<std::uint8_t> &trace)
+std::vector<render::replayed_frame> replayed_frames(const std::vector<std::uint8_t> &trace)
 {
 	render::trace::reader r{trace};
 	const auto h{r.header()};
 	BOOST_REQUIRE(h.has_value());
 	auto d{sdlgpu::device::create(
 	    {.target = h.value().target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
-	BOOST_REQUIRE(d->driver() == "metal");
-	std::vector<std::uint64_t> hashes;
-	const auto done{render::replay(
-	    r, *d, [&hashes](const render::replayed_frame &f) { hashes.push_back(f.hash); })};
+	std::vector<render::replayed_frame> frames;
+	const auto done{
+	    render::replay(r, *d, [&frames](const render::replayed_frame &f) { frames.push_back(f); })};
 	BOOST_TEST(done.has_value());
+	return frames;
+}
+
+/* The frame hashes of trace, replayed on a Metal device (replayed_frames):
+ * GL's pins hold bit for bit only there.
+ */
+[[nodiscard]]
+std::vector<std::uint64_t> replayed_hashes(const std::vector<std::uint8_t> &trace)
+{
+	BOOST_REQUIRE(sdlgpu::device::create(test_config(target))->driver() == "metal");
+	std::vector<std::uint64_t> hashes;
+	for (const auto &f : replayed_frames(trace))
+		hashes.push_back(f.hash);
 	return hashes;
 }
 
@@ -486,7 +498,10 @@ void expect_pixel(const std::array<int, 3> &pixel, const std::array<int, 3> &exp
 
 /* Test that the weapon-hit palette flash, additive_c of the mixed-sign
  * (0.6, -0.1, -0.2), adds to the scene and clamps at both ends, as GL's
- * unsigned colour does: (0.5, 0.4, 0.3) becomes (1, 0.4, 0.3).
+ * unsigned colour does: (0.5, 0.4, 0.3) becomes (1, 0.4, 0.3).  It pins
+ * the blend factors, not the vertex shader's clamp: the UNORM target clamps
+ * a flat colour to [0, 1] before blending, so the lower clamp here comes
+ * from the target; walls_trace_frames_match_gl pins the shader's.
  */
 BOOST_AUTO_TEST_CASE(red_flash_adds_and_clamps)
 {
@@ -581,6 +596,41 @@ BOOST_AUTO_TEST_CASE(flash_trace_frames_match_gl)
 	                                    0xc33733e407fec502u};
 	BOOST_TEST(replayed_hashes(dcx::render::rtrace::flash_trace()) == gl,
 	           boost::test_tools::per_element());
+}
+
+/* Test R3 on the walls trace (#28): lit, textured walls in perspective,
+ * depth-tested and front-culled, the near plane, and mixed-sign vertex
+ * light hash as GL draws them.  Pinned as the sample's are.
+ */
+BOOST_AUTO_TEST_CASE(walls_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{0x75020e289509a104u, 0x01416b4d8a73c8c9u,
+	                                    0x58f167d16748f0abu};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::walls_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
+namespace {
+
+/* How many pixels of a frame's top-first RGB image are p. */
+[[nodiscard]]
+std::size_t pixels_of(const render::replayed_frame &f, const std::array<std::uint8_t, 3> p)
+{
+	return f.rgb.size() / 3 - pixels_other_than(f.rgb, p);
+}
+
+}
+
+/* Test the winding of the walls trace's corridor, on any driver: front
+ * culling drops the red quad wound counter-clockwise in front of the walls,
+ * and keeps every wall wound clockwise, so no pixel keeps the clear colour.
+ */
+BOOST_AUTO_TEST_CASE(walls_keep_their_winding)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::walls_trace())};
+	BOOST_REQUIRE(frames.size() == 3u);
+	BOOST_TEST(pixels_of(frames[0], red) == 0u);
+	BOOST_TEST(pixels_of(frames[0], {{0, 0, 0}}) == 0u);
 }
 
 /* Test that the transfer ring grows on a GPU: after a small frame that is
