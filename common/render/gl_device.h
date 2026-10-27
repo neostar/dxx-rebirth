@@ -19,8 +19,10 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string>
 
 #include "common/render/device.h"
+#include "common/render/gl_errors.h"
 #include "common/render/gl_state.h"
 #include "common/render/gl_texture_names.h"
 
@@ -61,6 +63,40 @@ struct gl_front_end
 	 * anisotropy an anisotropic texture gets above 1.
 	 */
 	float max_anisotropy;
+};
+
+/* What a GL context holds when the front end makes a device for it. */
+struct gl_context_state
+{
+	/* GL_STEREO. */
+	bool stereo_buffers;
+	/* GL_ALPHA_TEST: off in a new context. */
+	bool alpha_test;
+	/* GL_LINE_WIDTH: 1 in a new context. */
+	float line_width;
+};
+
+/* The depth of each part of the default framebuffer, for the texture
+ * statistics (-DbgRenderStats).
+ */
+struct gl_framebuffer_bits
+{
+	int index;
+	int red;
+	int green;
+	int blue;
+	int alpha;
+	/* 1 for a single-buffered framebuffer, 2 for a double-buffered one. */
+	int buffers;
+	int depth;
+};
+
+/* The strings a GL context names itself with (empty when it gives none). */
+struct gl_context_names
+{
+	std::string vendor;
+	std::string renderer;
+	std::string version;
 };
 
 /* The state shadow keeps each draw's GL state right while two things hold
@@ -125,6 +161,24 @@ class gl_device final : public device
 	 */
 	[[nodiscard]]
 	std::size_t texture_count() const;
+	/* The GL state of the current context, which the front end records in its
+	 * ambient state: a context kept across a mode change keeps what it had.
+	 */
+	[[nodiscard]]
+	static gl_context_state read_context();
+	/* The vendor, renderer and version strings of the current context, for
+	 * the driver workarounds.
+	 */
+	[[nodiscard]]
+	static gl_context_names context_names();
+	/* The bits of the default framebuffer of the current context. */
+	[[nodiscard]]
+	static gl_framebuffer_bits framebuffer_bits();
+	/* Takes the GL errors pending (gl_errors.h), which the game never
+	 * checks for.
+	 */
+	[[nodiscard]]
+	static drained_gl_errors<unsigned> drain_errors();
 	void clear(clear_targets targets) override;
 	void present() override;
 	/* Reads rect of the target: zero outside it (readback.h).  Throws

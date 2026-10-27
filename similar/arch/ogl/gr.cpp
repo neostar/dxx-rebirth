@@ -47,6 +47,7 @@
 #include "args.h"
 #include "physfsx.h"
 #include "internal.h"
+#include "common/render/gl_device.h"
 #include "console.h"
 #include "config.h"
 #include "vers_id.h"
@@ -610,14 +611,15 @@ static void ogl_init_state(void)
 static void ogl_tune_for_current(void)
 {
 #if !DXX_USE_OGLES
-	const auto gl_vendor = reinterpret_cast<const char *>(glGetString(GL_VENDOR));
-	const auto gl_renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
-	const auto gl_version = reinterpret_cast<const char *>(glGetString(GL_VERSION));
+	const auto names{render::gl_device::context_names()};
+	const char *const gl_vendor{names.vendor.c_str()};
+	const char *const gl_renderer{names.renderer.c_str()};
+	const char *const gl_version{names.version.c_str()};
 
 	con_printf(CON_VERBOSE, "DXX-Rebirth: OpenGL: vendor: %s", gl_vendor);
 	con_printf(CON_VERBOSE, "DXX-Rebirth: OpenGL: renderer: %s", gl_renderer);
 
-	if (gl_renderer)
+	if (!names.renderer.empty())
 	{
 	//add driver specific hacks here.  whee.
 	if ((d_stricmp(gl_renderer,"Mesa NVIDIA RIVA 1.0\n")==0 || d_stricmp(gl_renderer,"Mesa NVIDIA RIVA 1.2\n")==0) && d_stricmp(gl_version,"1.2 Mesa 3.0")==0)

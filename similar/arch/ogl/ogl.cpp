@@ -359,7 +359,6 @@ static void ogl_texture_stats(grs_canvas &canvas)
 {
 	int used{0}, usedother = 0, usedidx = 0, usedrgb = 0, usedrgba = 0;
 	int databytes{0}, truebytes = 0;
-	GLint idx, r, g, b, a, dbl, depth;
 	int res, colorsize, depthsize;
 	range_for (auto &i, ogl_texture_list)
 	{
@@ -381,22 +380,8 @@ static void ogl_texture_stats(grs_canvas &canvas)
 	}
 
 	res = SWIDTH * SHEIGHT;
-#if !DXX_USE_OGLES
-	glGetIntegerv(GL_INDEX_BITS, &idx);
-#else
-	idx=16;
-#endif
-	glGetIntegerv(GL_RED_BITS, &r);
-	glGetIntegerv(GL_GREEN_BITS, &g);
-	glGetIntegerv(GL_BLUE_BITS, &b);
-	glGetIntegerv(GL_ALPHA_BITS, &a);
-#if !DXX_USE_OGLES
-	glGetIntegerv(GL_DOUBLEBUFFER, &dbl);
-#else
-	dbl=1;
-#endif
-	dbl += 1;
-	glGetIntegerv(GL_DEPTH_BITS, &depth);
+	const auto bits{render::gl_device::framebuffer_bits()};
+	const int idx{bits.index}, r{bits.red}, g{bits.green}, b{bits.blue}, a{bits.alpha}, dbl{bits.buffers}, depth{bits.depth};
 	const auto &game_font = *GAME_FONT;
 	gr_set_fontcolor(canvas, BM_XRGB(255, 255, 255), -1);
 	colorsize = (idx * res * dbl) / 8;
@@ -1452,7 +1437,12 @@ render::device &ogl_device()
 
 void ogl_create_device()
 {
-	auto device{std::make_unique<render::gl_device>(render::gl_caps(ogl_maxanisotropy), render::gl_front_end{
+	const auto context{render::gl_device::read_context()};
+	auto device{std::make_unique<render::gl_device>(render::gl_caps({
+		.max_anisotropy = ogl_maxanisotropy,
+		.stereo_buffers = context.stereo_buffers,
+		.desktop = !DXX_USE_OGLES,
+	}), render::gl_front_end{
 		.swap = ogl_swap_buffers_internal,
 		.target = []() -> render::extent { return {SWIDTH, SHEIGHT}; },
 		.untextured = []() { OGL_DISABLE(TEXTURE_2D); },
@@ -1484,13 +1474,9 @@ void ogl_create_device()
 	 * kept across a mode change keeps what it had.  The code not yet
 	 * drawing through the device reads both, so record GL's own.
 	 */
-	GLint alpha_test{};
-	glGetIntegerv(GL_ALPHA_TEST, &alpha_test);
-	GLfloat line_width{};
-	glGetFloatv(GL_LINE_WIDTH, &line_width);
 	auto &ambient{ogl_ambient()};
-	ambient.alpha_test = alpha_test != 0;
-	ambient.line_width = line_width;
+	ambient.alpha_test = context.alpha_test;
+	ambient.line_width = context.line_width;
 }
 
 void ogl_record_2d_state()

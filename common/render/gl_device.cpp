@@ -19,6 +19,7 @@
 #include <functional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -165,6 +166,19 @@ void upload(const texture_image &image, const float max_anisotropy)
 #endif
 	glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
 	             image.rgba().data());
+}
+
+/* The text glGetString gave, which is NUL-terminated unsigned chars, as a
+ * string; null gives an empty one.
+ */
+[[nodiscard]]
+std::string text_of(const GLubyte *const gl_text)
+{
+	if (!gl_text)
+		return {};
+	/* A char may alias the unsigned chars of GL's text. */
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): GL text
+	return std::string{reinterpret_cast<const char *>(gl_text)};
 }
 
 /* The state shadow's GL calls (gl::ops), each as the front end made it. */
@@ -316,6 +330,54 @@ void gl_device::take_textures(gl_device &from)
 std::size_t gl_device::texture_count() const
 {
 	return names_.size();
+}
+
+gl_context_state gl_device::read_context()
+{
+	GLboolean stereo{GL_FALSE};
+#if !DXX_USE_OGLES
+	glGetBooleanv(GL_STEREO, &stereo);
+#endif
+	GLint alpha_test{};
+	glGetIntegerv(GL_ALPHA_TEST, &alpha_test);
+	GLfloat line_width{};
+	glGetFloatv(GL_LINE_WIDTH, &line_width);
+	return {.stereo_buffers = stereo != GL_FALSE,
+	        .alpha_test = alpha_test != 0,
+	        .line_width = line_width};
+}
+
+gl_framebuffer_bits gl_device::framebuffer_bits()
+{
+	GLint index{16}, red{}, green{}, blue{}, alpha{}, double_buffer{1}, depth{};
+#if !DXX_USE_OGLES
+	glGetIntegerv(GL_INDEX_BITS, &index);
+	glGetIntegerv(GL_DOUBLEBUFFER, &double_buffer);
+#endif
+	glGetIntegerv(GL_RED_BITS, &red);
+	glGetIntegerv(GL_GREEN_BITS, &green);
+	glGetIntegerv(GL_BLUE_BITS, &blue);
+	glGetIntegerv(GL_ALPHA_BITS, &alpha);
+	glGetIntegerv(GL_DEPTH_BITS, &depth);
+	return {.index = index,
+	        .red = red,
+	        .green = green,
+	        .blue = blue,
+	        .alpha = alpha,
+	        .buffers = double_buffer + 1,
+	        .depth = depth};
+}
+
+gl_context_names gl_device::context_names()
+{
+	return {.vendor = text_of(glGetString(GL_VENDOR)),
+	        .renderer = text_of(glGetString(GL_RENDERER)),
+	        .version = text_of(glGetString(GL_VERSION))};
+}
+
+drained_gl_errors<unsigned> gl_device::drain_errors()
+{
+	return drain_gl_errors(glGetError, GL_NO_ERROR);
 }
 
 void gl_device::select_eye(const eye e)
