@@ -28,17 +28,20 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
 - **Caps**: what an adapter supports beyond the common set (quad-buffer stereo, `copy_region`,
   anisotropy).
 - **GPU command seam**: `sdlgpu::commands` (`common/render/sdlgpu_frame.h`), the dozen SDL_GPU
-  calls the SDL_GPU adapter makes (passes, binds, uniform pushes, draws, the vertex upload); its
+  calls the SDL_GPU adapter makes (passes, binds, uniform pushes, draws, the frame's upload); its
   adapters are SDL_GPU (`sdl_commands`) and the tests' counting fake.
-- **Frame record**: `sdlgpu::frame`, one frame's draws and clears in game order until the
-  SDL_GPU adapter encodes them through the GPU command seam, at present or at a readback.
+- **Frame record**: `sdlgpu::frame`, one frame's draws, clears and texture uploads in game order
+  until the SDL_GPU adapter encodes them through the GPU command seam, at present, at a readback
+  or when a texture slot a recorded draw samples is given a new image.
 - **Transfer ring**: the SDL_GPU adapter's upload transfer buffer, mapped with `cycle=true` once
-  per encoded frame and copied to the GPU before the frame's first render pass; it grows and
-  keeps its size.
+  per encoded frame, laid out by one upload plan for the frame's vertices and texture rows, and
+  copied to the GPU before the frame's first render pass; it grows and keeps its size.
 - **Bind cache**: what the frame record's encoder has bound (pipeline, viewport, vertex buffer
   and texture per pass; uniform blocks per command buffer), so it calls SDL only on a change.
 - **Pipeline set**: the SDL_GPU adapter's closed set of 20 graphics pipelines, one per (blend,
   depth, cull) of a draw state, built at device creation; `pipeline_key` selects one.
+- **Sampler set**: the SDL_GPU adapter's closed set of 8 samplers, one per (filter, wrap,
+  anisotropy) of a textured draw, built at device creation; `sampler_key` selects one.
 - **Trace**: a recorded sequence of render-device calls (`.rtr`), replayed by `rtrace`: the render
   target's size, then one record per draw, texture (its pixels included), clear and present, so it
   replays without the game; a present marks each frame's end and gives the game's frame index.
