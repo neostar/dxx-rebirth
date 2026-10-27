@@ -1241,6 +1241,21 @@ void ogl_sync_gl_state()
 	ogl_device().draw(ogl_ambient().call(render::topology::lines, {}));
 }
 
+/* ogl_sync_gl_state for glCopyPixels, which runs through GL's blend, alpha
+ * and depth tests and also its texturing.  The copy is textured only by
+ * upstream's accident: the last blit left GL_TEXTURE_2D on.  Nothing wants
+ * it, but the picture stays bit-identical only with it (R1), so as the
+ * empty draw turns GL_TEXTURE_2D off, put it back as it was.
+ */
+[[maybe_unused]]
+static void ogl_sync_gl_state_keeping_texturing()
+{
+	const auto texturing{GL_TEXTURE_2D_enabled};
+	ogl_sync_gl_state();
+	if (texturing == 1)
+		OGL_ENABLE(TEXTURE_2D);
+}
+
 #if DXX_USE_STEREOSCOPIC_RENDER
 void ogl_stereo_frame(const bool left_eye, const int xoff)
 {
@@ -1895,14 +1910,7 @@ bool ogl_ubitblt_cs(grs_canvas &canvas, int dw, int dh, int dx, int dy, int sx, 
 	auto &device{ogl_device()};
 	if (device.caps().copy_region)
 	{
-		/* The copy runs through GL's blend, alpha and depth tests, and
-		 * through its texturing, which the last blit left as it was: the sync
-		 * turns GL_TEXTURE_2D off, so put it back as it was.
-		 */
-		const auto texturing{GL_TEXTURE_2D_enabled};
-		ogl_sync_gl_state();
-		if (texturing == 1)
-			OGL_ENABLE(TEXTURE_2D);
+		ogl_sync_gl_state_keeping_texturing();
 		device.copy_region({.src_x = sx, .src_y = sy, .dest_x = dx, .dest_y = dy, .size = {static_cast<uint32_t>(dw), static_cast<uint32_t>(dh)}},
 			VR_stereo == StereoFormat::QuadBuffers && device.caps().quad_buffer_stereo);
 	}
