@@ -1316,19 +1316,26 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 {
 	const float dxoff = xoff * 2.0f / grd_curscreen->sc_canvas.cv_bitmap.bm_w;
 	float stereo_transform_dxoff;
+	auto &device{ogl_device()};
+	auto &ambient{ogl_ambient()};
 
 	// query if stereo quad buffering available?
-	GLboolean ogl_stereo_enabled = false;
-	glGetBooleanv(GL_STEREO, &ogl_stereo_enabled);
+	const bool ogl_stereo_enabled = device.caps().quad_buffer_stereo;
 
-	int gl_buffer;
+	/* The viewport the game set: x, y, width and height. */
+	const auto viewport_of_ambient{[&ambient]() {
+		const auto &v{ambient.viewport};
+		return std::array<int, 4>{{v.x, v.y, static_cast<int>(v.size.width), static_cast<int>(v.size.height)}};
+	}};
+	const auto set_ambient_viewport{[&ambient](const std::array<int, 4> &v) {
+		ambient.viewport = {v[0], v[1], {static_cast<uint32_t>(v[2]), static_cast<uint32_t>(v[3])}};
+	}};
 	if (left_eye) {
 		// left eye view
 		if (!ogl_stereo_enabled)
 		{
-			[]() {
-				std::array<GLint, 4> ogl_stereo_viewport;
-				glGetIntegerv(GL_VIEWPORT, ogl_stereo_viewport.data());
+			[&]() {
+				std::array<int, 4> ogl_stereo_viewport{viewport_of_ambient()};
 				// center unsqueezed side-by-side format
 				switch (VR_stereo) {
 					case StereoFormat::None:
@@ -1349,21 +1356,18 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 							break;
 						}
 				}
-				glViewport(ogl_stereo_viewport[0], ogl_stereo_viewport[1], ogl_stereo_viewport[2], ogl_stereo_viewport[3]);
-				ogl_ambient().viewport = {ogl_stereo_viewport[0], ogl_stereo_viewport[1], {static_cast<uint32_t>(ogl_stereo_viewport[2]), static_cast<uint32_t>(ogl_stereo_viewport[3])}};
+				set_ambient_viewport(ogl_stereo_viewport);
 			}();
 		}
 		// rightward image shift adjustment for left eye offset
 		stereo_transform_dxoff = -dxoff;		// xoff < 0
-		gl_buffer = GL_BACK_LEFT;
 	}
 	else
 	{
 		// right eye view
 		if (!ogl_stereo_enabled)
 		{
-			std::array<GLint, 4> ogl_stereo_viewport;
-			glGetIntegerv(GL_VIEWPORT, ogl_stereo_viewport.data());
+			std::array<int, 4> ogl_stereo_viewport{viewport_of_ambient()};
 			switch (VR_stereo) {
 				case StereoFormat::None:
 				case StereoFormat::QuadBuffers:
@@ -1385,26 +1389,14 @@ void ogl_stereo_frame(const bool left_eye, const int xoff)
 						ogl_stereo_viewport[3] -= VR_sync_width / 2;
 					break;
 			}
-			glViewport(ogl_stereo_viewport[0], ogl_stereo_viewport[1], ogl_stereo_viewport[2], ogl_stereo_viewport[3]);
-			ogl_ambient().viewport = {ogl_stereo_viewport[0], ogl_stereo_viewport[1], {static_cast<uint32_t>(ogl_stereo_viewport[2]), static_cast<uint32_t>(ogl_stereo_viewport[3])}};
+			set_ambient_viewport(ogl_stereo_viewport);
 		}
 		// leftward image shift adjustment for right eye offset
 		stereo_transform_dxoff = dxoff;		// xoff < 0
-		gl_buffer = GL_BACK_RIGHT;
 	}
-#if !DXX_USE_OGLES
 	if (ogl_stereo_enabled)
-		glDrawBuffer(gl_buffer);
-#else
-	(void)gl_buffer;
-#endif
-	glMatrixMode(GL_PROJECTION);
-	std::array<GLfloat, 16> ogl_stereo_transform;
-	glGetFloatv(GL_PROJECTION_MATRIX, ogl_stereo_transform.data());
-	ogl_stereo_transform[8] += stereo_transform_dxoff;
-	glLoadMatrixf(ogl_stereo_transform.data());
-	glMatrixMode(GL_MODELVIEW);
-	if (const auto p{std::get_if<render::perspective>(&ogl_ambient().transforms.projection)})
+		device.select_eye(left_eye ? render::eye::left : render::eye::right);
+	if (const auto p{std::get_if<render::perspective>(&ambient.transforms.projection)})
 		p->stereo_dx += stereo_transform_dxoff;
 }
 #endif
@@ -1971,18 +1963,15 @@ void ogl_ubitmapm_cs(grs_canvas &canvas, int x0, int y0, int dw, int dh, grs_bit
 			h = rh;
 			y = gr_build_stereo_viewport_offset_left_eye(VR_stereo, y);
 		}
-#if !DXX_USE_OGLES
-		if (VR_stereo == StereoFormat::QuadBuffers)
-			glDrawBuffer(GL_BACK_LEFT);
-#endif
+		const bool quad_buffers{VR_stereo == StereoFormat::QuadBuffers && ogl_device().caps().quad_buffer_stereo};
+		if (quad_buffers)
+			ogl_device().select_eye(render::eye::left);
 		ogl_ubitmapm_cs(canvas, x, y, w, h, bm, color_array);
 		const auto &&[vx, vy]{gr_build_stereo_viewport_offset_right_eye(VR_stereo, x, y, 1)};
 		x = vx;
 		y = vy;
-#if !DXX_USE_OGLES
-		if (VR_stereo == StereoFormat::QuadBuffers)
-			glDrawBuffer(GL_BACK_RIGHT);
-#endif
+		if (quad_buffers)
+			ogl_device().select_eye(render::eye::right);
 		ogl_ubitmapm_cs(canvas, x, y, w, h, bm, color_array);
 		return;
 	}
@@ -1998,16 +1987,12 @@ bool ogl_ubitblt_cs(grs_canvas &canvas, int dw, int dh, int dx, int dy, int sx, 
 #if DXX_USE_STEREOSCOPIC_RENDER
 	dy = canvas.cv_bitmap.bm_h - (dy + dh);	// GL y flip
 	sy = canvas.cv_bitmap.bm_h - (sy + dh);	// GL y flip
-#if !DXX_USE_OGLES
-	if (VR_stereo == StereoFormat::QuadBuffers) {
-		glReadBuffer(GL_BACK_LEFT);
-		glDrawBuffer(GL_BACK_RIGHT);
+	auto &device{ogl_device()};
+	if (device.caps().copy_region)
+	{
+		device.copy_region({.src_x = sx, .src_y = sy, .dest_x = dx, .dest_y = dy, .size = {static_cast<uint32_t>(dw), static_cast<uint32_t>(dh)}},
+			VR_stereo == StereoFormat::QuadBuffers && device.caps().quad_buffer_stereo);
 	}
-	glWindowPos2i(dx, dy);
-	glCopyPixels(sx, sy, dw, dh, GL_COLOR);
-#else
-	(void)dx, (void)dy, (void)sx, (void)sy, (void)dw, (void)dh;
-#endif
 	return 0;
 #else
 	return ogl_ubitblt(dw, dh, dx, dy, sx, sy, canvas.cv_bitmap, canvas.cv_bitmap);
