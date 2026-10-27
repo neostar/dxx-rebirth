@@ -204,8 +204,13 @@ void digi_select_system()
 #if DXX_USE_SDLMIXER
 	if (!CGameArg.SndDisableSdlMixer)
 	{
+#if SDL_MAJOR_VERSION == 3
+		const auto vl{MIX_Version()};
+		con_printf(CON_NORMAL, "Using SDL_mixer library v%u.%u.%u", SDL_VERSIONNUM_MAJOR(vl), SDL_VERSIONNUM_MINOR(vl), SDL_VERSIONNUM_MICRO(vl));
+#else
 		const auto vl = Mix_Linked_Version();
 		con_printf(CON_NORMAL, "Using SDL_mixer library v%u.%u.%u", vl->major, vl->minor, vl->patch);
+#endif
 		fptr = digi_mixer_table;
 		return;
 	}
@@ -219,7 +224,12 @@ void digi_select_system()
 int  digi_init()
 {
 	digi_init_sounds();
-#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3's stubs open no device, so there is no driver to report until #45
+	 * and #47 open one.
+	 */
+	return fptr->init();
+#elif DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
 	/* A hidden run names the audio driver SDL opened, and stops at once
 	 * on one that could play sound (audio_driver_report.h).
 	 */

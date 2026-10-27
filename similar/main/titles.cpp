@@ -59,6 +59,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #if DXX_USE_SDLMIXER
 #include <SDL_mixer.h>
 #endif
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#endif
 #include "mission.h"
 #include "mouse.h"
 #include "console.h"
@@ -668,7 +671,11 @@ struct briefing : window
 	RWops_ptr RoboFile;
 #endif
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3_mixer has no Mix_Chunk (#45). */
+#else
 	Mix_Chunk *briefing_audio{nullptr};
+#endif
 	int briefing_audio_channel{-1};
 #endif
 	std::unique_ptr<char[]>	text;
@@ -687,6 +694,21 @@ struct briefing : window
 };
 
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
+#if SDL_MAJOR_VERSION == 3
+/* SDL3_mixer has no Mix_Chunk or Mix_PlayChannel: the briefing voice-over
+ * stays silent until #45 ports it.
+ */
+static void briefing_audio_stop(briefing *)
+{
+}
+
+static void briefing_audio_play(briefing *, const char *)
+{
+	static dcx::sdl::link_stub stub{"the briefing voice-over", "#45"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+}
+#else
 static void briefing_audio_stop(briefing *br)
 {
 	if (br->briefing_audio_channel >= 0)
@@ -735,6 +757,7 @@ static void briefing_audio_play(briefing *br, const char *filename)
 	br->briefing_audio_channel = Mix_PlayChannel(-1, br->briefing_audio, 0);
 	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s> on channel %d", filename, br->briefing_audio_channel);
 }
+#endif
 #endif
 
 static void briefing_init(briefing *br, short level_num)

@@ -15,6 +15,51 @@
 #include <span>
 #include <SDL.h>
 #include <SDL_mixer.h>
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#include "console.h"
+#include "digi_mixer_music.h"
+
+/* SDL3_mixer's music API is MIX_Audio and MIX_Track.  Until #46 ports the
+ * music, no track plays: mix_play_file reports failure, as for a song the
+ * mixer cannot load, and the rest do nothing.
+ */
+namespace dcx {
+
+int mix_play_file(const char *, int, void (*)())
+{
+	static dcx::sdl::link_stub stub{"the SDL_mixer music", "#46"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	return 0;
+}
+
+void mix_set_music_volume(int)
+{
+}
+
+void mix_stop_music()
+{
+}
+
+void mix_pause_music()
+{
+}
+
+void mix_resume_music()
+{
+}
+
+void mix_pause_resume_music()
+{
+}
+
+void mix_free_music()
+{
+}
+
+}
+#else
 #include <string.h>
 #include <stdlib.h>
 
@@ -521,3 +566,4 @@ int digi_win32_play_midi_song( const char * filename, int loop )
 #endif
 
 }
+#endif

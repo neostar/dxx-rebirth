@@ -44,6 +44,69 @@
 #include "d_uspan.h"
 #include "d_zip.h"
 
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+
+/* SDL3_mixer replaces the Mix_* API with MIX_Mixer, MIX_Audio and MIX_Track.
+ * Until #45 ports the sound effects, every entry point does nothing and the
+ * init reports failure as a device that would not open does: the game runs
+ * with no sound (SndNoSound) and no audio device is opened.
+ */
+namespace dcx {
+
+int digi_mixer_init()
+{
+	static dcx::sdl::link_stub stub{"the SDL_mixer sound effects", "#45"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	CGameArg.SndNoSound = 1;
+	return 1;
+}
+
+void digi_mixer_close()
+{
+}
+
+void digi_mixer_set_channel_volume(sound_channel, int)
+{
+}
+
+void digi_mixer_set_channel_pan(sound_channel, sound_pan)
+{
+}
+
+void digi_mixer_stop_sound(sound_channel)
+{
+}
+
+void digi_mixer_end_sound(sound_channel)
+{
+}
+
+void digi_mixer_set_digi_volume(int)
+{
+}
+
+int digi_mixer_is_channel_playing(sound_channel)
+{
+	return 0;
+}
+
+void digi_mixer_stop_all_channels()
+{
+}
+
+}
+
+namespace dsx {
+
+sound_channel digi_mixer_start_sound(sound_effect, fix, sound_pan, int, int, int, sound_object *)
+{
+	return sound_channel::None;
+}
+
+}
+#else
 #define MIX_DIGI_DEBUG 0
 
 #define DXX_FEATURE_INTERNAL_RESAMPLER (DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SDL1 || DXX_FEATURE_INTERNAL_RESAMPLER_EMULATE_SOUNDBLASTER16)
@@ -609,3 +672,4 @@ void digi_mixer_stop_all_channels()
 }
 
 }
+#endif

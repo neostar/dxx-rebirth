@@ -25,6 +25,67 @@
 #include "args.h"
 #include "piggy.h"
 
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#include "console.h"
+
+/* The plain SDL audio backend (SDL_OpenAudio, an audio callback and
+ * SDL_LockAudio) is gone in SDL3, which has audio streams on devices.  Until
+ * #45 decides whether to port it, every entry point does nothing and the
+ * init reports failure as a device that would not open does: the game runs
+ * with no sound (SndNoSound) and no audio device is opened.
+ */
+namespace dsx {
+
+int digi_audio_init()
+{
+	static dcx::sdl::link_stub stub{"the plain SDL audio backend", "#45"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	CGameArg.SndNoSound = 1;
+	return 1;
+}
+
+void digi_audio_close()
+{
+}
+
+void digi_audio_stop_all_channels()
+{
+}
+
+sound_channel digi_audio_start_sound(sound_effect, fix, sound_pan, int, int, int, sound_object *)
+{
+	return sound_channel::None;
+}
+
+int digi_audio_is_channel_playing(sound_channel)
+{
+	return 0;
+}
+
+void digi_audio_set_channel_volume(sound_channel, int)
+{
+}
+
+void digi_audio_set_channel_pan(sound_channel, sound_pan)
+{
+}
+
+void digi_audio_stop_sound(sound_channel)
+{
+}
+
+void digi_audio_end_sound(sound_channel)
+{
+}
+
+void digi_audio_set_digi_volume(int)
+{
+}
+
+}
+#else
 #include "compiler-range_for.h"
 #include "d_sdl_audio.h"
 #include "d_underlying_value.h"
@@ -365,3 +426,4 @@ void digi_audio_end_sound(const sound_channel channel)
 }
 
 }
+#endif
