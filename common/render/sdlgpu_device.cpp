@@ -25,6 +25,7 @@
 #include "common/render/device.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
+#include "common/render/sdlgpu_clears.h"
 #include "common/render/sdlgpu_frame.h"
 #include "common/render/sdlgpu_probe.h"
 #include "common/sdl/dxx-sdl.h"
@@ -257,12 +258,25 @@ gpu_device create_gpu_device(const config &c)
 	return d;
 }
 
+/* What a sampled texture, which is no target, is created with: no clear
+ * value is read for it.
+ */
+constexpr target_clears no_clears{target_clears_of({})};
+
+/* A texture of usage; a colour or depth target gets the D3D12 clear value
+ * of clears (sdlgpu_clears.h), the one its passes clear to.
+ */
 [[nodiscard]]
 texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
                              const SDL_GPUTextureFormat format,
-                             const SDL_GPUTextureUsageFlags usage, const render::extent size)
+                             const SDL_GPUTextureUsageFlags usage, const render::extent size,
+                             const target_clears &clears)
 {
+	const property_set props;
+	if (!set_creation_clears(props.id, usage, clears))
+		sdl_failed("SDL_SetFloatProperty");
 	SDL_GPUTextureCreateInfo info{};
+	info.props = props.id;
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = format;
 	info.usage = usage;
@@ -302,7 +316,8 @@ sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const 
 [[nodiscard]]
 texture_handle create_white(SDL_GPUDevice *const d, resource_ledger &l)
 {
-	texture_handle white{create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, {1, 1})};
+	texture_handle white{
+	    create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, {1, 1}, no_clears)};
 	constexpr std::uint32_t bytes{4};
 	SDL_GPUTransferBufferCreateInfo info{};
 	info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
@@ -527,7 +542,7 @@ class sdl_commands final : public commands
 		SDL_GPUTexture *white;
 		const std::array<sampler_handle, sampler_set_size> &samplers;
 		const std::map<std::uint32_t, slot_texture> &textures;
-		SDL_FColor clear_color;
+		const target_clears &clears;
 	};
 
   private:
@@ -623,19 +638,8 @@ class sdl_commands final : public commands
 	}
 	void begin_pass(const pass_ops &ops) override
 	{
-		SDL_GPUColorTargetInfo color_info{};
-		color_info.texture = r_.color;
-		color_info.clear_color = r_.clear_color;
-		color_info.load_op = ops.clear_color ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
-		color_info.store_op = SDL_GPU_STOREOP_STORE;
-		SDL_GPUDepthStencilTargetInfo depth_info{};
-		depth_info.texture = r_.depth;
-		depth_info.clear_depth = 1.f;
-		depth_info.load_op = ops.clear_depth ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
-		depth_info.store_op = SDL_GPU_STOREOP_STORE;
-		depth_info.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-		depth_info.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-		pass_ = SDL_BeginGPURenderPass(cb_, &color_info, 1, &depth_info);
+		const auto t{pass_targets_of(r_.color, r_.depth, ops, r_.clears)};
+		pass_ = SDL_BeginGPURenderPass(cb_, &t.color, 1, &t.depth);
 		if (pass_ == nullptr)
 			sdl_failed("SDL_BeginGPURenderPass");
 	}
@@ -700,6 +704,8 @@ struct device::state
 {
 	std::shared_ptr<resource_ledger> ledger{std::make_shared<resource_ledger>()};
 	config cfg;
+	/* What the targets are created with and their passes clear to. */
+	target_clears clears{no_clears};
 	gpu_device gpu;
 	device_caps caps{};
 	texture_handle color;
@@ -734,7 +740,6 @@ struct device::state
 	/* Encodes the recorded frame into cb. */
 	void flush(SDL_GPUCommandBuffer *const cb)
 	{
-		const auto unit{[](const std::uint8_t c) { return static_cast<float>(c) / 255.f; }};
 		const sdl_commands::resources r{.ledger = *ledger,
 		                                .transfer = transfer,
 		                                .transfer_capacity = transfer_capacity,
@@ -746,10 +751,7 @@ struct device::state
 		                                .white = white.get(),
 		                                .samplers = samplers,
 		                                .textures = textures,
-		                                .clear_color = {.r = unit(cfg.clear_rgba[0]),
-		                                                .g = unit(cfg.clear_rgba[1]),
-		                                                .b = unit(cfg.clear_rgba[2]),
-		                                                .a = unit(cfg.clear_rgba[3])}};
+		                                .clears = clears};
 		sdl_commands c{gpu.get(), cb, r};
 		(void)record.encode(c, {.color = !color_defined, .depth = !depth_defined});
 	}
@@ -780,10 +782,13 @@ std::unique_ptr<device> device::create(const config &c)
 	if (!probed)
 		throw std::runtime_error(std::string{"sdlgpu: "} + to_string(probed.error()));
 	s->caps = probed.value();
-	s->color = create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, c.target);
+	s->clears = target_clears_of(c.clear_rgba);
+	s->color =
+	    create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, c.target, s->clears);
 	s->depth = create_target(d, l, to_sdl(s->caps.depth), SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
-	                         c.target);
-	s->presented = create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, c.target);
+	                         c.target, s->clears);
+	s->presented =
+	    create_target(d, l, color_format, SDL_GPU_TEXTUREUSAGE_SAMPLER, c.target, no_clears);
 	s->white = create_white(d, l);
 	s->record = sdlgpu::frame{c.target};
 	for (std::size_t i{0}; i != sampler_set_size; ++i)
@@ -830,7 +835,7 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 	{
 		if (inserted || t->second.size != size)
 			fresh = create_target(s.gpu.get(), *s.ledger, color_format,
-			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size);
+			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size, no_clears);
 		s.record.texture(slot, image);
 	}
 	catch (...)

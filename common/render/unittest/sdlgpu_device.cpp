@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -35,6 +36,7 @@
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
 #include "common/render/rtrace/sample_trace.h"
+#include "common/render/sdlgpu_clears.h"
 #include "common/render/trace.h"
 #include "common/sdl/dxx-sdl.h"
 
@@ -768,6 +770,48 @@ BOOST_AUTO_TEST_CASE(texture_changed_mid_frame_keeps_earlier_draws)
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+/* Test the D3D12 clear-value rule (sdlgpu_clears.h) without a GPU: the
+ * creation properties of the colour and the depth target carry exactly
+ * the values a clearing pass clears them to, for the test configuration's
+ * colour, so D3D12's debug layer finds no mismatch (#821); a sampled
+ * texture gets none.
+ */
+BOOST_AUTO_TEST_CASE(creation_clears_are_the_pass_clears)
+{
+	const auto clears{sdlgpu::target_clears_of(test_config(target).clear_rgba)};
+	const auto pass{sdlgpu::pass_targets_of(nullptr, nullptr,
+	                                        {.clear_color = true, .clear_depth = true}, clears)};
+	const auto props_of{[&clears](const SDL_GPUTextureUsageFlags usage) {
+		const SDL_PropertiesID p{SDL_CreateProperties()};
+		BOOST_REQUIRE(p != 0);
+		BOOST_REQUIRE(sdlgpu::set_creation_clears(p, usage, clears));
+		return p;
+	}};
+	const auto color{props_of(SDL_GPU_TEXTUREUSAGE_COLOR_TARGET)};
+	const auto read{[](const SDL_PropertiesID p, const char *name) {
+		/* NaN when unset, which equals nothing. */
+		return SDL_GetFloatProperty(p, name, std::numeric_limits<float>::quiet_NaN());
+	}};
+	BOOST_TEST(read(color, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_R_FLOAT) ==
+	           pass.color.clear_color.r);
+	BOOST_TEST(read(color, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_G_FLOAT) ==
+	           pass.color.clear_color.g);
+	BOOST_TEST(read(color, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_B_FLOAT) ==
+	           pass.color.clear_color.b);
+	BOOST_TEST(read(color, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_A_FLOAT) ==
+	           pass.color.clear_color.a);
+	BOOST_TEST(pass.color.clear_color.r == 32.f / 255.f);
+	const auto depth{props_of(SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)};
+	BOOST_TEST(read(depth, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_DEPTH_FLOAT) ==
+	           pass.depth.clear_depth);
+	BOOST_TEST(pass.depth.clear_depth == 1.f);
+	const auto sampled{props_of(SDL_GPU_TEXTUREUSAGE_SAMPLER)};
+	BOOST_TEST(!SDL_HasProperty(sampled, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_R_FLOAT));
+	BOOST_TEST(!SDL_HasProperty(sampled, SDL_PROP_GPU_TEXTURE_CREATE_D3D12_CLEAR_DEPTH_FLOAT));
+	for (const auto p : {color, depth, sampled})
+		SDL_DestroyProperties(p);
+}
 
 /* Test that the ledger counts a release of a kind with none alive as bad
  * instead of wrapping its count.
