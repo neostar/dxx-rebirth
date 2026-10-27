@@ -481,3 +481,113 @@ BOOST_AUTO_TEST_CASE(empty_line_draw_restores_line_width)
 	glGetFloatv(GL_LINE_WIDTH, &width);
 	BOOST_TEST(width == 2.f);
 }
+
+/* Test that a rectangle reaching past the target's corner reads the
+ * target's pixels inside it and zero outside, whatever the buffer held:
+ * the readback contract both adapters keep (readback.h).
+ */
+BOOST_AUTO_TEST_CASE(read_past_the_corner_is_zero_outside)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	d.clear({.color = true, .depth = true});
+	const quad q{red};
+	d.draw(q.call);
+	/* 4x4 at (62, 46): 2x2 inside, at the rectangle's top left. */
+	std::array<std::uint8_t, std::size_t{4} * 4 * 3> rgb{};
+	rgb.fill(0xaa);
+	d.read_pixels(render::read_source::drawing, {.x = 62, .y = 46, .size = {4, 4}},
+	              render::pixel_format::rgb8, rgb);
+	std::array<std::uint8_t, std::size_t{4} * 4 * 3> expected{};
+	for (const std::size_t pixel : {0u, 1u, 4u, 5u})
+		expected[pixel * 3] = 255;
+	BOOST_TEST(rgb == expected, boost::test_tools::per_element());
+}
+
+/* Test that a readback anchored at the target's bottom and reaching past
+ * its top, as the PNG screenshot reads a height rounded up to 4, gives
+ * zero rows above the target and then the target's rows, top row first:
+ * a target red in its top half and green in its bottom half.
+ */
+BOOST_AUTO_TEST_CASE(read_past_the_top_has_zero_rows_first)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	d.clear({.color = true, .depth = true});
+	const quad green{{{0, 1, 0, 1}}};
+	const quad top_half{red, 0.5f};
+	d.draw(green.call);
+	d.draw(top_half.call);
+	const render::extent size{.width = target.width, .height = target.height + 2};
+	std::vector<std::uint8_t> rgb(render::image_bytes(size, render::pixel_format::rgb8), 0xaa);
+	d.read_pixels(render::read_source::drawing, {.x = 0, .y = -2, .size = size},
+	              render::pixel_format::rgb8, rgb);
+	const std::span<const std::uint8_t> image{rgb};
+	const std::size_t row{std::size_t{size.width} * 3};
+	const std::size_t half{target.height / 2};
+	BOOST_TEST(
+	    std::ranges::all_of(image.first(2 * row), [](const std::uint8_t b) { return b == 0; }));
+	BOOST_TEST(every_pixel_is(image.subspan(2 * row, half * row), {{255, 0, 0}}));
+	BOOST_TEST(every_pixel_is(image.subspan((2 + half) * row), {{0, 255, 0}}));
+}
+
+/* Test that a rectangle wholly outside the target reads zero. */
+BOOST_AUTO_TEST_CASE(read_outside_the_target_is_zero)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	d.clear({.color = true, .depth = true});
+	const quad q{red};
+	d.draw(q.call);
+	std::array<std::uint8_t, 16> outside{};
+	outside.fill(0xaa);
+	d.read_pixels(render::read_source::drawing, {.x = 64, .y = 0, .size = {2, 2}},
+	              render::pixel_format::rgba8, outside);
+	const std::array<std::uint8_t, 16> zero{};
+	BOOST_TEST(outside == zero, boost::test_tools::per_element());
+}
+
+/* Test that a rectangle reaching past the target's left edge reads, as
+ * RGBA, zero left of the target and the target's pixels right of it.
+ */
+BOOST_AUTO_TEST_CASE(read_past_the_left_edge_is_zero_outside)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	d.clear({.color = true, .depth = true});
+	const quad q{red};
+	d.draw(q.call);
+	/* 4x4 at (-2, 46): 2x2 inside, at the rectangle's top right. */
+	std::array<std::uint8_t, std::size_t{4} * 4 * 4> rgba{};
+	rgba.fill(0xaa);
+	d.read_pixels(render::read_source::drawing, {.x = -2, .y = 46, .size = {4, 4}},
+	              render::pixel_format::rgba8, rgba);
+	std::array<std::uint8_t, std::size_t{4} * 4 * 4> expected{};
+	for (const std::size_t pixel : {2u, 3u, 6u, 7u})
+	{
+		expected[pixel * 4] = 255;
+		expected[pixel * 4 + 3] = 255;
+	}
+	BOOST_TEST(rgba == expected, boost::test_tools::per_element());
+}
+
+/* Test that the presented image reads zero before the first present, as
+ * on the SDL_GPU adapter, whatever GL's front buffer holds: red, cleared
+ * there behind the device's back.
+ */
+BOOST_AUTO_TEST_CASE(presented_reads_zero_before_a_present)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	glDrawBuffer(GL_FRONT);
+	glClearColor(1, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glClearColor(0, 0, 0, 0);
+	glDrawBuffer(GL_BACK);
+	std::array<std::uint8_t, std::size_t{2} * 2 * 3> rgb{};
+	rgb.fill(0xaa);
+	d.read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = {2, 2}},
+	              render::pixel_format::rgb8, rgb);
+	const std::array<std::uint8_t, std::size_t{2} * 2 * 3> zero{};
+	BOOST_TEST(rgb == zero, boost::test_tools::per_element());
+}

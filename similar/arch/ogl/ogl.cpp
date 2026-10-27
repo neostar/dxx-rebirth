@@ -1478,7 +1478,7 @@ void ogl_create_device()
 {
 	auto device{std::make_unique<render::gl_device>(render::gl_caps(ogl_maxanisotropy), render::gl_front_end{
 		.swap = ogl_swap_buffers_internal,
-		.target_height = []() -> uint32_t { return SHEIGHT; },
+		.target = []() -> render::extent { return {SWIDTH, SHEIGHT}; },
 		.untextured = []() { OGL_DISABLE(TEXTURE_2D); },
 		.textured = [](const render::texture_slot slot, const render::wrap wrap) {
 			const auto tex{ogl_texture_of(slot)};

@@ -6,9 +6,11 @@
  */
 
 /*
- * The pixel readback contract (ADR 2, `read_pixels`): a rectangle of the
- * target, named from its top left, comes back with its top row first.
- * These pure helpers turn GL's bottom-up readback into that order.
+ * The pixel readback contract (ADR 2, `read_pixels`), which every adapter
+ * keeps: a rectangle of the target, named from its top left, comes back
+ * with its top row first, and its pixels outside the target zero; the
+ * presented image reads zero before the first present.  These pure
+ * helpers also turn GL's bottom-up readback into that order.
  */
 
 #pragma once
@@ -27,8 +29,7 @@ namespace dcx::render {
 
 /* A rectangle of the target in pixels, named from the top left: y counts
  * rows down from the top row.  It may reach past the target's edges, where
- * the pixels read are zero (the SDL_GPU adapter; the GL adapter leaves them
- * undefined until #80 brings it to clip_read_rect too).
+ * the pixels read are zero.
  */
 struct read_rect
 {
@@ -140,7 +141,9 @@ constexpr std::optional<read_clip> clip_read_rect(const render::extent target,
  * first, into image, the readback of a rectangle of size rect_size in
  * format, at the clip's place, and zero into every other byte.  Throws
  * std::length_error, writing nothing, when rows or image is not the size
- * of its image or the clip reaches past the rectangle.
+ * of its image or the clip reaches past the rectangle.  The path both
+ * adapters use: each reads only clip_read_rect's part of the target and
+ * writes the image through place_rows.
  */
 inline void place_rows(const std::span<const std::uint8_t> rows, const read_clip &clip,
                        const render::extent rect_size, const pixel_format format,

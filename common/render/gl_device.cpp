@@ -12,6 +12,7 @@
 
 #include "common/render/gl_device.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,7 @@
 #include <span>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include "common/render/device.h"
 #include "common/render/gl_state.h"
@@ -330,6 +332,7 @@ void gl_device::clear(const clear_targets targets)
 void gl_device::present()
 {
 	front_end_.swap();
+	presented_ = true;
 }
 
 void gl_device::read_pixels(const read_source source, const read_rect &rect,
@@ -337,8 +340,16 @@ void gl_device::read_pixels(const read_source source, const read_rect &rect,
 {
 	if (pixels.size() != image_bytes(rect.size, format))
 		throw std::length_error("read_pixels: buffer size does not match the rectangle");
-	if (pixels.empty())
+	const render::extent target{front_end_.target()};
+	const auto clip{clip_read_rect(target, rect)};
+	if (!clip || (source == read_source::presented && !presented_))
+	{
+		std::ranges::fill(pixels, std::uint8_t{0});
 		return;
+	}
+	const auto &c{clip.value()};
+	/* The clip's pixels as RGBA, which every GL reads back, for place_rows. */
+	std::vector<std::uint8_t> rows(image_bytes(c.size, pixel_format::rgba8));
 	GLint pack_alignment{};
 	glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -352,14 +363,17 @@ void gl_device::read_pixels(const read_source source, const read_rect &rect,
 #else
 	(void)source;
 #endif
-	glReadPixels(rect.x, bottom_up_y(front_end_.target_height(), rect),
-	             static_cast<GLsizei>(rect.size.width), static_cast<GLsizei>(rect.size.height),
-	             format == pixel_format::rgba8 ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+	const read_rect inside{.x = static_cast<std::int32_t>(c.source_x),
+	                       .y = static_cast<std::int32_t>(c.source_y),
+	                       .size = c.size};
+	glReadPixels(inside.x, bottom_up_y(target.height, inside), static_cast<GLsizei>(c.size.width),
+	             static_cast<GLsizei>(c.size.height), GL_RGBA, GL_UNSIGNED_BYTE, rows.data());
 #if !DXX_USE_OGLES
 	glReadBuffer(static_cast<GLenum>(read_buffer));
 #endif
 	glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
-	flip_rows(pixels, image_bytes({.width = rect.size.width, .height = 1}, format));
+	flip_rows(rows, image_bytes({.width = c.size.width, .height = 1}, pixel_format::rgba8));
+	place_rows(rows, c, rect.size, format, pixels);
 }
 
 }

@@ -214,7 +214,7 @@ gl_host::gl_host(const extent target)
       device_{render::gl_caps(context_max_anisotropy()),
 	          {
                   .swap = [w = window_.get()] { w->swap(); },
-                  .target_height = [h = target.height] { return h; },
+                  .target = [target] { return target; },
                   .untextured = [] { glDisable(GL_TEXTURE_2D); },
                   /* Nothing else draws to the context, so the adapter's
 				   * own name for the slot is the texture, and its wrap is

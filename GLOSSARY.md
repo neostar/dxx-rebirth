@@ -16,8 +16,8 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   points), as GL's mode of the same name.
 - **Viewport**: the rectangle of the target a draw call covers, in pixels, origin bottom left.
 - **Readback**: `gr_read_pixels`, reading a rectangle of the presented or the in-progress frame
-  back from the renderer, named from the top left and returned top row first
-  (`common/render/readback.h`); the savegame thumbnail and screenshots use it.
+  back from the renderer, named from the top left and returned top row first, zero outside the
+  target (`common/render/readback.h`); the savegame thumbnail and screenshots use it.
 - **Texture slot**: where a texture lives for the render device: its index in the front end's
   texture pool plus one, or for the movie frame, kept outside the pool, the slot after the pool's;
   slot 0 draws untextured.

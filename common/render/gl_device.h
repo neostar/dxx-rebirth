@@ -33,10 +33,10 @@ struct gl_front_end
 {
 	/* Shows the back buffer. */
 	std::function<void()> swap;
-	/* The rows of the target, which the automap's stereo view changes while
-	 * it draws.
+	/* The size of the target, which the automap's stereo view changes
+	 * while it draws.
 	 */
-	std::function<std::uint32_t()> target_height;
+	std::function<render::extent()> target;
 	/* Turns GL_TEXTURE_2D off through the front end's OGL_DISABLE shadow,
 	 * which the code not yet drawing through the device reads.
 	 */
@@ -85,6 +85,8 @@ class gl_device final : public device
 	 * deletes nothing, since it may run after the context is gone.
 	 */
 	gl::texture_names names_;
+	/* Whether present ran: until then the presented image reads zero. */
+	bool presented_{false};
 
   public:
 	/* A device for the current GL context.  The front end makes a new one
@@ -125,6 +127,9 @@ class gl_device final : public device
 	std::size_t texture_count() const;
 	void clear(clear_targets targets) override;
 	void present() override;
+	/* Reads rect of the target: zero outside it (readback.h).  Throws
+	 * std::length_error on a buffer of the wrong size.
+	 */
 	void read_pixels(read_source source, const read_rect &rect, pixel_format format,
 	                 std::span<std::uint8_t> pixels) override;
 };
