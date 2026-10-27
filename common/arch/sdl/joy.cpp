@@ -23,6 +23,9 @@
 #include "u_mem.h"
 #include "kconfig.h"
 #include "compiler-range_for.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/link_stub.h"
+#endif
 
 #if DXX_MAX_JOYSTICKS
 #include "compiler-cf_assert.h"
@@ -213,7 +216,11 @@ window_event_result joy_button_handler(const SDL_JoyButtonEvent *const jbe)
 		return window_event_result::ignored;
 	const unsigned button = joystick->button_map()[jbe->button];
 
+#if SDL_MAJOR_VERSION == 3
+	Joystick.button_state[button] = jbe->down;
+#else
 	Joystick.button_state[button] = jbe->state;
+#endif
 
 	const d_event_joystickbutton event{
 		(jbe->type == SDL_JOYBUTTONDOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
@@ -280,7 +287,11 @@ namespace {
 
 static window_event_result send_axis_button_event(unsigned button, event_type e)
 {
+#if SDL_MAJOR_VERSION == 3
+	Joystick.button_state[button] = e != event_type::joystick_button_up;
+#else
 	Joystick.button_state[button] = (e == event_type::joystick_button_up) ? SDL_RELEASED : SDL_PRESSED;
+#endif
 	const d_event_joystickbutton event{ e, button };
 	con_printf(CON_DEBUG, "Sending event %s, button %d", (e == event_type::joystick_button_up) ? "event_type::joystick_button_up" : "event_type::joystick_button_down", event.button);
 	return event_send(event);
@@ -348,6 +359,9 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 
 namespace {
 
+#if SDL_MAJOR_VERSION == 3
+/* joy_init's SDL3 stub (#44) counts no joysticks, so check_warn_joy_support_limit has no caller. */
+#else
 static unsigned check_warn_joy_support_limit(const unsigned n, const char *const desc, const unsigned MAX)
 {
 	if (n <= MAX)
@@ -358,11 +372,22 @@ static unsigned check_warn_joy_support_limit(const unsigned n, const char *const
 	Warning("sdl-joystick: found %d %ss, only %d supported.", n, desc, MAX);
 	return MAX;
 }
+#endif
 
 }
 
 void joy_init()
 {
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3 enumerates joysticks by instance id (SDL_GetJoysticks) and has
+	 * no SDL_NumJoysticks; the port opens none until #44 does.
+	 */
+	static dcx::sdl::link_stub stub{"joystick and gamepad enumeration", "#44"};
+	if (stub.first_use())
+		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	return;
+}
+#else
 	if (SDL_Init(SDL_INIT_JOYSTICK) < 0) {
 		con_printf(CON_NORMAL, "sdl-joystick: initialisation failed: %s.",SDL_GetError());
 		return;
@@ -473,6 +498,7 @@ void joy_init()
 		con_printf(CON_NORMAL, "sdl-joystick: %d buttons (total)", joystick_n_buttons);
 	}
 }
+#endif
 
 void joy_close()
 {
@@ -498,7 +524,11 @@ void joy_flush()
 	if (!num_joysticks)
 		return;
 
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3 reports buttons as bool, so the zero state needs no assert. */
+#else
 	static_assert(SDL_RELEASED == uint8_t(), "SDL_RELEASED not 0.");
+#endif
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
 	Joystick.button_state = {};
 #endif
