@@ -25,16 +25,15 @@
 #include "common/render/device.h"
 #include "common/render/render_device.h"
 #include "common/render/rtrace/replay_file.h"
+#include "common/render/rtrace/startup_options.h"
 #include "common/render/sdlgpu_device.h"
 #include "common/sdl/dxx-sdl.h"
 
 #ifdef _WIN32
 #include <algorithm>
-#include <cctype>
-#include <cstring>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
-#include <dxgi1_4.h>
+#include <dxgi1_6.h>
 #include <memory>
 #include <span>
 #include <string>
@@ -128,41 +127,23 @@ std::vector<T> holding(const SIZE_T bytes)
 	return std::vector<T>((bytes + sizeof(T) - 1) / sizeof(T) + 1);
 }
 
-/* Whether the debug layer's startup options text says GPU-based validation
- * is on. The text's exact form is learned on the first real run, so this
- * reads it loosely: case, spaces, '-' and '_' ignored, the words "GPU based
- * validation" followed (after ':' or '=') by "enabled", "on" or "true".
- */
-[[nodiscard]]
-bool says_gpu_based_validation_on(const std::string_view text)
-{
-	std::string folded;
-	for (const char c : text)
-		if (c != ' ' && c != '-' && c != '_' && c != '\t')
-			folded += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-	constexpr std::string_view key{"gpubasedvalidation"};
-	const auto at{folded.find(key)};
-	if (at == std::string::npos)
-		return false;
-	std::string_view rest{folded};
-	rest.remove_prefix(at + key.size());
-	while (!rest.empty() && (rest.front() == ':' || rest.front() == '='))
-		rest.remove_prefix(1);
-	rest = rest.substr(0, rest.find_first_of(",;()\r\n"));
-	return rest == "enabled" || rest == "on" || rest == "true";
-}
-
 /* Confirms that SDL's D3D12 device, just created, has GPU-based validation
  * on, from the device itself: Microsoft (D3D12CreateDevice): "Direct3D 12
  * devices are singletons per adapter. If a Direct3D 12 device already
  * exists in the current process for a given adapter, then a subsequent
  * call to D3D12CreateDevice returns the existing device." So creating a
- * device on WARP (IDXGIFactory4::EnumWarpAdapter; the run requires SDL to
- * have picked WARP) returns SDL's. That it is SDL's and not a new one: its
- * info queue carries the storage filter SDL pushes in debug mode (deny
- * INFO). The evidence is the debug layer's
+ * device on the adapter SDL 3.4.18 picks, enumerated as it does
+ * (IDXGIFactory6::EnumAdapterByGpuPreference, index 0, high performance;
+ * else IDXGIFactory4::EnumAdapters1(0), SDL_gpu_d3d12.c), returns SDL's;
+ * the shell checks that adapter is WARP by its name. That it is SDL's and
+ * not a new one: its info queue carries the storage filter SDL pushes in
+ * debug mode (deny INFO). The evidence is the debug layer's
  * D3D12_MESSAGE_ID_CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS message, stored
- * at device creation, before SDL's filter. (ID3D12DebugDevice1::
+ * at device creation, before SDL's filter. It is still stored here only
+ * because SDL registered its ID3D12InfoQueue1 message callback: without
+ * one, SDL's submit drains and clears the stored messages
+ * (D3D12_INTERNAL_DrainInfoQueueMessages) and logs this one as a warning,
+ * which fails the run anyway. (ID3D12DebugDevice1::
  * GetDebugParameter would only read GBV's settings, not whether it is on,
  * and MinGW-w64 11's d3d12sdklayers.h has no ID3D12DebugDevice1.)
  *
@@ -176,12 +157,21 @@ void confirm_gpu_based_validation()
 	IDXGIFactory4 *factory_p{};
 	check(CreateDXGIFactory1(IID_PPV_ARGS(&factory_p)), "CreateDXGIFactory1");
 	const std::unique_ptr<IDXGIFactory4, com_release> factory{factory_p};
-	IDXGIAdapter *adapter_p{};
-	check(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter_p)), "IDXGIFactory4::EnumWarpAdapter");
-	const std::unique_ptr<IDXGIAdapter, com_release> adapter{adapter_p};
+	IDXGIAdapter1 *adapter_p{};
+	IDXGIFactory6 *factory6_p{};
+	if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&factory6_p))))
+	{
+		const std::unique_ptr<IDXGIFactory6, com_release> factory6{factory6_p};
+		check(factory6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+		                                           IID_PPV_ARGS(&adapter_p)),
+		      "IDXGIFactory6::EnumAdapterByGpuPreference");
+	}
+	else
+		check(factory->EnumAdapters1(0, &adapter_p), "IDXGIFactory4::EnumAdapters1");
+	const std::unique_ptr<IDXGIAdapter1, com_release> adapter{adapter_p};
 	ID3D12Device *device_p{};
 	check(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device_p)),
-	      "D3D12CreateDevice on WARP");
+	      "D3D12CreateDevice on SDL's adapter");
 	const std::unique_ptr<ID3D12Device, com_release> device{device_p};
 	ID3D12InfoQueue *queue_p{};
 	check(device->QueryInterface(IID_PPV_ARGS(&queue_p)),
@@ -198,7 +188,7 @@ void confirm_gpu_based_validation()
 	                                                         deny.NumSeverities};
 	if (std::ranges::find(severities, D3D12_MESSAGE_SEVERITY_INFO) == severities.end())
 		throw std::runtime_error{
-		    "the WARP device is not SDL's: its info queue lacks SDL's storage filter"};
+		    "the device on SDL's adapter is not SDL's: its info queue lacks SDL's storage filter"};
 
 	const UINT64 count{queue->GetNumStoredMessagesAllowedByRetrievalFilter()};
 	for (UINT64 i{}; i != count; ++i)
@@ -210,12 +200,17 @@ void confirm_gpu_based_validation()
 		const D3D12_MESSAGE &m{message.front()};
 		if (m.ID != D3D12_MESSAGE_ID_CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS)
 			continue;
-		std::string text{m.pDescription, strnlen(m.pDescription, m.DescriptionByteLength)};
+		if (!m.pDescription)
+			throw std::runtime_error{"the debug layer startup options message has no text"};
+		// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): the message's own text
+		// and size
+		const std::span<const char> bytes{m.pDescription, m.DescriptionByteLength};
+		std::string text{bytes.begin(), std::ranges::find(bytes, '\0')};
 		std::ranges::replace(text, '\r', ' ');
 		std::ranges::replace(text, '\n', ' ');
 		std::cout << "rtrace-gpu: D3D12 debug layer startup options: " << text << '\n'
 		          << std::flush;
-		if (!says_gpu_based_validation_on(text))
+		if (!render::rtrace::says_gpu_based_validation_on(text))
 			throw std::runtime_error{"D3D12 GPU-based validation not confirmed: the startup "
 			                         "options do not say it is on"};
 		std::cout << "rtrace-gpu: D3D12 GPU-based validation confirmed on SDL's device\n"

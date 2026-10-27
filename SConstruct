@@ -5231,6 +5231,10 @@ class DXXArchive(DXXCommon):
 	rtrace_programs = (
 		RuntimeTest('rtrace', ('common/render/rtrace/main.cpp',) + _rtrace_sources),
 		RuntimeTest('test-rtrace', ('common/render/unittest/rtrace.cpp',) + _rtrace_sources),
+		RuntimeTest('test-startup-options', (
+			'common/render/unittest/startup_options.cpp',
+			'common/render/rtrace/startup_options.cpp',
+			)),
 			)
 	sdlgpu_programs = (
 		RuntimeTest('test-sdlgpu', (
@@ -5244,6 +5248,7 @@ class DXXArchive(DXXCommon):
 		# gpu-validate.sh, on the trace it is given.
 		RuntimeTest('rtrace-gpu', (
 			'common/render/rtrace/gpu_main.cpp',
+			'common/render/rtrace/startup_options.cpp',
 			'common/render/rtrace/replay_file.cpp',
 			'common/render/sdlgpu_device.cpp',
 			'common/render/sdlgpu_frame.cpp',

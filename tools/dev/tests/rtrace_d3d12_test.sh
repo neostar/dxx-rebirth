@@ -16,7 +16,7 @@ INFO: SDL_GPU Driver: D3D12
 INFO: D3D12 Adapter: Microsoft Basic Render Driver
 INFO: D3D12 Driver: 10.0.26100.1
 rtrace-gpu: D3D12 GPU-based validation requested
-rtrace-gpu: D3D12 debug layer startup options: GPU-Based Validation: Enabled
+rtrace-gpu: D3D12 debug layer startup options: D3D12 MESSAGE: Device Debug Layer Startup Options: GPU-Based Validation is enabled (disabled by default). This results in new validation not possible during API calls on the CPU.
 rtrace-gpu: D3D12 GPU-based validation confirmed on SDL'"'"'s device
 INFO: sdlgpu: debug mode on'
 # What a run under Wine prints: no debug layer, no GPU-based validation
@@ -165,7 +165,7 @@ test_gpu_based_validation_not_confirmed_fails()
 	local d out confirmed options requested form
 	d=$(fake_build)
 	confirmed="rtrace-gpu: D3D12 GPU-based validation confirmed on SDL's device"
-	options='rtrace-gpu: D3D12 debug layer startup options: GPU-Based Validation: Enabled'
+	options='rtrace-gpu: D3D12 debug layer startup options: D3D12 MESSAGE: Device Debug Layer Startup Options: GPU-Based Validation is enabled (disabled by default). This results in new validation not possible during API calls on the CPU.'
 	requested='rtrace-gpu: D3D12 GPU-based validation requested'
 	for form in "${d3d12_lines/$confirmed/}" "${d3d12_lines/$options/}" \
 		"${d3d12_lines/$confirmed/rtrace-gpu: D3D12 GPU-based validation on}" \

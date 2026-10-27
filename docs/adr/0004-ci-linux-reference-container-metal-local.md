@@ -35,13 +35,14 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
     with GPU-based validation catches them. SDL 3.4.18 never calls `SetEnableGPUBasedValidation`,
     so on Windows `rtrace-gpu.exe` calls it through `ID3D12Debug1` before SDL creates the device,
     when `DXX_D3D12_GPU_VALIDATION=1` (the script sets it). That call returns nothing, so once SDL
-    has created its device, `rtrace-gpu.exe` calls `D3D12CreateDevice` on the WARP adapter, which
-    returns SDL's device (D3D12 devices are singletons per adapter). It checks the device is SDL's
-    (its info queue carries SDL's storage filter), prints the debug layer's stored startup-options
-    message (`CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS`) and exits 1 unless that text says
-    GPU-based validation is on. The run fails without `rtrace-gpu`'s line `D3D12 GPU-based
-    validation confirmed on SDL's device`. The startup text's exact form is first seen on the
-    first GitHub run.
+    has created its device, `rtrace-gpu.exe` calls `D3D12CreateDevice` on the adapter SDL picks,
+    enumerated as SDL does, which returns SDL's device (D3D12 devices are singletons per
+    adapter). It checks the device is SDL's (its info queue carries SDL's storage filter), prints
+    the debug layer's stored startup-options message (`CREATEDEVICE_DEBUG_LAYER_STARTUP_OPTIONS`)
+    and exits 1 unless that text says GPU-based validation is on
+    (`common/render/rtrace/startup_options.h`, unit-tested). The run fails without
+    `rtrace-gpu`'s line `D3D12 GPU-based validation confirmed on SDL's device`. The startup
+    text's exact form is first seen on the first GitHub run.
   - **ADR 5 exception**: `rtrace-gpu`'s `_WIN32` code is built only by the MinGW cross-build with
     `-Werror`, outside ADR 5's clang-tidy and sanitizer gates (owner decision: no new tooling).
   - **Timeouts**: each trace run has 300 s (`timeout -k 10 300`), the Wine run 300 s, the
