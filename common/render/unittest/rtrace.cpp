@@ -399,6 +399,30 @@ BOOST_AUTO_TEST_CASE(walls_trace_is_the_writers)
 	BOOST_TEST((committed_trace(4) == render::rtrace::walls_trace()));
 }
 
+/* Test the depth band trace on GL (#28): between the near plane and twice
+ * it, GL keeps the nearer green quad, 32 by 24 pixels, over every pixel of
+ * the blue one drawn after it, and the frame hashes as pinned; test-sdlgpu's
+ * depth_band_keeps_the_nearer holds SDL_GPU on Metal to the same hash.
+ */
+BOOST_AUTO_TEST_CASE(depth_band_keeps_the_nearer_on_gl)
+{
+	const auto o{replay_on_gl(render::rtrace::depth_band_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 1u);
+	const auto &rgb{o.frames.front().rgb};
+	std::size_t blue{0}, green{0};
+	for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+	{
+		if (rgb[i] == 0 && rgb[i + 1] == 0 && rgb[i + 2] == 255)
+			++blue;
+		if (rgb[i] == 0 && rgb[i + 1] == 255 && rgb[i + 2] == 0)
+			++green;
+	}
+	BOOST_TEST(blue == 0u);
+	BOOST_TEST(green == std::size_t{32} * 24);
+	BOOST_TEST(o.frames.front().hash == 0x053439a05ecf8825u);
+}
+
 /* Test that a textured draw samples the texture of its own slot, not the
  * one uploaded last.
  */

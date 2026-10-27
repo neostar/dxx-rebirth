@@ -645,6 +645,23 @@ BOOST_AUTO_TEST_CASE(depth_clip_drops_what_is_nearer_than_twice_the_near_plane)
 	BOOST_TEST(pixels_of(clipped[1], yellow) == pixels_of(clamped[1], yellow));
 }
 
+/* Test the depth band trace on Metal (#28): both quads lie between the
+ * near plane and twice it, where z_ndc < 0.  Were their depths clamped to
+ * the viewport's minimum, they would tie and the blue quad drawn last
+ * would cover the green one; through the device they keep GL's order, no
+ * blue pixel shows, and the frame has GL's hash (test-rtrace's
+ * depth_band_keeps_the_nearer_on_gl).  The blue quad at the green one's
+ * depth covers it (432 pixels), so the test sees a tie.
+ */
+BOOST_AUTO_TEST_CASE(depth_band_keeps_the_nearer)
+{
+	BOOST_REQUIRE(sdlgpu::device::create(test_config(target))->driver() == "metal");
+	const auto frames{replayed_frames(dcx::render::rtrace::depth_band_trace())};
+	BOOST_REQUIRE(frames.size() == 1u);
+	BOOST_TEST(pixels_of(frames.front(), blue) == 0u);
+	BOOST_TEST(frames.front().hash == 0x053439a05ecf8825u);
+}
+
 /* Test the winding of the walls trace's corridor, on any driver: front
  * culling drops the red quad wound counter-clockwise in front of the walls,
  * and keeps every wall wound clockwise, so no pixel keeps the clear colour.

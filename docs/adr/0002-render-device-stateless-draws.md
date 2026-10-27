@@ -35,9 +35,21 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   the clip depth of `gluPerspective` is 0 at 2·near·far/(far + near), about twice the near plane,
   so the exact model with depth clip drops everything nearer. `test-sdlgpu`'s
   `depth_clip_drops_what_is_nearer_than_twice_the_near_plane` renders the walls trace's near-plane
-  frame both ways: a quad at 1.5 near planes vanishes with clip and shows with clamp, as on GL.
+  frame both ways: a quad at 1.5 near planes vanishes with clip and shows with clamp.
   Depth clamp without the clip distances draws what lies before the near plane (spike #55: 8134
   px off GL). The rule holds while no shader writes its own depth (SDL#12740).
+- **The depth band** (#28), from the near plane to 2·near·far/(far + near), where z_ndc < 0:
+  the exact model is not known to be exact there. GL writes window depth 0.5 + 0.5·z_ndc
+  (0.25 to 0.5). A bare Metal probe with depth clamp and viewport depth 0.5..1 writes 0.5 for
+  z_ndc -0.5 and -0.25 (the #28 review), and Vulkan and D3D12 clamp to the viewport's minimum
+  by spec; a clamp there ties every surface in the band, and LESS_OR_EQUAL then keeps the one
+  drawn last where GL keeps the nearer. Through the device on Metal (M1 Max, macOS 26.7) the
+  band does not tie: test-sdlgpu's `depth_band_keeps_the_nearer` draws a quad at 0.12 deep,
+  then one at 0.18 behind it, and the frame has GL's hash (test-rtrace's
+  `depth_band_keeps_the_nearer_on_gl`), 0 px off; at equal depth the later quad covers
+  432 px, so the test sees a tie. Why the device and the probe differ is not known. Vulkan
+  (#25) and D3D12 (WARP) are not measured. Open for the owner: whether to change the model
+  for the band; T9's screen of 48 combinations found no other bit-exact one.
 - The **front end** (`similar/arch/ogl`) keeps the game's current blend and alpha reference, as GL
   did, and builds each draw state from them. Game code calling `gr_settransblend` is unchanged.
   `render::ambient::fan(vertices, texture)` (`common/render/ambient.h`) builds the common case's

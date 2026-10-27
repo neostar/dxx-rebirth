@@ -362,4 +362,34 @@ inline std::vector<std::uint8_t> walls_trace()
 	return w.take();
 }
 
+/* The depth band trace's bytes (#28), not committed: one frame of the 3D
+ * view in which a green quad at 0.12 deep, then a smaller blue one behind
+ * it at 0.18, drawn last, both lie between the near plane (0.1) and
+ * 2 near far / (far + near), about 0.2, where gluPerspective's z_ndc is
+ * negative.  GL keeps the nearer green quad over all of the blue one.  A
+ * transform model that clamped z_ndc < 0 to the viewport's minimum depth
+ * would tie them, and the depth test, LESS_OR_EQUAL, would show the blue
+ * quad drawn last (ADR 2's depth pairing rule).
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> depth_band_trace()
+{
+	trace::writer w{sample_target};
+	w.clear({.color = true, .depth = true});
+	const auto green{wall_quad({{{{-0.06f, -0.06f, -0.12f}},
+	                             {{-0.06f, 0.06f, -0.12f}},
+	                             {{0.06f, 0.06f, -0.12f}},
+	                             {{0.06f, -0.06f, -0.12f}}}},
+	                           flat({{0, 1, 0, 1}}), 0)};
+	w.draw(wall_draw(green));
+	const auto blue{wall_quad({{{{-0.045f, -0.045f, -0.18f}},
+	                            {{-0.045f, 0.045f, -0.18f}},
+	                            {{0.045f, 0.045f, -0.18f}},
+	                            {{0.045f, -0.045f, -0.18f}}}},
+	                          flat({{0, 0, 1, 1}}), 0)};
+	w.draw(wall_draw(blue));
+	w.present({.frame = 0});
+	return w.take();
+}
+
 }
