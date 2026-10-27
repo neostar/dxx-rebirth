@@ -52,18 +52,8 @@ limit=${RTRACE_TEST_TIMEOUT:-300}
 		exit 2
 	}
 
-# The frame hash log lines of the sample: frame 1 is 64x48 pixels of
-# (255, 255, 0), hashed with 64-bit FNV-1a by python3 when written; frame
-# 0, the shaded triangle, as Apple's GL draws it (M1 Max, macOS 26.7).
-expected=('0 64x48 86388f1d5003af2a' '1 64x48 9f40fbb36ef64325')
-sample=$root/common/render/rtrace/synthetic/sample.rtr
-# The overbright trace's lines (#27), as Apple's GL draws them (M1 Max,
-# macOS 26.7).
-expected_overbright=('0 64x48 5d1b6b445fb7f05a' '1 64x48 418a435cc9c67e56')
-overbright=$root/common/render/rtrace/synthetic/overbright.rtr
-# The flash trace's lines (#30), as Apple's GL draws them (M1 Max, macOS 26.7).
-expected_flash=('0 64x48 a088becd21e46f87' '1 64x48 4142e7869f743d59' '2 64x48 c33733e407fec502')
-flash=$root/common/render/rtrace/synthetic/flash.rtr
+# The pinned frame hash lines and the traces they belong to.
+source "$dev_dir/rtrace-pins.sh"
 
 # Whether log $1 holds exactly the lines $2... and no others.
 logs_lines()
