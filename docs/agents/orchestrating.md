@@ -41,6 +41,14 @@ repository; its header lists them).
   with fix rounds until no HIGH or MEDIUM finding is left; `tools/dev` and docs get one round
   with every finding batched. A finding left after that goes as a comment on the open ticket
   that next touches the code; a new issue only when it blocks the port.
+- **Simplify**: for a game-code or shader ticket, once review leaves no HIGH or MEDIUM and the
+  ticket's checks pass, run `/simplify` once on the branch diff (`sdl-gpu-port..HEAD`). Apply a
+  finding when it removes code or per-frame cost in fork-owned code that outlives the ticket.
+  Leave it, with a one-line reason in the closing comment, when it reaches upstream lines the
+  branch does not already change (ADR 1: each one costs a rebase), scaffolding a named ticket
+  removes, tooling, or a debug-only path. A hot-path cost goes to the frame-time comparison
+  (base against branch, alone on the machine), not to an edit. Applied fixes land as one cleanup
+  commit before the gate. Done when every finding is applied or left with its reason.
 - **Merge**: first check that the last nightly (`build/nightly/nightly.log`, whose full run is
   `ci.sh --clean`) is green, or that a follow-up issue names each red step: a red nightly holds
   every merge until then. Note `OLD_BASE=$(git merge-base sdl-gpu-port HEAD)` and
