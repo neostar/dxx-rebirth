@@ -95,7 +95,6 @@ template <typename Ops>
 display<Ops> open_display(const display_request &r, Ops ops)
 {
 	display<Ops> d;
-	d.state = window_state{r.fullscreen};
 	if (r.preferred == renderer::sdl_gpu)
 	{
 		d.gpu = ops.create_gpu_device(r.gpu_driver);
@@ -126,10 +125,15 @@ display<Ops> open_display(const display_request &r, Ops ops)
 			d.swap_interval_error = ops.last_error();
 	}
 	if (!d.error)
+	{
 		/* Fullscreen is asynchronous; at startup the game waits for it
 		 * so that the first mode is the fullscreen size (section 3).
+		 * What SDL then reports, a hidden window's pending flag included,
+		 * is where toggles start: the request may have been refused.
 		 */
 		ops.sync_window(d.window.get());
+		d.state = window_state{ops.fullscreen(d.window.get())};
+	}
 	return d;
 }
 
@@ -208,6 +212,13 @@ struct sdl_display_ops
 	static void sync_window(SDL_Window *const window)
 	{
 		SDL_SyncWindow(window);
+	}
+	/* SDL_GetWindowFlags includes the pending flags of a hidden window
+	 * (SDL_video.c, SDL_GetWindowFlags).
+	 */
+	static bool fullscreen(SDL_Window *const window)
+	{
+		return SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN;
 	}
 	static const char *last_error()
 	{

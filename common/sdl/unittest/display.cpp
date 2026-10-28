@@ -29,6 +29,10 @@ struct fake_sdl
 	bool gpu_available{true};
 	bool window_possible{true};
 	bool swap_interval_supported{true};
+	/* The window manager refuses fullscreen: SDL drops the flag by the
+	 * time SDL_SyncWindow returns.
+	 */
+	bool fullscreen_refused{false};
 	/* What SDL ended up with. */
 	std::optional<SDL_WindowFlags> window_flags;
 	bool window_claimed{false};
@@ -110,7 +114,14 @@ struct fake_ops
 		return true;
 	}
 	void sync_window(fake_handle *) const
-	{}
+	{
+		if (sdl->fullscreen_refused)
+			sdl->window_flags = sdl->window_flags.value() & ~SDL_WINDOW_FULLSCREEN;
+	}
+	bool fullscreen(fake_handle *) const
+	{
+		return sdl->window_flags.value() & SDL_WINDOW_FULLSCREEN;
+	}
 	const char *last_error() const
 	{
 		return sdl->error;
@@ -180,7 +191,20 @@ BOOST_AUTO_TEST_CASE(request_flags_become_window_flags)
 	BOOST_TEST((sdl.window_flags ==
 	            std::optional<SDL_WindowFlags>{SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN |
 	                                           SDL_WINDOW_BORDERLESS}));
-	BOOST_TEST(full.state.fullscreen());
+	BOOST_TEST(full.state.requested_fullscreen());
+}
+
+/* Test that the window's fullscreen state starts as SDL has it after the
+ * sync, not as the request asked: a toggle then asks for a real change.
+ */
+BOOST_AUTO_TEST_CASE(fullscreen_starts_as_sdl_has_it)
+{
+	fake_sdl sdl;
+	sdl.fullscreen_refused = true;
+	auto r{gl_request()};
+	r.fullscreen = true;
+	const auto d{dcx::sdl::open_display(r, fake_ops{&sdl})};
+	BOOST_TEST(!d.state.requested_fullscreen());
 }
 
 /* Test that SDL_GPU, when a device comes up, claims a window made without

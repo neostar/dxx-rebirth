@@ -542,8 +542,8 @@ int gr_check_fullscreen(void)
 #elif SDL_MAJOR_VERSION == 2
 	return !!(SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN);
 #elif SDL_MAJOR_VERSION == 3
-	/* As SDL confirmed it: a toggle is a request (gr_toggle_fullscreen). */
-	return main_display && main_display->state.fullscreen();
+	/* As last requested, or confirmed by SDL (window_state). */
+	return main_display && main_display->state.requested_fullscreen();
 #endif
 }
 
@@ -604,7 +604,9 @@ void gr_toggle_fullscreen()
 	 * gr_handle_window_event sets CGameCfg.WindowMode and the mode
 	 * (docs/agents/sdl-window.md section 3).
 	 */
-	if (!SDL_SetWindowFullscreen(g_pRebirthSDLMainWindow, !gr_check_fullscreen()))
+	if (main_display && !main_display->state.toggle_fullscreen([](const bool fullscreen) {
+		    return SDL_SetWindowFullscreen(g_pRebirthSDLMainWindow, fullscreen);
+	    }))
 		con_printf(CON_URGENT, "SDL3: cannot change fullscreen: %s", SDL_GetError());
 #endif
 }

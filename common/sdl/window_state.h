@@ -47,31 +47,55 @@ struct window_reaction
 	std::optional<bool> fullscreen;
 };
 
-/* The window's state as its events reported it: whether it is fullscreen,
- * and its visibility, which only the frame pacer reads.  A window no event
- * has reported on counts as visible, since Windows sends no occlusion and
- * Wayland no user minimise (section 6).
+/* The window's state as its events reported it: its visibility, which
+ * only the frame pacer reads, and whether it is fullscreen.  A window no
+ * event has reported on counts as visible, since Windows sends no occlusion
+ * and Wayland no user minimise (section 6).
+ *
+ * Fullscreen is kept twice.  SDL changes it asynchronously (section 3), so
+ * a toggle works from the last request, not the last confirmation: two
+ * toggles before SDL answers end where they started, and a window SDL
+ * never confirms (a hidden one keeps the flag pending) still toggles.  A
+ * confirmation moves the request too, for a change SDL makes on its own.
  */
 class window_state
 {
 	bool unmapped{false};
 	bool occluded{false};
 	bool minimised{false};
-	bool is_fullscreen;
+	bool confirmed_fullscreen;
+	bool target_fullscreen;
 
   public:
-	explicit constexpr window_state(const bool created_fullscreen)
-	    : is_fullscreen{created_fullscreen}
+	/* `fullscreen` is the window's state as SDL reports it at creation,
+	 * pending flags included (open_display).
+	 */
+	explicit constexpr window_state(const bool fullscreen)
+	    : confirmed_fullscreen{fullscreen}, target_fullscreen{fullscreen}
 	{}
 	[[nodiscard]]
 	constexpr visibility vis() const
 	{
 		return unmapped || occluded || minimised ? visibility::hidden : visibility::visible;
 	}
+	/* What the game last asked for, or SDL last confirmed. */
 	[[nodiscard]]
-	constexpr bool fullscreen() const
+	constexpr bool requested_fullscreen() const
 	{
-		return is_fullscreen;
+		return target_fullscreen;
+	}
+	/* Ask for the opposite of the last request through `request`
+	 * (SDL_SetWindowFullscreen's shape: the wanted state, true when SDL
+	 * took the request); a refused request leaves the target as it was.
+	 */
+	template <typename Request>
+	constexpr bool toggle_fullscreen(Request &&request)
+	{
+		const bool target{!target_fullscreen};
+		if (!request(target))
+			return false;
+		target_fullscreen = target;
+		return true;
 	}
 	/* `size` is the event's pixel size (pixel_size_changed only), `canvas`
 	 * the size the game draws at now.
@@ -102,8 +126,8 @@ class window_state
 			break;
 		case window_event::enter_fullscreen:
 		case window_event::leave_fullscreen:
-			if (const bool now{e == window_event::enter_fullscreen}; now != is_fullscreen)
-				r.fullscreen = is_fullscreen = now;
+			if (const bool now{e == window_event::enter_fullscreen}; now != confirmed_fullscreen)
+				r.fullscreen = confirmed_fullscreen = target_fullscreen = now;
 			break;
 		case window_event::pixel_size_changed:
 			/* SDL sends one at creation, of the size the canvas

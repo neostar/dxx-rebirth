@@ -10,6 +10,7 @@
 #include <array>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth window state
@@ -81,13 +82,13 @@ BOOST_AUTO_TEST_CASE(two_reasons_to_hide_both_have_to_end)
 BOOST_AUTO_TEST_CASE(fullscreen_follows_the_confirming_events)
 {
 	window_state s{false};
-	BOOST_TEST(!s.fullscreen());
+	BOOST_TEST(!s.requested_fullscreen());
 	const auto entered{feed(s, window_event::enter_fullscreen)};
-	BOOST_TEST(s.fullscreen());
+	BOOST_TEST(s.requested_fullscreen());
 	BOOST_TEST((entered.fullscreen == std::optional{true}));
 	BOOST_TEST(!feed(s, window_event::enter_fullscreen).fullscreen.has_value());
 	const auto left{feed(s, window_event::leave_fullscreen)};
-	BOOST_TEST(!s.fullscreen());
+	BOOST_TEST(!s.requested_fullscreen());
 	BOOST_TEST((left.fullscreen == std::optional{false}));
 }
 
@@ -95,7 +96,81 @@ BOOST_AUTO_TEST_CASE(fullscreen_follows_the_confirming_events)
 BOOST_AUTO_TEST_CASE(a_window_created_fullscreen_is_fullscreen)
 {
 	const window_state s{true};
-	BOOST_TEST(s.fullscreen());
+	BOOST_TEST(s.requested_fullscreen());
+}
+
+namespace {
+
+/* A fake SDL_SetWindowFullscreen: records each request, grants it or not. */
+struct fullscreen_requests
+{
+	std::vector<bool> sent;
+	bool granted{true};
+	auto request()
+	{
+		return [this](const bool fullscreen) {
+			sent.push_back(fullscreen);
+			return granted;
+		};
+	}
+};
+
+}
+
+/* Test that a toggle asks for the opposite of the last request, not of
+ * the last confirmation: two toggles before SDL confirms either end where
+ * they started, instead of asking for the same change twice.
+ */
+BOOST_AUTO_TEST_CASE(two_toggles_before_confirmation_end_where_they_started)
+{
+	window_state s{false};
+	fullscreen_requests sdl;
+	s.toggle_fullscreen(sdl.request());
+	s.toggle_fullscreen(sdl.request());
+	BOOST_TEST((sdl.sent == std::vector<bool>{true, false}));
+	BOOST_TEST(!s.requested_fullscreen());
+}
+
+/* Test that a window created fullscreen that SDL never confirms (a hidden
+ * window keeps the flag pending) still toggles to windowed and back.
+ */
+BOOST_AUTO_TEST_CASE(a_fullscreen_sdl_never_confirms_still_toggles)
+{
+	window_state s{true};
+	fullscreen_requests sdl;
+	s.toggle_fullscreen(sdl.request());
+	BOOST_TEST(!s.requested_fullscreen());
+	s.toggle_fullscreen(sdl.request());
+	BOOST_TEST((sdl.sent == std::vector<bool>{false, true}));
+	BOOST_TEST(s.requested_fullscreen());
+}
+
+/* Test that a request SDL refuses leaves the target where it was, so the
+ * next toggle asks for the same change again.
+ */
+BOOST_AUTO_TEST_CASE(a_refused_request_keeps_the_target)
+{
+	window_state s{false};
+	fullscreen_requests sdl;
+	sdl.granted = false;
+	BOOST_TEST(!s.toggle_fullscreen(sdl.request()));
+	BOOST_TEST(!s.requested_fullscreen());
+	sdl.granted = true;
+	BOOST_TEST(s.toggle_fullscreen(sdl.request()));
+	BOOST_TEST((sdl.sent == std::vector<bool>{true, true}));
+}
+
+/* Test that a change SDL confirms without a request (the user left
+ * fullscreen through the system) moves the target, so the next toggle
+ * goes back instead of asking for the state the window is in.
+ */
+BOOST_AUTO_TEST_CASE(an_unrequested_change_moves_the_target)
+{
+	window_state s{true};
+	fullscreen_requests sdl;
+	feed(s, window_event::leave_fullscreen);
+	s.toggle_fullscreen(sdl.request());
+	BOOST_TEST((sdl.sent == std::vector<bool>{true}));
 }
 
 /* Test that a pixel size other than the canvas's resizes the canvas, and
