@@ -6,7 +6,7 @@
  */
 
 /*
- * Points and strips as triangle lists (lines follow), for an adapter
+ * Lines, line loops, points and strips as triangle lists, for an adapter
  * whose API has no wide lines or sized points (SDL_GPU: D3D12 has neither,
  * #32; ADR 2's pixel-centre rule).  The expansion happens in clip space on
  * the transform model the triangles use, clip = P * (MV * v) with no
@@ -24,8 +24,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -45,13 +47,28 @@ struct expansion_view
 	float size;
 };
 
+/* Whether the x and y rows of P and MV do not mix x with y, which
+ * window_step relies on (the matrices are column-major: m[1] is row 1 of
+ * column 0, m[4] and m[8] row 0 of columns 1 and 2, m[9] row 1 of column 2).
+ */
+[[nodiscard]]
+constexpr bool has_diagonal_recipe(const expansion_view &view)
+{
+	for (const matrix *m : {&view.projection, &view.modelview})
+		if ((*m)[1] != 0 || (*m)[4] != 0 || (*m)[8] != 0 || (*m)[9] != 0)
+			return false;
+	return true;
+}
+
 [[nodiscard]]
 inline expansion_view expansion_view_of(const draw_call &call)
 {
-	return {.projection = matrix_of(call.transforms.projection),
-	        .modelview = matrix_of(call.transforms.modelview),
-	        .viewport = call.viewport.size,
-	        .size = call.state.line_width};
+	const expansion_view view{.projection = matrix_of(call.transforms.projection),
+	                          .modelview = matrix_of(call.transforms.modelview),
+	                          .viewport = call.viewport.size,
+	                          .size = call.state.line_width};
+	assert(has_diagonal_recipe(view));
+	return view;
 }
 
 namespace detail {
@@ -70,7 +87,7 @@ inline clip_coords clip_of(const expansion_view &view, const std::array<float, 3
 	}};
 	const auto eye{times(view.modelview, {{p[0], p[1], p[2], 1.f}})};
 	const auto c{times(view.projection, eye)};
-	return {c[0], c[1], c[2], c[3]};
+	return {{c[0], c[1], c[2], c[3]}};
 }
 
 /* GL's clip volume as six distances, each at least 0 inside. */
@@ -78,6 +95,79 @@ inline clip_coords clip_of(const expansion_view &view, const std::array<float, 3
 constexpr std::array<double, 6> clip_distances(const clip_coords &c)
 {
 	return {{c[3] + c[0], c[3] - c[0], c[3] + c[1], c[3] - c[1], c[3] + c[2], c[3] - c[2]}};
+}
+
+/* GL clamps a vertex colour to [0, 1] before it interpolates or clips it. */
+[[nodiscard]]
+constexpr std::array<float, 4> saturated(const std::array<float, 4> &c)
+{
+	std::array<float, 4> r{};
+	for (std::size_t i{0}; i != 4; ++i)
+		r[i] = std::clamp(c[i], 0.f, 1.f);
+	return r;
+}
+
+/* The vertex a fraction t along the segment from a to b; a at 0, b at 1,
+ * exactly.  Every vertex has the colour of the clamped ends.
+ */
+[[nodiscard]]
+inline vertex lerp_vertex(const vertex &a, const vertex &b, const double t)
+{
+	const auto ca{saturated(a.rgba)}, cb{saturated(b.rgba)};
+	if (t <= 0 || t >= 1)
+	{
+		vertex end{t <= 0 ? a : b};
+		end.rgba = t <= 0 ? ca : cb;
+		return end;
+	}
+	const auto mix{
+	    [t](const float x, const float y) { return static_cast<float>(x + (y - x) * t); }};
+	vertex r{};
+	for (std::size_t i{0}; i != 3; ++i)
+		r.pos[i] = mix(a.pos[i], b.pos[i]);
+	for (std::size_t i{0}; i != 4; ++i)
+		r.rgba[i] = mix(ca[i], cb[i]);
+	for (std::size_t i{0}; i != 2; ++i)
+		r.uv[i] = mix(a.uv[i], b.uv[i]);
+	return r;
+}
+
+/* A vertex of the expansion with its clip coordinates. */
+struct clipped
+{
+	vertex v;
+	clip_coords c;
+};
+
+/* The part of the segment a to b inside GL's clip volume, clipped in clip
+ * space before any divide (Cyrus-Beck over the six planes); none when no
+ * part is inside.
+ */
+[[nodiscard]]
+inline std::optional<std::array<clipped, 2>> clip_segment(const expansion_view &view,
+                                                          const vertex &a, const vertex &b)
+{
+	const auto ca{clip_of(view, a.pos)}, cb{clip_of(view, b.pos)};
+	const auto da{clip_distances(ca)}, db{clip_distances(cb)};
+	double t0{0}, t1{1};
+	for (std::size_t i{0}; i != da.size(); ++i)
+	{
+		if (da[i] < 0 && db[i] < 0)
+			return std::nullopt;
+		if (da[i] < 0)
+			t0 = std::max(t0, da[i] / (da[i] - db[i]));
+		else if (db[i] < 0)
+			t1 = std::min(t1, da[i] / (da[i] - db[i]));
+	}
+	if (t0 > t1)
+		return std::nullopt;
+	const auto at{[&](const double t) {
+		return clip_coords{{ca[0] + (cb[0] - ca[0]) * t, ca[1] + (cb[1] - ca[1]) * t,
+		                    ca[2] + (cb[2] - ca[2]) * t, ca[3] + (cb[3] - ca[3]) * t}};
+	}};
+	const clipped first{.v = lerp_vertex(a, b, t0), .c = t0 <= 0 ? ca : at(t0)};
+	const clipped second{.v = lerp_vertex(a, b, t1), .c = t1 >= 1 ? cb : at(t1)};
+	return std::array<clipped, 2>{{first, second}};
 }
 
 /* GL's width of a line or size of a point in whole pixels, at least 1:
@@ -91,10 +181,11 @@ inline double whole_pixels(const float size)
 
 /* The model-space step that moves a point of clip coordinate w by pixels
  * window pixels along x (axis 0) or y (axis 1), parallel to the image
- * plane: pixels * 2 / viewport in NDC, times w in clip space, and back
- * through P (at constant depth a clip step is P's diagonal times an eye
- * step) and MV (a scale and translation).  Zero for an axis a matrix
- * flattens.
+ * plane: pixels * 2 / viewport in NDC, times w in clip space, divided by
+ * the diagonal entries of P and MV.  There is no inverse: this holds for
+ * diagonal recipes only (a scale and translation, an ortho or symmetric
+ * perspective projection), which expansion_view_of asserts.  Zero for an
+ * axis a matrix flattens.
  */
 [[nodiscard]]
 inline std::array<float, 3> window_step(const expansion_view &view, const double w,
@@ -123,7 +214,34 @@ constexpr vertex offset_vertex(const vertex &v, const std::array<float, 3> &step
 inline void append_quad(std::vector<vertex> &out, const vertex &c0, const vertex &c1,
                         const vertex &c2, const vertex &c3)
 {
-	out.insert(out.end(), {c0, c1, c2, c0, c2, c3});
+	const std::array<vertex, 6> q{{c0, c1, c2, c0, c2, c3}};
+	out.insert(out.end(), q.begin(), q.end());
+}
+
+inline void append_line(std::vector<vertex> &out, const expansion_view &view, const vertex &a,
+                        const vertex &b)
+{
+	const auto seg{clip_segment(view, a, b)};
+	if (!seg)
+		return;
+	const auto &[p, q]{seg.value()};
+	if (!(p.c[3] > 0) || !(q.c[3] > 0))
+		return;
+	/* GL's wide line, non-antialiased, repeats the one-pixel line width
+	 * times along the minor axis (the spike's push_wide_line, the GL
+	 * specification's section 3.4.2, and Apple's GL, measured): a
+	 * parallelogram whose ends are the endpoints' columns (x-major) or rows.
+	 */
+	const double dx{(q.c[0] / q.c[3] - p.c[0] / p.c[3]) * view.viewport.width / 2};
+	const double dy{(q.c[1] / q.c[3] - p.c[1] / p.c[3]) * view.viewport.height / 2};
+	if (dx == 0 && dy == 0)
+		return;
+	const std::size_t minor{std::abs(dx) >= std::abs(dy) ? 1u : 0u};
+	const double width{whole_pixels(view.size)};
+	const auto sa{window_step(view, p.c[3], minor, width)};
+	const auto sb{window_step(view, q.c[3], minor, width)};
+	append_quad(out, offset_vertex(p.v, sa, -0.5f), offset_vertex(p.v, sa, 0.5f),
+	            offset_vertex(q.v, sb, 0.5f), offset_vertex(q.v, sb, -0.5f));
 }
 
 inline void append_point(std::vector<vertex> &out, const expansion_view &view, const vertex &v)
@@ -146,6 +264,34 @@ inline void append_point(std::vector<vertex> &out, const expansion_view &view, c
 	append_quad(out, at(-0.5f, -0.5f), at(0.5f, -0.5f), at(0.5f, 0.5f), at(-0.5f, 0.5f));
 }
 
+}
+
+/* GL_LINES as a triangle list: two triangles per pair of vertices, in
+ * order; a last odd vertex draws nothing.
+ */
+[[nodiscard]]
+inline std::vector<vertex> lines_to_list(const expansion_view &view,
+                                         const std::span<const vertex> v)
+{
+	std::vector<vertex> list;
+	for (std::size_t i{0}; i + 1 < v.size(); i += 2)
+		detail::append_line(list, view, v[i], v[i + 1]);
+	return list;
+}
+
+/* GL_LINE_LOOP: a line from each vertex to the next, and from the last to
+ * the first; fewer than two vertices draw nothing.
+ */
+[[nodiscard]]
+inline std::vector<vertex> line_loop_to_list(const expansion_view &view,
+                                             const std::span<const vertex> v)
+{
+	std::vector<vertex> list;
+	if (v.size() < 2)
+		return list;
+	for (std::size_t i{0}; i != v.size(); ++i)
+		detail::append_line(list, view, v[i], v[(i + 1) % v.size()]);
+	return list;
 }
 
 /* GL_POINTS: a square of the size's whole pixels, centred on each. */
