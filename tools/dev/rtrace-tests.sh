@@ -9,17 +9,18 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample, overbright, flash and walls traces to compare with their writers, its report
+#   sample, overbright, flash, walls and alpha traces to compare with their writers, its report
 #   written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
 # - rtrace on synthetic/flash.rtr (#30), once: its three pinned lines;
 # - rtrace on synthetic/walls.rtr (#28), once: its three pinned lines;
+# - rtrace on synthetic/alpha.rtr (#29), once: its six pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
-#   overbright, flash and walls traces, through no-window.sh and gpu-validate.sh rather than
+#   overbright, flash, walls and alpha traces, through no-window.sh and gpu-validate.sh rather than
 #   WRAPPER, each of which must log GL's pinned lines; the pins are Apple's
 #   GL on Metal, so another driver it names is a SKIP (lavapipe compares
 #   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
@@ -128,7 +129,7 @@ rc=0
 # The replay tests.
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
-	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls"; then
+	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -186,6 +187,15 @@ elif ! logs_lines "$tmp/walls.log" "${expected_walls[@]}"; then
 	cat "$tmp/walls.log" >&2
 	rc=1
 fi
+# rtrace on the alpha trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$alpha" "$tmp/alpha.log"; then
+	echo "rtrace-tests: rtrace on the alpha trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/alpha.log" "${expected_alpha[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the alpha trace:" >&2
+	cat "$tmp/alpha.log" >&2
+	rc=1
+fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
 # must fail; through no-window.sh alone, which keeps the status.
 head -c 20 "$sample" > "$tmp/no-frames.rtr"
@@ -230,6 +240,7 @@ else
 	check_gpu "$overbright" overbright "${expected_overbright[@]}" || rc=1
 	check_gpu "$flash" flash "${expected_flash[@]}" || rc=1
 	check_gpu "$walls" walls "${expected_walls[@]}" || rc=1
+	check_gpu "$alpha" alpha "${expected_alpha[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

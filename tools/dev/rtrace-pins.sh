@@ -18,3 +18,6 @@ flash=$root/common/render/rtrace/synthetic/flash.rtr
 # The walls trace (#28).
 expected_walls=('0 64x48 75020e289509a104' '1 64x48 01416b4d8a73c8c9' '2 64x48 58f167d16748f0ab')
 walls=$root/common/render/rtrace/synthetic/walls.rtr
+# The alpha trace (#29).
+expected_alpha=('0 64x48 184a14cee6aceb25' '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925')
+alpha=$root/common/render/rtrace/synthetic/alpha.rtr

@@ -11,7 +11,8 @@
  * triangle, then the whole target in yellow, each in its own frame; and
  * overbright.rtr, textured quads with vertex colours above 1 (#27); and
  * flash.rtr, the blend modes and the red and negative palette flashes (#30);
- * and walls.rtr, lit walls in perspective, depth-tested and culled (#28).
+ * and walls.rtr, lit walls in perspective, depth-tested and culled (#28);
+ * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -359,6 +360,116 @@ inline std::vector<std::uint8_t> walls_trace()
 		          {{{{-1, 0, 0, 1}}, {{1, 1, 1, 1}}, {{1, 1, 1, 1}}, {{1, 1, 1, 1}}}}, 0)};
 	w.draw(wall_draw(mixed));
 	w.present({.frame = 2});
+	return w.take();
+}
+
+/* A 4x4 nearest-filtered RGBA texture whose texels are never black and
+ * whose alphas are alpha_ramp (its texel i, row by row from v = 0), the
+ * alphas 0.02 * 255 = 5.1 and 0.8 * 255 = 204 fall between: no texel ties a
+ * threshold, so no driver's rounding decides one.  With transparent false
+ * every alpha is 255 and has_transparency says so, as the game's textures
+ * without transparent pixels do.
+ */
+inline constexpr std::array<std::uint8_t, 16> alpha_ramp{
+    {0, 3, 5, 6, 10, 60, 128, 200, 203, 205, 210, 230, 255, 1, 4, 100}};
+
+struct alpha_texture
+{
+	std::array<std::uint8_t, 64> rgba;
+	texture_image image;
+	explicit alpha_texture(const bool transparent)
+	    : rgba{[transparent] {
+		      std::array<std::uint8_t, 64> p{};
+		      for (std::size_t i{0}; i != 16; ++i)
+		      {
+			      p[i * 4] = static_cast<std::uint8_t>(80 + i * 11);
+			      p[i * 4 + 1] = static_cast<std::uint8_t>(250 - i * 13);
+			      p[i * 4 + 2] = static_cast<std::uint8_t>(60 + i % 4 * 50);
+			      p[i * 4 + 3] = transparent ? alpha_ramp[i] : std::uint8_t{255};
+		      }
+		      return p;
+	      }()},
+	      image{{.size = {4, 4},
+		         .format = texture_format::rgba8,
+		         .filter = filter::nearest,
+		         .anisotropic = false,
+		         .has_transparency = transparent},
+		        rgba}
+	{}
+	alpha_texture(const alpha_texture &) = delete;
+	alpha_texture &operator=(const alpha_texture &) = delete;
+	alpha_texture(alpha_texture &&) = delete;
+	alpha_texture &operator=(alpha_texture &&) = delete;
+	~alpha_texture() = default;
+};
+
+/* A draw of the alpha texture in slot over the whole target, blending off
+ * (a discarded texel shows the clear colour), with the alpha reference ref.
+ */
+[[nodiscard]]
+inline draw_call alpha_draw(const std::span<const vertex> v, const texture_slot slot,
+                            const float ref)
+{
+	draw_call c{sample_draw(topology::fan, v)};
+	c.texture = slot;
+	c.state.blend = blend::none;
+	c.state.alpha_ref = ref;
+	return c;
+}
+
+/* The alpha trace's bytes (#29): the alpha test, GL_GEQUAL (a fragment
+ * passes when its alpha is at least the reference), at the front end's two
+ * thresholds.  Frames 0 and 1, the 4x4 alpha texture over the target at
+ * 0.02 (5 of 16 texels discarded) and 0.8 (12 of 16); frame 2, the same at
+ * alpha_test_off, which discards none; frame 3, left half, a texture without
+ * transparent pixels at 0.8, which discards none, right half, an untextured
+ * quad of vertex alpha 0.5 at 0.8, which GL discards whole; frame 4, in the
+ * 3D view over a far grey wall, a nearer wall of the alpha texture at 0.8:
+ * its discarded texels write no depth and show the far wall; frame 5, the
+ * reference 1 against the one texel of alpha exactly 1, which passes: a
+ * fragment whose alpha equals the reference is kept.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> alpha_trace()
+{
+	trace::writer w{sample_target};
+	const alpha_texture clear{true}, solid{false};
+	w.texture({1}, &clear.image);
+	w.texture({2}, &solid.image);
+	const auto white{sample_quad(flat({{1, 1, 1, 1}}), 1)};
+	const std::array<float, 3> refs{{default_alpha_ref, 0.8f, alpha_test_off}};
+	for (std::size_t i{0}; i != refs.size(); ++i)
+	{
+		w.clear({.color = true, .depth = true});
+		w.draw(alpha_draw(white, {1}, refs[i]));
+		w.present({.frame = static_cast<std::uint32_t>(i)});
+	}
+	w.clear({.color = true, .depth = true});
+	draw_call left{alpha_draw(white, {2}, 0.8f)};
+	left.viewport = {.x = 0, .y = 0, .size = {.width = 32, .height = 48}};
+	w.draw(left);
+	const auto half{sample_flat_quad({{1, 1, 1, 0.5f}})};
+	draw_call right{alpha_draw(half, texture_slot::none, 0.8f)};
+	right.viewport = {.x = 32, .y = 0, .size = {.width = 32, .height = 48}};
+	w.draw(right);
+	w.present({.frame = 3});
+	w.clear({.color = true, .depth = true});
+	const auto far_wall{wall_quad({{{{-4, -4, -4}}, {{-4, 4, -4}}, {{4, 4, -4}}, {{4, -4, -4}}}},
+	                              flat({{0.5f, 0.5f, 0.5f, 1}}), 0)};
+	w.draw(wall_draw(far_wall));
+	const auto near_wall{wall_quad({{{{-1, -1, -2}}, {{-1, 1, -2}}, {{1, 1, -2}}, {{1, -1, -2}}}},
+	                               flat({{1, 1, 1, 1}}), 1)};
+	draw_call c{wall_draw(near_wall)};
+	c.texture = {1};
+	c.state.blend = blend::none;
+	c.state.alpha_ref = 0.8f;
+	w.draw(c);
+	w.present({.frame = 4});
+	/* Frame 5: a reference of 1 against the texel of alpha 255, a tie:
+	 * GL_GEQUAL passes it, and discards the other 15. */
+	w.clear({.color = true, .depth = true});
+	w.draw(alpha_draw(white, {1}, 1));
+	w.present({.frame = 5});
 	return w.take();
 }
 

@@ -32,6 +32,7 @@ make_rtrace_repo()
 		> "$r/common/render/rtrace/synthetic/overbright.rtr"
 	printf 'a stand-in for the flash trace\n' > "$r/common/render/rtrace/synthetic/flash.rtr"
 	printf 'a stand-in for the walls trace\n' > "$r/common/render/rtrace/synthetic/walls.rtr"
+	printf 'a stand-in for the alpha trace\n' > "$r/common/render/rtrace/synthetic/alpha.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$DEV_DIR/rtrace-pins.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -74,6 +75,10 @@ if [[ $1 == *walls.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_WALLS0:-0 64x48 75020e289509a104}" '1 64x48 01416b4d8a73c8c9' '2 64x48 58f167d16748f0ab' > "$2"
 	exit 0
 fi
+if [[ $1 == *alpha.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
+	exit 0
+fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
@@ -108,6 +113,10 @@ if [[ $1 == *flash.rtr ]]; then
 fi
 if [[ $1 == *walls.rtr ]]; then
 	printf '%s\n' "${FAKE_WALLS0:-0 64x48 75020e289509a104}" '1 64x48 01416b4d8a73c8c9' '2 64x48 58f167d16748f0ab' > "$2"
+	exit 0
+fi
+if [[ $1 == *alpha.rtr ]]; then
+	printf '%s\n' "${FAKE_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
 	exit 0
 fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
@@ -335,6 +344,22 @@ test_walls_lines_are_pinned()
 		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the walls trace are not GL's:"
+}
+
+# Test that rtrace or rtrace-gpu logging other lines than the alpha
+# trace's pins fails, naming the trace.
+test_alpha_lines_are_pinned()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_ALPHA0='0 64x48 5555555555555555' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the alpha trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_ALPHA0='0 64x48 5555555555555555' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the alpha trace are not GL's:"
 }
 
 run_tests --parallel

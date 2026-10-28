@@ -350,14 +350,15 @@ namespace {
 
 /* The bytes of the committed trace the i-th argument after `--` names:
  * tools/dev/rtrace-tests.sh passes the sample's, the overbright
- * trace's, the flash trace's, then the walls trace's.
+ * trace's, the flash trace's, the walls trace's, then the alpha trace's.
  */
 [[nodiscard]]
 bytes committed_trace(const std::size_t i)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE_MESSAGE(suite.argc == 5,
-	                      "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS");
+	BOOST_REQUIRE_MESSAGE(
+	    suite.argc == 6,
+	    "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS ALPHA");
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	std::ifstream in{args[i], std::ios::binary};
@@ -397,6 +398,54 @@ BOOST_AUTO_TEST_CASE(flash_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(walls_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(4) == render::rtrace::walls_trace()));
+}
+
+/* Test that the committed alpha trace is the writer's: its bytes are what
+ * alpha_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(alpha_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(5) == render::rtrace::alpha_trace()));
+}
+
+/* Test the alpha trace on GL (#29): GL_GEQUAL discards a texel whose alpha
+ * is below the reference.  The 4x4 texture's blocks are 16 x 12 pixels; at
+ * 0.02 five texels show the clear colour, at 0.8 twelve, and none at
+ * alpha_test_off; the opaque texture at 0.8 discards none while an
+ * untextured quad of vertex alpha 0.5 is discarded whole (half the target);
+ * at reference 1 only the texel of alpha 1 stays (GL_GEQUAL passes a tie);
+ * in the 3D view the discarded texels show the far wall behind, and write
+ * no depth.  The frame hashes are as pinned: test-sdlgpu's
+ * alpha_trace_frames_match_gl holds SDL_GPU on Metal to them.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_discards_below_the_reference_on_gl)
+{
+	const auto o{replay_on_gl(render::rtrace::alpha_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 6u);
+	const auto black{[&o](const std::size_t frame) {
+		const auto &rgb{o.frames[frame].rgb};
+		std::size_t n{0};
+		for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+			if (rgb[i] == 0 && rgb[i + 1] == 0 && rgb[i + 2] == 0)
+				++n;
+		return n;
+	}};
+	constexpr std::size_t block{std::size_t{16} * 12};
+	BOOST_TEST(black(0) == 5 * block);
+	BOOST_TEST(black(1) == 12 * block);
+	BOOST_TEST(black(2) == 0u);
+	BOOST_TEST(black(3) == std::size_t{32} * 48);
+	/* The far wall's grey, (0.5, 0.5, 0.5) of the saturated vertex colour. */
+	const auto &rgb{o.frames[4].rgb};
+	std::size_t grey{0};
+	for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+		if (rgb[i] >= 127 && rgb[i] <= 128 && rgb[i + 1] == rgb[i] && rgb[i + 2] == rgb[i])
+			++grey;
+	BOOST_TEST(grey > 0u);
+	BOOST_TEST(black(4) == 0u);
+	/* A reference of 1 keeps only the texel of alpha 1, equal to it. */
+	BOOST_TEST(black(5) == 15 * block);
 }
 
 /* Test the depth band trace on GL (#28): between the near plane and twice
