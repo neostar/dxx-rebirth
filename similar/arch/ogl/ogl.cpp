@@ -76,6 +76,9 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/display.h"
+#endif
 #if DXX_USE_DBG_HARNESS
 #include <vector>
 #include "common/debug/frame_hash_harness.h"
@@ -1659,6 +1662,10 @@ void ogl_loadbmtexture_f(grs_bitmap &rbm, const opengl_texture_filter texfilt, b
 	if (!rbm.bm_data) [[unlikely]]
 		/* `rbm.bm_data` will only be `nullptr` if a game data file is missing. */
 		return;
+#if SDL_MAJOR_VERSION == 3
+	/* A level load uploads its textures here. */
+	dcx::sdl::pump_during_load();
+#endif
 	grs_bitmap *bm = &rbm;
 	while (const auto bm_parent = bm->bm_parent)
 		bm = bm_parent;

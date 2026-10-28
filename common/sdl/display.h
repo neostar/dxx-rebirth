@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "common/sdl/dxx-sdl.h"
+#include "common/sdl/load_pump.h"
 #include "common/sdl/sdl_deleter.h"
 #include "common/sdl/window_state.h"
 
@@ -213,6 +214,15 @@ struct sdl_display_ops
 		return SDL_GetError();
 	}
 };
+
+/* One step of a long load: pumps SDL's events at most every 100 ms
+ * (load_pump.h).
+ */
+inline void pump_during_load()
+{
+	static load_pump step{[] { return SDL_GetTicksNS(); }, [] { SDL_PumpEvents(); }};
+	step();
+}
 
 /* The window event an SDL event is, if the game acts on it. */
 [[nodiscard]]

@@ -62,6 +62,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_zip.h"
 #include "partial_range.h"
 #include <memory>
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/display.h"
+#endif
 
 #if DXX_BUILD_DESCENT == 1
 #include "custom.h"
@@ -1285,6 +1288,10 @@ void piggy_bitmap_page_in(GameBitmaps_array &GameBitmaps, const bitmap_index ent
 			/* `Piggy_fp` will only be `nullptr` if a game data file is missing. */
 			return;
 		pause_game_world_time p;
+#if SDL_MAJOR_VERSION == 3
+		/* A level load pages in its bitmaps here. */
+		dcx::sdl::pump_during_load();
+#endif
 
 	ReDoIt:
 		PHYSFS_seek(Piggy_fp, static_cast<unsigned>(GameBitmapOffset[xlat_bitmap_index]));
