@@ -88,6 +88,10 @@ if [[ $1 == *oversize.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_OVERSIZE0:-0 64x48 d7b92cb41fbcf729}" '1 64x48 dbd8d0810c396d39' > "$2"
 	exit 0
 fi
+if [[ $1 == *filters.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_FILTERS0:-0 64x48 0d33b500a6d9edb0}" '1 64x48 3c3b6542f0892545' '2 64x48 94b7bb5bbc66bd40' '3 64x48 6296affa12046ccd' '4 64x48 5a2c8b8fdd1d6b6c' '5 64x48 5ec9c859bccd8b27' > "$2"
+	exit 0
+fi
 if [[ $1 == *fonts.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_FONTS0:-0 64x48 49e2bd63b6ae0b25}" '1 64x48 e3483f86e1fe7b25' '2 64x48 49e2bd63b6ae0b25' '3 64x48 e3483f86e1fe7b25' '4 64x48 e3483f86e1fe7b25' '5 64x48 e3483f86e1fe7b25' '6 64x48 e3483f86e1fe7b25' '7 64x48 51a3b262cedf3725' '8 64x48 d4e0fa5984a7c7e5' '9 64x48 9514bc61e4b568fd' '10 64x48 9514bc61e4b568fd' > "$2"
 	exit 0
@@ -449,8 +453,8 @@ test_fonts_lines_are_pinned()
 	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the fonts trace are not GL's:"
 }
 
-# Test that rtrace logging other lines than the filters trace's GL pins
-# fails, naming the trace.
+# Test that rtrace logging other lines than the filters trace's GL pins,
+# or rtrace-gpu other lines than its Metal pins, fails, naming the trace.
 test_filters_lines_are_pinned()
 {
 	local r out rc
@@ -459,6 +463,13 @@ test_filters_lines_are_pinned()
 		rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the filters trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_FILTERS0='0 64x48 abb6708701beb951' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" \
+		"rtrace-tests: rtrace-gpu's frame hashes of the filters trace are not the pinned Metal ones:"
+	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
 }
 
 run_tests --parallel

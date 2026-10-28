@@ -163,9 +163,9 @@ class device final : public render::device
 	 * recorded draw that samples the slot's earlier image.  The image's
 	 * pixels upload as RGBA8, as GL samples them: an RGB image with alpha
 	 * 255, a luminance image as a grey of its red, an intensity image as
-	 * its red in all four channels; no format is quantized (ADR 2), and
-	 * trilinear textures have no mipmaps yet.  Throws std::invalid_argument on
-	 * texture_slot::none.
+	 * its red in all four channels; no format is quantized (ADR 2).  A
+	 * trilinear or anisotropic texture also gets GL's mipmaps
+	 * (mipmaps.h).  Throws std::invalid_argument on texture_slot::none.
 	 */
 	void texture(texture_slot slot, const texture_image *image) override;
 

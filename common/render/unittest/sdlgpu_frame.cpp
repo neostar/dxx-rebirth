@@ -69,6 +69,7 @@ struct counting_commands final : sdlgpu::commands
 	struct seen_rows
 	{
 		render::texture_slot slot;
+		std::uint32_t level;
 		render::extent size;
 		std::size_t offset;
 		std::vector<std::uint8_t> rgba;
@@ -108,6 +109,7 @@ struct counting_commands final : sdlgpu::commands
 		texture_rows.clear();
 		for (const auto &t : u.textures)
 			texture_rows.push_back({.slot = t.slot,
+			                        .level = t.level,
 			                        .size = t.size,
 			                        .offset = t.offset,
 			                        .rgba = {t.rgba.begin(), t.rgba.end()}});
@@ -690,6 +692,47 @@ BOOST_AUTO_TEST_CASE(font_formats_upload_the_texel_gl_samples)
 			BOOST_TEST(c.texture_rows[i].rgba.size() == 16u);
 			for (std::size_t p{0}; p != 16; ++p)
 				BOOST_TEST(c.texture_rows[i].rgba[p] == expected[i][p % 4]);
+		}
+}
+
+/* Test that a trilinear texture uploads GL's mip chain (#34), each level
+ * at its own multiple of 512 bytes: a 4x2 texture's red of 0 to 70 halves
+ * to 2x1 texels of 25 and 45 ((0 + 10 + 40 + 50 + 2) / 4 and
+ * (20 + 30 + 60 + 70 + 2) / 4), then to 1x1 of 35 ((25 + 45) / 2); an
+ * anisotropic nearest texture gets its chain too, a plain nearest one its
+ * base alone.
+ */
+BOOST_AUTO_TEST_CASE(trilinear_texture_uploads_its_mip_chain)
+{
+	sdlgpu::frame f{target};
+	std::array<std::uint8_t, 32> pixels{};
+	for (std::size_t t{0}; t != 8; ++t)
+	{
+		pixels[t * 4] = static_cast<std::uint8_t>(t * 10);
+		pixels[t * 4 + 3] = 255;
+	}
+	const auto trilinear{image_of({4, 2}, pixels, render::filter::trilinear)};
+	const auto anisotropic{image_of({4, 2}, pixels, render::filter::nearest, true)};
+	const auto nearest{image_of({4, 2}, pixels)};
+	f.texture({1}, &trilinear);
+	f.texture({2}, &anisotropic);
+	f.texture({3}, &nearest);
+	counting_commands c;
+	(void)f.encode(c, none);
+	BOOST_REQUIRE(c.texture_rows.size() == 7u);
+	const std::array<render::extent, 3> sizes{{{4, 2}, {2, 1}, {1, 1}}};
+	const std::array<std::vector<std::uint8_t>, 3> levels{
+	    {{pixels.begin(), pixels.end()}, {25, 0, 0, 255, 45, 0, 0, 255}, {35, 0, 0, 255}}};
+	for (std::uint32_t i{0}; i != 7; ++i)
+		BOOST_TEST_CONTEXT("rows " << i)
+		{
+			const auto &r{c.texture_rows[i]};
+			const std::uint32_t level{i < 6 ? i % 3 : 0};
+			BOOST_TEST((r.slot == render::texture_slot{i / 3 + 1}));
+			BOOST_TEST(r.level == level);
+			BOOST_TEST((r.size == sizes.at(level)));
+			BOOST_TEST(r.offset == std::size_t{512} * i);
+			BOOST_TEST(r.rgba == levels.at(level), boost::test_tools::per_element());
 		}
 }
 

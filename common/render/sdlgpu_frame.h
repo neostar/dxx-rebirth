@@ -267,13 +267,14 @@ struct pass_ops
 	constexpr bool operator==(const pass_ops &) const = default;
 };
 
-/* One texture's rows in the frame's transfer buffer: size.width *
- * size.height RGBA pixels, tightly packed (SDL #16474: Metal ignores a row
- * length), at offset.
+/* One mip level's rows of a texture in the frame's transfer buffer:
+ * size.width * size.height RGBA pixels, tightly packed (SDL #16474: Metal
+ * ignores a row length), at offset.
  */
 struct texture_rows
 {
 	texture_slot slot;
+	std::uint32_t level;
 	extent size;
 	std::size_t offset;
 	std::span<const std::uint8_t> rgba;
@@ -376,11 +377,14 @@ class frame
 		std::uint32_t first;
 		std::uint32_t count;
 	};
+	/* A slot's image and the mip levels after it, each level's RGBA rows
+	 * in order (mipmaps.h).
+	 */
 	struct pending_upload
 	{
 		texture_slot slot;
 		extent size;
-		std::vector<std::uint8_t> rgba;
+		std::vector<std::vector<std::uint8_t>> levels;
 	};
 	extent target_;
 	std::vector<vertex> vertices_;

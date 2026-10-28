@@ -222,7 +222,8 @@ std::size_t block_other_than(const std::span<const std::uint8_t> rgb, const std:
  */
 [[nodiscard]]
 std::vector<render::replayed_frame> replayed_frames(const std::vector<std::uint8_t> &trace,
-                                                    const bool depth_clip = false)
+                                                    const bool depth_clip = false,
+                                                    const float anisotropy = 16)
 {
 	render::trace::reader r{trace};
 	const auto h{r.header()};
@@ -231,6 +232,7 @@ std::vector<render::replayed_frame> replayed_frames(const std::vector<std::uint8
 	                               .debug_mode = true,
 	                               .driver = {},
 	                               .clear_rgba = {},
+	                               .anisotropy = anisotropy,
 	                               .depth_clip = depth_clip})};
 	std::vector<render::replayed_frame> frames;
 	const auto done{
@@ -708,6 +710,50 @@ BOOST_AUTO_TEST_CASE(fonts_trace_frames_match_gl)
 	    0xd4e0fa5984a7c7e5u, 0x9514bc61e4b568fdu, 0x9514bc61e4b568fdu};
 	BOOST_TEST(replayed_hashes(dcx::render::rtrace::fonts_trace()) == gl,
 	           boost::test_tools::per_element());
+}
+
+/* Test R3 on the filters trace (#34): minified textures under the classic,
+ * upscale and trilinear filters, each without and with anisotropy, hash as
+ * SDL_GPU on Metal draws them with GL's mipmaps (mipmaps.h).  These are not
+ * GL's hashes: the filtered frames differ from GL's by at most one level
+ * in a channel, on 2 to 38 of 3072 pixels, and the classic frame by 5
+ * pixels where a minified nearest texel ties; ADR 2 records the FLIP of
+ * each against GL, the bound other drivers are held to (#37).
+ */
+BOOST_AUTO_TEST_CASE(filters_trace_frames_are_metals_pinned_ones)
+{
+	const std::vector<std::uint64_t> metal{0x0d33b500a6d9edb0u, 0x3c3b6542f0892545u,
+	                                       0x94b7bb5bbc66bd40u, 0x6296affa12046ccdu,
+	                                       0x5a2c8b8fdd1d6b6cu, 0x5ec9c859bccd8b27u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::filters_trace()) == metal,
+	           boost::test_tools::per_element());
+}
+
+/* Test that a slot given a trilinear image after a nearest one of the
+ * same size gets the mip levels the new image needs: the filters texture
+ * drawn into 2x2 pixels, where its fourth level shows, reads back as the
+ * same image drawn from a fresh slot.
+ */
+BOOST_AUTO_TEST_CASE(slot_taking_mipmaps_gets_its_levels)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const dcx::render::rtrace::filters_texture plain{render::filter::nearest, false, 1};
+	const dcx::render::rtrace::filters_texture mipmapped{render::filter::trilinear, false, 1};
+	d->texture({1}, &plain.image);
+	d->present();
+	d->texture({1}, &mipmapped.image);
+	d->texture({2}, &mipmapped.image);
+	std::array<std::vector<std::uint8_t>, 2> rgb;
+	for (std::uint32_t slot{1}; slot != 3; ++slot)
+	{
+		d->clear({.color = true, .depth = true});
+		textured_quad q{{slot}};
+		q.call.viewport = {.x = 0, .y = 0, .size = {.width = 2, .height = 2}};
+		d->draw(q.call);
+		rgb.at(slot - 1) = drawing(*d);
+	}
+	BOOST_TEST((rgb[0] == rgb[1]));
+	BOOST_TEST(pixels_other_than(rgb[1], clear_rgb) == 4u);
 }
 
 namespace {

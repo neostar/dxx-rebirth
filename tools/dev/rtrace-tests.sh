@@ -29,7 +29,7 @@
 #   target, which SDL's debug mode asserts on unclamped), through no-window.sh and gpu-validate.sh
 #   rather than WRAPPER, each of which must log GL's pinned lines (the lines trace SDL_GPU's own
 #   on Metal, which differ from GL's by pixels at line ends, within the tolerance test-sdlgpu
-#   holds, #32); the pins are Apple's
+#   holds, #32; the filters trace too, within ADR 2's FLIP per filter, #34); the pins are Apple's
 #   GL on Metal, so another driver it names is a SKIP (lavapipe compares
 #   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
 #   driver fails.
@@ -293,6 +293,7 @@ else
 	check_gpu "$fonts" fonts "${expected_fonts[@]}" || rc=1
 	pinned_as="the pinned Metal ones"
 	check_gpu "$lines_rtr" lines "${expected_lines_metal[@]}" || rc=1
+	check_gpu "$filters" filters "${expected_filters_metal[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

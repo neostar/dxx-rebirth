@@ -18,6 +18,7 @@
 
 #include "common/render/device.h"
 #include "common/render/line_quads.h"
+#include "common/render/mipmaps.h"
 #include "common/render/render_device.h"
 #include "common/render/transform_matrix.h"
 
@@ -178,11 +179,11 @@ void frame::texture(const texture_slot slot, const texture_image *const image)
 		return;
 	}
 	/* Everything that may throw comes first, so that a failure leaves the
-	 * frame as it was: the copy, the room for it, the description.
+	 * frame as it was: the copy and its mip levels, the room for it, the
+	 * description.
 	 */
 	const texture_desc &d{image->desc()};
-	pending_upload u{
-	    .slot = slot, .size = d.size, .rgba = {image->rgba().begin(), image->rgba().end()}};
+	std::vector<std::uint8_t> base{image->rgba().begin(), image->rgba().end()};
 	/* The texel GL samples. GL_RGB8 keeps no alpha: 1. GL_LUMINANCE4_ALPHA4
 	 * keeps one grey, the red, and the alpha; GL_INTENSITY4 keeps the red
 	 * alone, and samples it as all four channels. Apple's GL keeps these
@@ -191,23 +192,33 @@ void frame::texture(const texture_slot slot, const texture_image *const image)
 	 */
 	const texture_format format{d.format};
 	if (format != texture_format::rgba8 && format != texture_format::rgba2)
-		for (std::size_t i{0}; i + 3 < u.rgba.size(); i += 4)
+		for (std::size_t i{0}; i + 3 < base.size(); i += 4)
 			switch (format)
 			{
 			case texture_format::rgb8:
-				u.rgba[i + 3] = 255;
+				base[i + 3] = 255;
 				break;
 			case texture_format::intensity4:
-				u.rgba[i + 3] = u.rgba[i];
+				base[i + 3] = base[i];
 				[[fallthrough]];
 			case texture_format::luminance4_alpha4:
-				u.rgba[i + 1] = u.rgba[i];
-				u.rgba[i + 2] = u.rgba[i];
+				base[i + 1] = base[i];
+				base[i + 2] = base[i];
 				break;
 			case texture_format::rgba8:
 			case texture_format::rgba2:
 				break;
 			}
+	/* GL's mipmaps (gluBuild2DMipmaps), from the texels it samples: each
+	 * channel GL keeps is a copy of one of the image's, so halving after
+	 * the copy gives what GL's levels sample.
+	 */
+	pending_upload u{.slot = slot, .size = d.size, .levels = {}};
+	const std::uint32_t levels{mip_levels_of(d)};
+	u.levels.reserve(levels);
+	u.levels.push_back(std::move(base));
+	for (extent s{d.size}; u.levels.size() < levels; s = next_mip_extent(s))
+		u.levels.push_back(next_mip_level(s, u.levels.back()));
 	uploads_.reserve(uploads_.size() + 1);
 	textures_.insert_or_assign(slot.index, d);
 	std::erase_if(uploads_, pending);
@@ -231,12 +242,19 @@ bool frame::encode(commands &c, const clear_targets undefined)
 		                .vertices = vertices_,
 		                .vertex_offset = plan.reserve(vertices_.size() * sizeof(vertex)),
 		                .textures = {}};
-		u.textures.reserve(uploads_.size());
 		for (const auto &t : uploads_)
-			u.textures.push_back({.slot = t.slot,
-			                      .size = t.size,
-			                      .offset = plan.reserve(t.rgba.size()),
-			                      .rgba = t.rgba});
+		{
+			extent size{t.size};
+			for (std::uint32_t level{0}; const auto &rows : t.levels)
+			{
+				u.textures.push_back({.slot = t.slot,
+				                      .level = level++,
+				                      .size = size,
+				                      .offset = plan.reserve(rows.size()),
+				                      .rgba = rows});
+				size = next_mip_extent(size);
+			}
+		}
 		u.size = plan.size();
 		c.upload(u);
 	}

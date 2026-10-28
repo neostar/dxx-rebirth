@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/render/device.h"
+#include "common/render/mipmaps.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/sdlgpu_clears.h"
@@ -264,14 +265,15 @@ gpu_device create_gpu_device(const config &c)
  */
 constexpr target_clears no_clears{target_clears_of({})};
 
-/* A texture of usage; a colour or depth target gets the D3D12 clear value
- * of clears (sdlgpu_clears.h), the one its passes clear to.
+/* A texture of usage and levels mip levels; a colour or depth target gets
+ * the D3D12 clear value of clears (sdlgpu_clears.h), the one its passes
+ * clear to.
  */
 [[nodiscard]]
 texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
                              const SDL_GPUTextureFormat format,
                              const SDL_GPUTextureUsageFlags usage, const render::extent size,
-                             const target_clears &clears)
+                             const target_clears &clears, const std::uint32_t levels = 1)
 {
 	const property_set props;
 	if (!set_creation_clears(props.id, usage, clears))
@@ -284,7 +286,7 @@ texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
 	info.width = size.width;
 	info.height = size.height;
 	info.layer_count_or_depth = 1;
-	info.num_levels = 1;
+	info.num_levels = levels;
 	info.sample_count = SDL_GPU_SAMPLECOUNT_1;
 	return {d, SDL_CreateGPUTexture(d, &info), &l, "SDL_CreateGPUTexture"};
 }
@@ -529,11 +531,12 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 	return std::chrono::steady_clock::now() - start;
 }
 
-/* A texture slot's SDL texture and its size. */
+/* A texture slot's SDL texture, its size and its mip levels. */
 struct slot_texture
 {
 	texture_handle handle;
 	render::extent size{};
+	std::uint32_t levels{0};
 };
 
 /* The GPU command seam's SDL_GPU adapter (sdlgpu_frame.h): one frame's
@@ -648,10 +651,15 @@ class sdl_commands final : public commands
 			from.offset = static_cast<std::uint32_t>(t.offset);
 			SDL_GPUTextureRegion to{};
 			to.texture = r_.textures.at(t.slot.index).handle.get();
+			to.mip_level = t.level;
 			to.w = t.size.width;
 			to.h = t.size.height;
 			to.d = 1;
-			SDL_UploadToGPUTexture(copy, &from, &to, true);
+			/* Cycling replaces the whole texture (SDL_gpu.h): cycle at the
+			 * base level only, which comes first, so its other levels land
+			 * in the texture the base went to.
+			 */
+			SDL_UploadToGPUTexture(copy, &from, &to, t.level == 0);
 		}
 		SDL_EndGPUCopyPass(copy);
 	}
@@ -864,6 +872,7 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 		return;
 	}
 	const extent size{image->desc().size};
+	const std::uint32_t levels{mip_levels_of(image->desc())};
 	/* The record and the handles change together or not at all: the new
 	 * handle and the map's node are made first, the record changes, and
 	 * only then does the handle take the node.
@@ -872,9 +881,9 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 	std::optional<texture_handle> fresh;
 	try
 	{
-		if (inserted || t->second.size != size)
+		if (inserted || t->second.size != size || t->second.levels != levels)
 			fresh = create_target(s.gpu.get(), *s.ledger, color_format,
-			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size, no_clears);
+			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size, no_clears, levels);
 		s.record.texture(slot, image);
 	}
 	catch (...)
@@ -884,7 +893,7 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 		throw;
 	}
 	if (fresh)
-		t->second = {.handle = std::move(fresh.value()), .size = size};
+		t->second = {.handle = std::move(fresh.value()), .size = size, .levels = levels};
 }
 
 void device::clear(const clear_targets targets)

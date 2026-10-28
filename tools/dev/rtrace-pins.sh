@@ -38,4 +38,7 @@ fonts=$root/common/render/rtrace/synthetic/fonts.rtr
 # The filters trace (#34): minified textures under the classic, upscale and trilinear
 # filters, each without and with anisotropy.
 expected_filters=('0 64x48 abb6708701beb951' '1 64x48 bf8cff063215a44d' '2 64x48 dd52b4e17b9124c9' '3 64x48 fb84893daf27c17a' '4 64x48 acf0c45d32ada5a5' '5 64x48 5c57a490f2fa9148')
+# SDL_GPU's on Metal, with GL's mipmaps: within one level of GL's in every
+# filtered frame, and 5 pixels off in the classic one (ADR 2's FLIP per filter).
+expected_filters_metal=('0 64x48 0d33b500a6d9edb0' '1 64x48 3c3b6542f0892545' '2 64x48 94b7bb5bbc66bd40' '3 64x48 6296affa12046ccd' '4 64x48 5a2c8b8fdd1d6b6c' '5 64x48 5ec9c859bccd8b27')
 filters=$root/common/render/rtrace/synthetic/filters.rtr
