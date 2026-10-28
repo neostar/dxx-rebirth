@@ -368,10 +368,10 @@ BOOST_AUTO_TEST_CASE(diagonal_spokes_take_gls_major_axis)
 {
 	namespace rt = dcx::render::rtrace;
 	const auto spokes{rt::sample_spokes(32.37f, 24.81f)};
-	for (const auto [spoke, x_major] : {std::pair{std::size_t{3}, false},
-	                                    {std::size_t{9}, true},
-	                                    {std::size_t{15}, true},
-	                                    {std::size_t{21}, true}})
+	for (const auto &[spoke, x_major] : {std::pair{std::size_t{3}, false},
+	                                     {std::size_t{9}, true},
+	                                     {std::size_t{15}, true},
+	                                     {std::size_t{21}, true}})
 	{
 		const std::array<render::vertex, 2> v{{spokes[2 * spoke], spokes[2 * spoke + 1]}};
 		const auto view{render::expansion_view_of(rt::line_draw(render::topology::lines, v, 1))};
