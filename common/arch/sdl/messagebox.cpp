@@ -28,7 +28,14 @@ static void display_sdl_alert(const char *message, int error)
 	if (fullscreen)
 		gr_toggle_fullscreen();
 
+#if SDL_MAJOR_VERSION == 3
+	/* With the game's window as its parent, the alert stays above it even
+	 * while the window is still leaving fullscreen (X11).
+	 */
+	SDL_ShowSimpleMessageBox(error?SDL_MESSAGEBOX_ERROR:SDL_MESSAGEBOX_WARNING, error?"Sorry, a critical error has occurred.":"Attention!", message, g_pRebirthSDLMainWindow);
+#else
 	SDL_ShowSimpleMessageBox(error?SDL_MESSAGEBOX_ERROR:SDL_MESSAGEBOX_WARNING, error?"Sorry, a critical error has occurred.":"Attention!", message, NULL);
+#endif
 
 	if ((wind = window_get_front()))
 		wind->send_event(d_event{event_type::window_activated});
