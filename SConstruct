@@ -5290,6 +5290,10 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-display', (
 			'common/sdl/unittest/display.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-key-sdl3', (
+			'common/sdl/unittest/key_events.cpp',
+			'common/arch/sdl/key.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-sdl-init', (
 			'common/sdl/unittest/sdl_init.cpp',
 			) + (('common/sdl/macos_defaults.mm',) if sys.platform == 'darwin' else ()), use_default_libs=True),

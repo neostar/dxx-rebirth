@@ -7,3 +7,4 @@ common/render/rtrace/gpu_main.cpp
 common/sdl/unittest/sdl_init.cpp
 common/sdl/unittest/frame_pacer_sdl.cpp
 common/sdl/unittest/display.cpp
+common/sdl/unittest/key_events.cpp
