@@ -65,7 +65,7 @@ on screen. Then create the window with `SDL_WINDOW_OPENGL` for GL, no graphics f
 and claim it. For GL: create the context, then set the swap interval. Today
 `gr_set_attributes` calls `SDL_GL_SetSwapInterval` before `SDL_GL_CreateContext` (#41 calls
 it an existing bug; SDL3 rejects the call [S7:5594]); the graphics menu calls it again with a
-context (`similar/main/menu.cpp`). Window flags: `HIGH_PIXEL_DENSITY` on every platform
+context (`similar/main/menu.cpp`). Window flags: `HIGH_PIXEL_DENSITY` off until #48, then on
 (section 4), `HIDDEN` for hidden runs (section 7), fullscreen from the config. The size passed
 to `SDL_CreateWindow` is in window coordinates (section 4).
 
@@ -131,8 +131,12 @@ without it the compositor scales a blurry buffer [S23]. `SDL_GL_GetDrawableSize`
 **Left to us.** Whether to opt in; which size the config means; mouse coordinates; what to
 redo when the pixel size or display changes.
 
-**Recommendation.** `SDL_WINDOW_HIGH_PIXEL_DENSITY` on every platform (the SDL2 build sets
-`ALLOW_HIGHDPI` only under `__APPLE__`). The canvas and viewport are always
+**Recommendation.** `SDL_WINDOW_HIGH_PIXEL_DENSITY` off until #48, then on every platform (the
+SDL2 build sets `ALLOW_HIGHDPI` only under `__APPLE__`). Off first, because with density 2
+`SDL_SetWindowSize` takes window coordinates while the `PIXEL_SIZE_CHANGED` handler feeds pixel
+sizes into `gr_set_mode`, so each event would double the window (#41's review); #48 turns it on
+once sizes are converted (pixel size ÷ `SDL_GetWindowPixelDensity`) and #43 converts mouse
+positions. The canvas and viewport are always
 `SDL_GetWindowSizeInPixels`; one handler for `PIXEL_SIZE_CHANGED` calls
 `gr_set_mode_from_window_size` (it replaces `SIZE_CHANGED`, which also covers a move to a
 display with another density). Mouse positions arrive in window coordinates; multiply by
@@ -262,7 +266,7 @@ them. The full set at 3.4.18 that could matter:
 | Property or hint (R/sdl3 file:line) | Scope | Default | The game sets | Owner |
 |---|---|---|---|---|
 | `SDL_PROP_WINDOW_CREATE_WAYLAND_CREATE_EGL_WINDOW_BOOLEAN` (`SDL_video.h:1348`), `..._WIN32_PIXEL_FORMAT_HWND_POINTER` (`:1360`) | Wayland, Windows | unset | default: both exist for windows without `SDL_WINDOW_OPENGL` or for sharing a GL pixel format between windows; neither applies | #41 |
-| `SDL_WINDOW_HIGH_PIXEL_DENSITY` / `SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN` (`SDL_video.h:1420`; `README-highdpi.md:7,16-21`; cocoa `SDL_cocoawindow.m:1247,2534`; wayland `SDL_waylandwindow.c:58,2989`) | macOS, Wayland only; no code path in the windows or x11 drivers | off: macOS renders at window size, Wayland at scale 1.0 [`SDL_waylandwindow.c:58`] | on, every platform (section 4); on Windows and X11 it changes nothing, so the Windows and Linux runs cannot show a missing flag | #48 |
+| `SDL_WINDOW_HIGH_PIXEL_DENSITY` / `SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN` (`SDL_video.h:1420`; `README-highdpi.md:7,16-21`; cocoa `SDL_cocoawindow.m:1247,2534`; wayland `SDL_waylandwindow.c:58,2989`) | macOS, Wayland only; no code path in the windows or x11 drivers | off: macOS renders at window size, Wayland at scale 1.0 [`SDL_waylandwindow.c:58`] | off until #48 converts window sizes and #43 mouse positions (section 4), then on every platform; on Windows and X11 it changes nothing, so the Windows and Linux runs cannot show a missing flag | #48 |
 | `SDL_HINT_VIDEO_X11_SCALING_FACTOR` (`SDL_hints.h:4192`; chain in `src/video/x11/SDL_x11modes.c:51-139`) | X11 | unset; content scale comes from `Xft.dpi` in the X resource database (`:64-101`), then XSETTINGS `Gdk/WindowScalingFactor` and `Xft/DPI` (`:113-121`), then `GDK_SCALE` (`:126-130`), else 1.0 (`:135`) | default; the initial window size multiplies by `SDL_GetDisplayContentScale` (section 4), so a headless or bare X server (scale 1.0) yields an unscaled window. Tests that need a scale set the hint | #48 |
 | `SDL_WINDOWS_DPI_AWARENESS` (no `SDL_HINT_` macro; `src/video/windows/SDL_windowsvideo.c:580-592`) | Windows | unset means Per-Monitor V2 (`:582`) | default; the hint is undocumented in `SDL_hints.h`. `unaware`, `system` or `permonitor` would make Windows bitmap-scale or skip `WM_DPICHANGED`, which section 4's conversions assume | #48 |
 | `SDL_HINT_MOUSE_DPI_SCALE_CURSORS` (`SDL_hints.h:2828`) | Windows ("currently implemented on Windows", `:2822`) | `"0"`, cursors keep their size at 200% | `"1"` only if the game shows an SDL system cursor rather than its own; set before cursors are created | #43 |
