@@ -45,10 +45,18 @@ struct hint
  * Alt+F4 close so that Alt+Shift+F4 can rename the Guide-Bot, which is
  * SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4 "0" here.  The keyboard grab hint is
  * gone: SDL_SetWindowKeyboardGrab does it (#42, #43).
+ *
+ * macOS shows the accents menu when a letter is held, unless
+ * SDL_HINT_MAC_PRESS_AND_HOLD is "0": the game wants the held letter to
+ * repeat in a name field (docs/agents/sdl-input.md, "Platform-only hints and
+ * their defaults").  The hint does nothing on the other platforms, so it is set
+ * everywhere.  Every other input hint stays at SDL's default; the test pins
+ * the list.
  */
 inline constexpr std::array pre_init_hints{
     hint{SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"},
     hint{SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "0"},
+    hint{SDL_HINT_MAC_PRESS_AND_HOLD, "0"},
 };
 
 struct sdl_ops

@@ -7,8 +7,12 @@
 
 #include "common/sdl/sdl_init.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/sdl/version_text.h"
@@ -70,6 +74,7 @@ BOOST_AUTO_TEST_CASE(init_order_is_metadata_hints_defaults_init)
 	    "metadata Test",
 	    "hint SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0",
 	    "hint SDL_WINDOWS_CLOSE_ON_ALT_F4=0",
+	    "hint SDL_MAC_PRESS_AND_HOLD=0",
 	    "defaults",
 	    "init",
 	};
@@ -97,10 +102,11 @@ BOOST_AUTO_TEST_CASE(refusals_are_reported_and_do_not_stop_the_start_up)
 	BOOST_TEST(report.initialised);
 	BOOST_REQUIRE(report.metadata_error.has_value());
 	BOOST_TEST(report.metadata_error.value() == "metadata error text");
-	BOOST_TEST(log.size() == 5u);
-	BOOST_REQUIRE(report.refused_hints.size() == 2u);
+	BOOST_TEST(log.size() == 6u);
+	BOOST_REQUIRE(report.refused_hints.size() == 3u);
 	BOOST_TEST(std::string{report.refused_hints[0]} == "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS");
 	BOOST_TEST(std::string{report.refused_hints[1]} == "SDL_WINDOWS_CLOSE_ON_ALT_F4");
+	BOOST_TEST(std::string{report.refused_hints[2]} == "SDL_MAC_PRESS_AND_HOLD");
 	log.clear();
 	const auto clean{dcx::sdl::init_video(test_metadata, recording_ops{&log})};
 	BOOST_TEST(!clean.metadata_error.has_value());
@@ -122,6 +128,7 @@ BOOST_AUTO_TEST_CASE(real_sdl_initialises_with_hints_and_metadata)
 	}};
 	BOOST_TEST(text(SDL_GetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS)) == "0");
 	BOOST_TEST(text(SDL_GetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4)) == "0");
+	BOOST_TEST(text(SDL_GetHint(SDL_HINT_MAC_PRESS_AND_HOLD)) == "0");
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_NAME_STRING)) == "Test");
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_VERSION_STRING)) == "1.2.3");
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_IDENTIFIER_STRING)) ==
@@ -146,4 +153,98 @@ BOOST_AUTO_TEST_CASE(versions_text_names_the_built_and_the_loaded_version)
 	BOOST_TEST(
 	    dcx::sdl::versions_text("libSDL", SDL_VERSIONNUM(3, 4, 2), SDL_VERSIONNUM(3, 2, 20)) ==
 	    "libSDL 3.4.2; loaded with libSDL 3.2.20");
+}
+
+/* Test that start-up sets no hint beyond the window hints of #40 and the input hints
+ * docs/agents/sdl-input.md lists ("Platform-only hints and their defaults"): every other input hint
+ * stays at SDL's default, which is where a platform-only default would otherwise go wrong unseen.
+ * SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4 "0" keeps the game's own Alt+F4 and Alt+Shift+F4 bindings off
+ * the window close.
+ */
+BOOST_AUTO_TEST_CASE(start_up_sets_only_the_listed_hints)
+{
+	const std::vector<std::string> allowed{
+	    "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS",
+	    "SDL_WINDOWS_CLOSE_ON_ALT_F4",
+	    "SDL_MAC_PRESS_AND_HOLD",
+	    "SDL_JOYSTICK_ENHANCED_REPORTS",
+	};
+	for (const auto &h : dcx::sdl::pre_init_hints)
+	{
+		const bool listed{std::ranges::contains(allowed, std::string{h.name})};
+		BOOST_TEST(listed, "unlisted hint " << h.name);
+	}
+}
+
+namespace {
+
+/* The lines of C++ source that call SDL_SetHint where SDL3 reaches them: outside every #if arm
+ * that only SDL1 or SDL2 take.  A #else counts as reachable.
+ */
+std::vector<std::string> sdl3_hint_calls(const std::string &source)
+{
+	const auto only_old_sdl{[](const std::string_view t) {
+		return t.contains("SDL_MAJOR_VERSION == 1") || t.contains("SDL_MAJOR_VERSION == 2") ||
+		       t.contains("SDL_MAJOR_VERSION < 3");
+	}};
+	std::vector<bool> old_arm;
+	std::vector<std::string> found;
+	std::istringstream in{source};
+	for (std::string line; std::getline(in, line);)
+	{
+		const auto first{line.find_first_not_of(" \t")};
+		const std::string_view text{
+		    first == std::string::npos ? std::string_view{} : std::string_view{line}.substr(first)};
+		if (text.starts_with("#if"))
+			old_arm.push_back(only_old_sdl(text));
+		else if (text.starts_with("#elif") && !old_arm.empty())
+			old_arm.back() = only_old_sdl(text);
+		else if (text.starts_with("#else") && !old_arm.empty())
+			old_arm.back() = false;
+		else if (text.starts_with("#endif") && !old_arm.empty())
+			old_arm.pop_back();
+		else if (text.contains("SDL_SetHint") && !text.starts_with("/*") &&
+		         !text.starts_with("*") && !text.starts_with("//") &&
+		         !std::ranges::contains(old_arm, true))
+			found.emplace_back(text);
+	}
+	return found;
+}
+
+}
+
+/* Test that the scan sees a hint set in an SDL3 arm, an #else and the open, and passes one in an
+ * SDL2-only arm, so that the scan of init.cpp below can fail.
+ */
+BOOST_AUTO_TEST_CASE(the_hint_scan_finds_hints_that_sdl3_reaches)
+{
+	const std::string source{"SDL_SetHint(A, \"1\");\n"
+	                         "#if SDL_MAJOR_VERSION == 2\n"
+	                         "SDL_SetHint(B, \"1\");\n"
+	                         "#if DXX_X\n"
+	                         "SDL_SetHint(C, \"1\");\n"
+	                         "#endif\n"
+	                         "#elif SDL_MAJOR_VERSION == 3\n"
+	                         "SDL_SetHint(D, \"1\");\n"
+	                         "#else\n"
+	                         "SDL_SetHint(E, \"1\");\n"
+	                         "#endif\n"
+	                         "/* SDL_SetHint(F) */\n"};
+	const std::vector<std::string> expected{"SDL_SetHint(A, \"1\");", "SDL_SetHint(D, \"1\");",
+	                                        "SDL_SetHint(E, \"1\");"};
+	BOOST_TEST(sdl3_hint_calls(source) == expected, boost::test_tools::per_element());
+}
+
+/* Test that init.cpp calls SDL_SetHint nowhere SDL3 reaches: SDL3 sets its hints through
+ * pre_init_hints, which the pin above checks, and a direct call would add an input hint the pin
+ * does not see.  The tests run from the repository root.
+ */
+BOOST_AUTO_TEST_CASE(init_cpp_sets_no_hint_directly_on_sdl3)
+{
+	const std::ifstream file{"similar/arch/sdl/init.cpp"};
+	BOOST_REQUIRE_MESSAGE(file.is_open(), "run the tests from the repository root");
+	std::ostringstream text;
+	text << file.rdbuf();
+	BOOST_REQUIRE(!text.str().empty());
+	BOOST_TEST(sdl3_hint_calls(text.str()).empty());
 }
