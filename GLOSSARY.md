@@ -67,7 +67,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   the harness clock replaces the wall clock (each `timer_update` advances it 1/fps of
   `DXX_DBG_FIXED_FRAMETIME`, which it needs), so timed screens repeat too, and its `end` line
   ends the run. `DXX_DBG_HIDDEN=1` creates the window hidden, so nothing shows on screen;
-  on macOS its frames hash the same as a shown window's. `-pilot name` creates a missing pilot with the
+  on macOS its frames hash the same as a shown window's. `DXX_DBG_TRACE=path` with
+  `DXX_DBG_TRACE_FRAMES=FIRST-LAST` records a trace of those frames through the recording
+  adapter (`common/render/recording_device.h`), frames counted by presents from the run's start. `-pilot name` creates a missing pilot with the
   defaults, so a fresh `D2X_REBIRTH_HOME` skips the pilot prompt.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.

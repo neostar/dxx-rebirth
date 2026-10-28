@@ -70,6 +70,28 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
   single-player `d_srand`), but nothing makes the calls during the wall-clock-timed screens
   between demos repeat. Compare sections of the same demo, by the name in their header.
 
+## Recording a trace, invisibly
+
+A `dbg_harness=1` build records a trace (`GLOSSARY.md`) of the frames `DXX_DBG_TRACE_FRAMES`
+names (`FIRST-LAST`) into the file `DXX_DBG_TRACE` names; without `DXX_DBG_TRACE` nothing records.
+Add both to a hidden run above, for example the demo's:
+
+```sh
+DXX_DBG_TRACE=$PWD/traces/local/s2.rtr DXX_DBG_TRACE_FRAMES=0-1600 \
+  DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/frames.log \
+  D2X_REBIRTH_HOME=$PWD/traces/local/d2home tools/dev/run.sh build/harness/d2x-rebirth/d2x-rebirth \
+  -hogdir "$DXX_D2_DATA" -window -pilot harness -nomovies -maxfps 60 -autodemo
+```
+
+- Frames count presents from the start of the run, 0 first: a frame's number is its place among
+  the frame hash log's frame lines, section headers left out (each section counts from 0 again).
+- Give every path absolute, in a directory that exists: the game changes its working directory,
+  and an unwritable path ends the run with status 1 and the reason on stderr.
+- The whole S2 run, frames 0-1600, is about 200 MB. The trace is licensed-data derived.
+- Replay it with `rtrace` (GL) and `rtrace-gpu` (SDL_GPU) through `no-window.sh`; with
+  `RTRACE_FRAMES_DIR=<dir>` each also writes every frame's RGB pixels, top row first, to
+  `<dir>/<frame>.rgb`, for comparing frames pixel by pixel.
+
 ## Playing a scene, invisibly
 
 The scripted scenes S1, S3 and S4 (`GLOSSARY.md`, input script) are in `common/debug/scenes/`.

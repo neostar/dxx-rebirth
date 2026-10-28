@@ -74,9 +74,9 @@ struct clear
 };
 
 /* The end of a frame: everything recorded since the last present is one
- * frame.  frame is the game's index of it, as the frame hash log numbers
- * frames, so a replay of a part of a game can compare its frames with the
- * log's.
+ * frame.  frame is the game's index of it, its present's place in the run
+ * from 0 (recording_device.h's frame_range), so a replay of a part of a
+ * game can compare its frames with the frame hash log's lines.
  */
 struct present
 {
