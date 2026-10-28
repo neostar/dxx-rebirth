@@ -35,3 +35,7 @@ oversize=$root/common/render/rtrace/synthetic/oversize.rtr
 # not quantized, so frames 2-6 repeat frames 0 and 1) and text in them (8-10).
 expected_fonts=('0 64x48 49e2bd63b6ae0b25' '1 64x48 e3483f86e1fe7b25' '2 64x48 49e2bd63b6ae0b25' '3 64x48 e3483f86e1fe7b25' '4 64x48 e3483f86e1fe7b25' '5 64x48 e3483f86e1fe7b25' '6 64x48 e3483f86e1fe7b25' '7 64x48 51a3b262cedf3725' '8 64x48 d4e0fa5984a7c7e5' '9 64x48 9514bc61e4b568fd' '10 64x48 9514bc61e4b568fd')
 fonts=$root/common/render/rtrace/synthetic/fonts.rtr
+# The filters trace (#34): minified textures under the classic, upscale and trilinear
+# filters, each without and with anisotropy.
+expected_filters=('0 64x48 abb6708701beb951' '1 64x48 bf8cff063215a44d' '2 64x48 dd52b4e17b9124c9' '3 64x48 fb84893daf27c17a' '4 64x48 acf0c45d32ada5a5' '5 64x48 5c57a490f2fa9148')
+filters=$root/common/render/rtrace/synthetic/filters.rtr

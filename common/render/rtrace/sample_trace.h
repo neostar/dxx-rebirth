@@ -15,7 +15,8 @@
  * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29); and
  * lines.rtr, lines, points and strips (#32); and oversize.rtr, viewports
  * reaching past the target (#18); and fonts.rtr, the font formats' ramps
- * and text (#33).
+ * and text (#33); and filters.rtr, minified textures under each texture
+ * filter (#34).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -879,6 +880,130 @@ inline std::vector<std::uint8_t> fonts_trace()
 		}
 		w.present({.frame = frame++});
 		++slot;
+	}
+	return w.take();
+}
+
+/* The side of the filters trace's texture, before the upscale filter
+ * quadruples it.
+ */
+inline constexpr std::uint32_t filters_side{16};
+
+/* The texels of the filters trace's texture, filters_side square, opaque:
+ * 4x4 cells of eight colours, each cell crossed by one-texel stripes of
+ * blue every other column, so every mip level differs from the one before.
+ * With scale 4 each texel is repeated in a 4x4 block, as the front end's
+ * upscale filter repeats it (ogl_loadtexture).
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> filters_texels(const std::uint32_t scale)
+{
+	constexpr std::array<std::array<std::uint8_t, 3>, 8> cells{{{{200, 40, 40}},
+	                                                            {{40, 200, 40}},
+	                                                            {{230, 220, 60}},
+	                                                            {{30, 30, 30}},
+	                                                            {{240, 240, 240}},
+	                                                            {{160, 60, 200}},
+	                                                            {{60, 180, 200}},
+	                                                            {{220, 120, 20}}}};
+	const std::uint32_t side{filters_side * scale};
+	std::vector<std::uint8_t> p(std::size_t{side} * side * 4);
+	for (std::uint32_t y{0}; y != side; ++y)
+		for (std::uint32_t x{0}; x != side; ++x)
+		{
+			const std::uint32_t tx{x / scale}, ty{y / scale};
+			const auto &c{cells[(tx / 4 + ty / 4 * 3) % cells.size()]};
+			const std::size_t i{(std::size_t{y} * side + x) * 4};
+			p[i] = c[0];
+			p[i + 1] = c[1];
+			p[i + 2] = tx % 2 != 0 ? std::uint8_t{255} : c[2];
+			p[i + 3] = 255;
+		}
+	return p;
+}
+
+/* One texture of the filters trace: its texels and its image. */
+struct filters_texture
+{
+	std::vector<std::uint8_t> rgba;
+	texture_image image;
+	filters_texture(const filter f, const bool anisotropic, const std::uint32_t scale)
+	    : rgba{filters_texels(scale)}, image{{.size = {filters_side * scale, filters_side * scale},
+		                                      .format = texture_format::rgba8,
+		                                      .filter = f,
+		                                      .anisotropic = anisotropic,
+		                                      .has_transparency = false},
+		                                     rgba}
+	{}
+	filters_texture(const filters_texture &) = delete;
+	filters_texture &operator=(const filters_texture &) = delete;
+	filters_texture(filters_texture &&) = delete;
+	filters_texture &operator=(filters_texture &&) = delete;
+	~filters_texture() = default;
+};
+
+/* One frame of the filters trace: the texture's filter, whether it asks
+ * for anisotropy, and the upscale filter's 4 or 1.
+ */
+struct filters_case
+{
+	filter f;
+	bool anisotropic;
+	std::uint32_t scale;
+};
+
+/* The filters trace's frames, in order: the game's classic, upscale and
+ * trilinear filters (CGameCfg.TexFilt), each without and with anisotropy.
+ * Upscale is trilinear on a texture of four times the side.
+ */
+inline constexpr std::array<filters_case, 6> filters_cases{{
+    {.f = filter::nearest, .anisotropic = false, .scale = 1},
+    {.f = filter::nearest, .anisotropic = true, .scale = 1},
+    {.f = filter::trilinear, .anisotropic = false, .scale = 4},
+    {.f = filter::trilinear, .anisotropic = true, .scale = 4},
+    {.f = filter::trilinear, .anisotropic = false, .scale = 1},
+    {.f = filter::trilinear, .anisotropic = true, .scale = 1},
+}};
+
+/* The filters trace's bytes (#34): one frame per filters_cases entry, in
+ * the 3D view (wall_draw), a floor from 0.3 to 12 deep, 6 wide, its
+ * texture repeated 24 times each way, which minifies more with depth and
+ * more along the view than across it (anisotropy's case); and the end
+ * wall at 12 deep, minified alike both ways, repeated 8 times; and in
+ * 2D, at the top left, a quarter of the texture magnified three times,
+ * where the upscale filter's repeated texels keep sharper edges than
+ * trilinear's.  The texture is small (16 texels, 64 upscaled), so the
+ * trace stays small.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> filters_trace()
+{
+	trace::writer w{sample_target};
+	constexpr float n{-0.3f}, f{-12};
+	const auto floor{wall_quad({{{{-3, -1, n}}, {{-3, -1, f}}, {{3, -1, f}}, {{3, -1, n}}}},
+	                           flat({{1, 1, 1, 1}}), 24)};
+	const auto end{wall_quad({{{{-3, -1, f}}, {{-3, 3, f}}, {{3, 3, f}}, {{3, -1, f}}}},
+	                         flat({{1, 1, 1, 1}}), 8)};
+	const auto quarter{sample_quad(flat({{1, 1, 1, 1}}), 0.5f)};
+	draw_call magnified{sample_draw(topology::fan, quarter)};
+	magnified.viewport = {.x = 0, .y = 24, .size = {.width = 24, .height = 24}};
+	std::uint32_t frame{0};
+	for (const auto &k : filters_cases)
+	{
+		const filters_texture t{k.f, k.anisotropic, k.scale};
+		const texture_slot slot{frame + 1};
+		w.texture(slot, &t.image);
+		w.clear({.color = true, .depth = true});
+		for (const auto &q : {floor, end})
+		{
+			draw_call c{wall_draw(q)};
+			c.texture = slot;
+			c.state.wrap = wrap::repeat;
+			w.draw(c);
+		}
+		magnified.texture = slot;
+		w.draw(magnified);
+		w.present({.frame = frame++});
 	}
 	return w.take();
 }

@@ -9,8 +9,8 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample, overbright, flash, walls, alpha, lines, oversize and fonts traces to compare with their
-#   writers, its
+#   sample, overbright, flash, walls, alpha, lines, oversize, fonts and filters traces to compare
+#   with their writers, its
 #   report written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
@@ -21,6 +21,7 @@
 # - rtrace on synthetic/lines.rtr (#32), once: its five pinned lines;
 # - rtrace on synthetic/oversize.rtr (#18), once: its two pinned lines;
 # - rtrace on synthetic/fonts.rtr (#33), once: its eleven pinned lines;
+# - rtrace on synthetic/filters.rtr (#34), once: its six pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
@@ -137,7 +138,7 @@ rc=0
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
 	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha" "$lines_rtr" \
-	"$oversize" "$fonts"; then
+	"$oversize" "$fonts" "$filters"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -230,6 +231,15 @@ if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$fonts" "$tmp
 elif ! logs_lines "$tmp/fonts.log" "${expected_fonts[@]}"; then
 	echo "rtrace-tests: unexpected frame hashes of the fonts trace:" >&2
 	cat "$tmp/fonts.log" >&2
+	rc=1
+fi
+# rtrace on the filters trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$filters" "$tmp/filters.log"; then
+	echo "rtrace-tests: rtrace on the filters trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/filters.log" "${expected_filters[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the filters trace:" >&2
+	cat "$tmp/filters.log" >&2
 	rc=1
 fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
