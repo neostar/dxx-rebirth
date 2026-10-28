@@ -790,25 +790,22 @@ colour_difference compare_colours(const std::span<const std::uint32_t> gl, const
 }
 
 /* Test R3 on the lines trace on Metal (#32): the loop, strip and points of
- * frame 2 have GL's hash, and the other frames cover GL's pixels but at
- * the ends of lines and ties of the diamond-exit rule, which quads cannot
- * match.  The tolerance, in ADR 2's pixel-centre rule: at most the pixels
- * measured on the committed tree differ in a frame (13, 10, 0, 2, 1 of
- * 3072), each next to a pixel both cover.  A mirrored endpoint or a
- * misplaced line leaves many more.  On the pixels both cover, the colours
- * are GL's to a bound: frames 3 and 4 exactly; frames 0 and 1 within 20
- * and 38 levels, at most 17 and 34 pixels more than 2 levels off, all on
- * pixels one line covers (no pixel two lines cover differs): the quad
- * interpolates along the major axis where GL projects the pixel centre
- * onto the line, a difference of at most 0.5 * width * |dy| / L^2 of the
- * colour range along an x-major line, wider by a pixel's length at the
- * ends.
+ * frame 2 have GL's hash, and so does frame 1 (width 2).  Frames 0, 3 and 4
+ * cover GL's pixels but at the ends of lines, in the diamond-exit rule's
+ * ties, which quads cannot match: at most the pixels measured on the
+ * committed tree differ (14, 0, 0, 2, 1 of 3072), each next to a pixel both
+ * cover.  A mirrored endpoint or a misplaced line leaves many more.  On the
+ * pixels both cover the colours are GL's but for 1 level in frame 0
+ * (ADR 2: GL rounds the exact interpolation to nearest, the quad's value
+ * is up to 0.6 level off it, cause open); a diagonal that interpolates
+ * along the wrong axis is 20 levels or more off, so the limit of 1 holds
+ * the major axis (`x_major`) as well.
  */
 BOOST_AUTO_TEST_CASE(lines_trace_frames_match_gl_within_the_tolerance)
 {
-	const std::array<std::size_t, 5> limit{{13, 10, 0, 2, 1}};
-	const std::array<int, 5> colour_limit{{20, 38, 0, 0, 0}};
-	const std::array<std::size_t, 5> colour_count_limit{{17, 34, 0, 0, 0}};
+	const std::array<std::size_t, 5> limit{{14, 0, 0, 2, 1}};
+	const std::array<int, 5> colour_limit{{1, 0, 0, 0, 0}};
+	const std::array<std::size_t, 5> colour_count_limit{{0, 0, 0, 0, 0}};
 	BOOST_REQUIRE(sdlgpu::device::create(test_config(target))->driver() == "metal");
 	const auto frames{replayed_frames(dcx::render::rtrace::lines_trace())};
 	BOOST_REQUIRE(frames.size() == limit.size());
