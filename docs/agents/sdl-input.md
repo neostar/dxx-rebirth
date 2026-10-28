@@ -137,8 +137,8 @@ keyboard never sends.
 
 **Recommendation for the ADR.** Map LCMD/RCMD to `SDLK_LGUI`/`SDLK_RGUI` on SDL3, so Cmd binds
 like Ctrl and Alt (`KEY_METAED` already exists, `key.cpp:404-405, 471-472`). Record that Cmd-Q,
-Cmd-H, Cmd-M and Cmd-W still go to the menu first, so Cmd is a modifier for bindings, not a fire
-button. Whether Cmd-Q in play should quit is the owner's call.
+Cmd-H, Cmd-M and Cmd-W reach the game as `KEY_COMMAND` plus the key and also run their menu
+action (ADR 7), so a binding on them fires beside the action. Whether Cmd-Q in play should quit is the owner's call.
 
 ## Mouse motion: relative mode and acceleration (#43)
 

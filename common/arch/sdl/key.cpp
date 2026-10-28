@@ -273,6 +273,22 @@ constexpr std::array<key_props, 256> key_properties = {{
 #if SDL_MAJOR_VERSION == 2
 #define SDLK_LMETA	SDLK_UNKNOWN
 #define SDLK_RMETA	SDLK_UNKNOWN
+#elif SDL_MAJOR_VERSION == 3
+#undef SDLK_LMETA
+#undef SDLK_RMETA
+#ifdef __APPLE__
+/* The Command keys are the GUI keys; SDL3's SDLK_LMETA and SDLK_RMETA are
+ * other keys, which a Mac keyboard never sends.
+ */
+#define SDLK_LMETA	SDLK_LGUI
+#define SDLK_RMETA	SDLK_RGUI
+#else
+/* As on SDL2, the Windows key and the Super key are no game key: with them
+ * mapped, Super+P would pause the game as Cmd+P does (ADR 7).
+ */
+#define SDLK_LMETA	SDLK_UNKNOWN
+#define SDLK_RMETA	SDLK_UNKNOWN
+#endif
 #endif
 { "LCMD",   255,    SDLK_LMETA         },
 { "RCMD",   255,    SDLK_RMETA         },

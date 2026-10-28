@@ -31,6 +31,7 @@
 namespace {
 
 std::vector<unsigned> sent_keys;
+unsigned sent_other_events{0};
 std::array<bool, SDL_SCANCODE_COUNT> fake_keyboard{};
 
 }
@@ -46,6 +47,8 @@ fix64 timer_query()
 
 window_event_result event_send(const d_event &event)
 {
+	if (event.type != event_type::key_command && event.type != event_type::key_release)
+		++sent_other_events;
 	if (event.type == event_type::key_command)
 		sent_keys.push_back(static_cast<unsigned>(event_key_get(event)));
 	return window_event_result::handled;
@@ -129,6 +132,44 @@ BOOST_AUTO_TEST_CASE(keycodes_reach_the_game_key_codes_sdl2_gave)
 	for (const auto &p : pairs)
 		BOOST_TEST((press(p.key) & 0xffu) == p.game, "keycode " << p.key);
 }
+
+#ifdef __APPLE__
+/* Test that the Command keys are modifiers on SDL3 on macOS: SDLK_LGUI and SDLK_RGUI are the Cmd
+ * keys, and SDL3's own SDLK_LMETA, a key a Mac never sends, is not.
+ */
+BOOST_AUTO_TEST_CASE(command_keys_are_the_gui_keys)
+{
+	BOOST_TEST((press(SDLK_LGUI) & 0xffu) == KEY_LMETA);
+	BOOST_TEST((press(SDLK_RGUI) & 0xffu) == KEY_RMETA);
+	BOOST_TEST(press(SDLK_LMETA) == 0u);
+	const auto cmd{key_event(SDLK_LGUI, true)};
+	dcx::key_handler(&cmd);
+	sent_other_events = 0;
+	BOOST_TEST(press(SDLK_Q) == static_cast<unsigned>(KEY_Q + KEY_COMMAND));
+	/* Cmd-Q in play shows the game's quit dialog, which SDL_EVENT_QUIT from the app menu asks for
+	 * (owner decision, ADR 7): the key code never makes a quit event of its own.
+	 */
+	BOOST_TEST(sent_other_events == 0u);
+	const auto up{key_event(SDLK_LGUI, false)};
+	dcx::key_handler(&up);
+	BOOST_TEST(press(SDLK_Q) == KEY_Q);
+}
+#else
+/* Test that the GUI keys, the Windows and Super keys, reach no game key off macOS, as on SDL2:
+ * Super+P must not pause the game as Cmd+P does (ADR 7).
+ */
+BOOST_AUTO_TEST_CASE(gui_keys_are_no_game_key)
+{
+	BOOST_TEST(press(SDLK_LGUI) == 0u);
+	BOOST_TEST(press(SDLK_RGUI) == 0u);
+	BOOST_TEST(press(SDLK_LMETA) == 0u);
+	const auto super{key_event(SDLK_LGUI, true)};
+	dcx::key_handler(&super);
+	BOOST_TEST(press(SDLK_P) == KEY_P);
+	const auto up{key_event(SDLK_LGUI, false)};
+	dcx::key_handler(&up);
+}
+#endif
 
 /* Test that Shift, Alt and Ctrl still modify the key that follows and stop when released. */
 BOOST_AUTO_TEST_CASE(shift_alt_and_ctrl_modify_the_next_key)
