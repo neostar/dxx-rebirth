@@ -15,6 +15,8 @@
  * set to 1, it also turns on the D3D12 debug layer's GPU-based validation
  * before it creates its device, which SDL 3.4.18 never does (#49), and
  * confirms from SDL's device that the debug layer started with it.
+ * A failed SDL assertion ends it with status 1 and the assertion on stderr
+ * (common/sdl/assertion_exit.h).
  */
 
 #include <cstdlib>
@@ -27,6 +29,7 @@
 #include "common/render/rtrace/replay_file.h"
 #include "common/render/rtrace/startup_options.h"
 #include "common/render/sdlgpu_device.h"
+#include "common/sdl/assertion_exit.h"
 #include "common/sdl/dxx-sdl.h"
 
 #ifdef _WIN32
@@ -252,6 +255,10 @@ bool request_gpu_based_validation(std::unique_ptr<ID3D12Debug1, com_release> &ke
 
 int main(const int argc, char **const argv)
 {
+	/* A failed SDL assertion (SDL_GPU's debug mode checks every call) exits
+	 * 1 with its message, never SDL's dialog, which hangs a hidden run.
+	 */
+	dcx::sdl::exit_on_sdl_assertion();
 	/* Video init on macOS makes the process a foreground app; this tool
 	 * stays in the background (as test-sdlgpu does).
 	 */

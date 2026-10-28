@@ -13,10 +13,13 @@
 # validation (vk_layer_settings.txt); SDL's GPU debug mode is CMD's own: it
 # creates its device with debug_mode true, which on Vulkan also loads the
 # layer, and prints the line `sdlgpu: debug mode on` (sdlgpu::device logs
-# it), which a run with an SDL_GPU device fails without.  SDL assertions log and continue
-# (SDL_ASSERT=ignore), never a dialog; SDL logs warnings, and the GPU
-# category its driver lines.  Neither SDL nor the layers change the exit
-# status (spike #55, K4), so CMD's output is scanned.  Prints the output,
+# it), which a run with an SDL_GPU device fails without.  SDL_ASSERT=ignore
+# keeps SDL's default assertion handler from a dialog: it logs and goes on.
+# A CMD with its own handler replaces that: rtrace-gpu's
+# (exit_on_sdl_assertion) prints the assertion and exits 1, which fails
+# the run.  SDL logs warnings, and the GPU category its driver lines.
+# Neither SDL nor the layers change the exit status (spike #55, K4), so
+# CMD's output is scanned.  Prints the output,
 # then fails with exit status 1, naming the source, on:
 #   - SDL's GPU debug mode: a WARNING, ERROR or CRITICAL log line;
 #   - the driver's validation layer: Metal's "... Validation" reports

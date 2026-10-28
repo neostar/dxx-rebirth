@@ -5287,6 +5287,7 @@ class DXXArchive(DXXCommon):
 		# gpu-validate.sh, on the trace it is given.
 		RuntimeTest('rtrace-gpu', (
 			'common/render/rtrace/gpu_main.cpp',
+			'common/sdl/assertion_exit.cpp',
 			'common/render/rtrace/startup_options.cpp',
 			'common/render/rtrace/replay_file.cpp',
 			'common/render/sdlgpu_device.cpp',
@@ -5328,6 +5329,10 @@ class DXXArchive(DXXCommon):
 			'common/sdl/unittest/window_text_input.cpp',
 			'common/arch/sdl/window.cpp',
 			'common/arch/sdl/key.cpp',
+			), use_default_libs=True),
+		RuntimeTest('test-sdl-assertion-exit', (
+			'common/sdl/unittest/assertion_exit.cpp',
+			'common/sdl/assertion_exit.cpp',
 			), use_default_libs=True),
 		RuntimeTest('test-sdl-init', (
 			'common/sdl/unittest/sdl_init.cpp',
