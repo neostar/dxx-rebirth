@@ -7,11 +7,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "common/sdl/dxx-sdl.h"
 
@@ -86,5 +89,38 @@ inline void append_game_text(const std::span<unsigned char> buffer, const std::s
 	while (const std::uint32_t cp{SDL_StepUTF8(&next, &left)})
 		append_game_character(buffer, cp);
 }
+
+/* The text of the text events of one batch, copied: SDL frees the text of an event at its
+ * next SDL_PumpEvents, and a handler that runs a menu of its own pumps in the middle of the
+ * batch.  Each text event of `events` points to its copy for as long as this object lives.
+ */
+class event_text_copies
+{
+	std::vector<std::string> copies;
+
+  public:
+	explicit event_text_copies(const std::span<SDL_Event> events)
+	{
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access): SDL_Event is SDL's union
+		const auto is_text{
+		    [](const SDL_Event &e) { return e.type == SDL_EVENT_TEXT_INPUT && e.text.text; }};
+		/* No growth after this: a copy moving would move its characters, which the events point to.
+		 */
+		copies.reserve(static_cast<std::size_t>(std::ranges::count_if(events, is_text)));
+		for (auto &e : events)
+			if (is_text(e))
+			{
+				// NOLINTBEGIN(cppcoreguidelines-pro-type-union-access): SDL_Event is SDL's union
+				copies.emplace_back(e.text.text);
+				e.text.text = copies.back().c_str();
+				// NOLINTEND(cppcoreguidelines-pro-type-union-access)
+			}
+	}
+	event_text_copies(const event_text_copies &) = delete;
+	event_text_copies &operator=(const event_text_copies &) = delete;
+	event_text_copies(event_text_copies &&) = delete;
+	event_text_copies &operator=(event_text_copies &&) = delete;
+	~event_text_copies() = default;
+};
 
 }

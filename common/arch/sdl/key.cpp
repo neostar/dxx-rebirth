@@ -605,11 +605,17 @@ struct main_window_text_input
 
 sdl::text_input_gate<main_window_text_input> text_input{main_window_text_input{}};
 
+/* When text input last opened, in SDL's clock: the clock of an event's timestamp. */
+std::uint64_t text_input_opened_ns{0};
+
 }
 
 void key_text_input_open()
 {
+	const bool was_open{text_input.active()};
 	text_input.open();
+	if (!was_open && text_input.active())
+		text_input_opened_ns = SDL_GetTicksNS();
 }
 
 void key_text_input_close()
@@ -628,6 +634,14 @@ void key_text_input(const SDL_TextInputEvent &text)
 		sdl::append_game_text(unicode_frame_buffer, text.text);
 }
 
+window_event_result key_text_command(const SDL_TextInputEvent &text)
+{
+	if (!text.text || !key_text_input_active())
+		return window_event_result::ignored;
+	sdl::append_game_text(unicode_frame_buffer, text.text);
+	return event_send(d_event_keycommand{event_type::key_command, 0, d_event_keycommand::source::keyboard});
+}
+
 unsigned key_take_text(const SDL_KeyboardEvent &key, const std::span<const SDL_Event> following)
 {
 	if (!key.down || !key_text_input_active())
@@ -643,6 +657,11 @@ unsigned key_take_text(const SDL_KeyboardEvent &key, const std::span<const SDL_E
 			key_text_input(e.text);
 		++taken;
 	}
+	/* SDL sent no text for a key it queued before text input opened (a key earlier in the
+	 * batch opened the field): the key gives its keycode.
+	 */
+	if (!taken && wanted && key.timestamp < text_input_opened_ns)
+		sdl::append_game_character(unicode_frame_buffer, key.key);
 	return taken;
 }
 #endif

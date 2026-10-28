@@ -107,8 +107,14 @@ void key_text_input_close();
 bool key_text_input_active();
 /* Append the text of a text event to the buffer key_ascii reads. */
 void key_text_input(const SDL_TextInputEvent &);
+/* A text event that no key event brought along: append its text and send the game a key
+ * command for no key (key code 0), which the handlers of a field answer by reading key_ascii.
+ */
+window_event_result key_text_command(const SDL_TextInputEvent &);
 /* Take the text events that follow a key event, before its handler reads
- * key_ascii; returns how many it took, which the caller skips.
+ * key_ascii; returns how many it took, which the caller skips.  A key that
+ * SDL queued before text input opened has no text event; it gives its
+ * keycode, as with text input closed.
  */
 unsigned key_take_text(const SDL_KeyboardEvent &, std::span<const SDL_Event> following);
 #else

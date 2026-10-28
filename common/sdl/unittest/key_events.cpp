@@ -314,16 +314,24 @@ BOOST_AUTO_TEST_CASE(text_of_a_dropped_repeat_is_dropped)
 	dcx::key_text_input_close();
 }
 
-/* Test that a text event that arrives alone, at a batch boundary, still reaches the buffer. */
-BOOST_AUTO_TEST_CASE(a_lone_text_event_reaches_the_buffer)
+/* Test that a text event that arrives alone sends a key command for no key, with its text in the
+ * buffer the handler reads.
+ */
+BOOST_AUTO_TEST_CASE(a_lone_text_event_is_a_key_command_with_its_text)
 {
 	const dummy_window window;
 	dcx::key_flush();
 	dcx::key_text_input_open();
+	sent_keys.clear();
 	const auto e{text_event("Z")};
-	dcx::key_text_input(e.text);
+	BOOST_TEST((dcx::key_text_command(e.text) == window_event_result::handled));
+	const std::vector<unsigned> expected{0};
+	BOOST_TEST(sent_keys == expected, boost::test_tools::per_element());
 	BOOST_TEST(dcx::key_ascii() == 'Z');
 	dcx::key_text_input_close();
+	sent_keys.clear();
+	BOOST_TEST((dcx::key_text_command(e.text) == window_event_result::ignored));
+	BOOST_TEST(sent_keys.empty());
 }
 
 /* Test that text input stays closed, and key events keep filling the buffer, when there is no

@@ -141,3 +141,23 @@ BOOST_AUTO_TEST_CASE(malformed_utf8_is_never_read_as_a_character)
 	                                   "b");
 	BOOST_TEST(text_of(buffer) == "ab");
 }
+
+/* Test that the text events of a batch keep their text after the memory they pointed to is
+ * overwritten, as SDL frees its own at the next pump.
+ */
+BOOST_AUTO_TEST_CASE(event_text_survives_the_memory_it_came_from)
+{
+	std::array<char, 4> first{'a', 'b', '\0'};
+	std::array<char, 4> second{'c', '\0'};
+	std::array<SDL_Event, 3> events{};
+	events[0].text.type = SDL_EVENT_TEXT_INPUT;
+	events[0].text.text = first.data();
+	events[1].key.type = SDL_EVENT_KEY_DOWN;
+	events[2].text.type = SDL_EVENT_TEXT_INPUT;
+	events[2].text.text = second.data();
+	const dcx::sdl::event_text_copies copies{events};
+	first = {'X', 'X', 'X', '\0'};
+	second = {'Y', '\0'};
+	BOOST_TEST(std::string{events[0].text.text} == "ab");
+	BOOST_TEST(std::string{events[2].text.text} == "c");
+}

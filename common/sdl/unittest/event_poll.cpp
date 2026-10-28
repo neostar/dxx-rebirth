@@ -7,12 +7,15 @@
 
 /* SDL3 events through the game's event loop (#42, R12).  The seam is SDL's own queue: the test
  * pushes events with SDL_PushEvent and calls event_poll, which pumps and drains them through
- * process_event_batch as the game does, and standard_handler, the game's last-resort handler, is a
- * recorder.  With no window open (window_get_front is null), every event the game would send
- * reaches it.  The mouse, joystick and window handlers event.cpp calls are stubs. */
+ * process_event_batch as the game does, and standard_handler, the game's last-resort handler,
+ * is a recorder.  With no window open (window_get_front is null), every event the game would
+ * send reaches it.  The mouse, joystick and window handlers event.cpp calls are stubs.
+ */
 
 #include <SDL3/SDL.h>
 #include <array>
+#include <functional>
+#include <ostream>
 #include <vector>
 
 // clang-format off
@@ -44,6 +47,10 @@ struct seen
 	unsigned ascii;
 };
 std::vector<seen> seen_events;
+/* The memory a later text event points to, which the handler of an earlier key overwrites. */
+std::array<char, 2> reused_memory{};
+/* Runs when a key press reaches the game, as a window's handler would. */
+std::function<void()> on_key_command;
 
 }
 
@@ -151,6 +158,8 @@ window_event_result standard_handler(const d_event &event)
 	const bool is_press{event.type == event_type::key_command};
 	seen_events.push_back({event.type, is_key ? static_cast<unsigned>(event_key_get(event)) : 0u,
 	                       is_press ? key_ascii() : 0u});
+	if (is_press && on_key_command)
+		on_key_command();
 	return window_event_result::handled;
 }
 
@@ -179,6 +188,7 @@ struct sdl_events
 		dcx::g_pRebirthSDLMainWindow = SDL_CreateWindow("event test", 64, 64, SDL_WINDOW_HIDDEN);
 		BOOST_REQUIRE(dcx::g_pRebirthSDLMainWindow);
 		seen_events.clear();
+		on_key_command = nullptr;
 		dcx::key_flush();
 	}
 	sdl_events(const sdl_events &) = delete;
@@ -200,6 +210,7 @@ void push_key(const SDL_Keycode key, const bool down)
 	e.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
 	e.key.key = key;
 	e.key.down = down;
+	e.key.timestamp = SDL_GetTicksNS();
 	BOOST_REQUIRE(SDL_PushEvent(&e));
 }
 
@@ -275,4 +286,119 @@ BOOST_AUTO_TEST_CASE(text_after_a_key_is_there_when_the_keys_handler_runs)
 	const std::vector<unsigned> expected{'A', 'B'};
 	BOOST_TEST(ascii == expected, boost::test_tools::per_element());
 	BOOST_TEST(dcx::key_ascii() == 255);
+}
+
+namespace {
+
+/* A key press the game received: its key code and what key_ascii returned with it. */
+struct press
+{
+	unsigned key;
+	unsigned ascii;
+	bool operator==(const press &) const = default;
+	friend std::ostream &operator<<(std::ostream &o, const press &p)
+	{
+		return o << "(key " << p.key << ", ascii " << p.ascii << ")";
+	}
+};
+
+std::vector<press> presses()
+{
+	std::vector<press> v;
+	for (const auto &e : seen_events)
+		if (e.type == event_type::key_command)
+			v.push_back({e.key, e.ascii});
+	return v;
+}
+
+}
+
+/* Test that a text event that does not directly follow its key still reaches a handler: Cocoa
+ * sends Backspace down and up between a key and its text, so the text arrives alone, as a key
+ * command for no key (key code 0) with the text in key_ascii.
+ */
+BOOST_AUTO_TEST_CASE(text_after_backspace_down_and_up_reaches_the_handler)
+{
+	const sdl_events sdl;
+	dcx::key_text_input_open();
+	push_key(SDLK_BACKSPACE, true);
+	push_key(SDLK_BACKSPACE, false);
+	push_text("x");
+	dcx::event_poll();
+	const std::vector<press> expected{{KEY_BACKSP, 255}, {0, 'x'}};
+	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
+}
+
+/* Test that a text event that opens a batch reaches the handler too, as an input method sends
+ * its text alone. */
+BOOST_AUTO_TEST_CASE(text_that_opens_a_batch_reaches_the_handler)
+{
+	const sdl_events sdl;
+	dcx::key_text_input_open();
+	push_text("\xc3\xa9");
+	dcx::event_poll();
+	const std::vector<press> expected{{0, 0xe9}};
+	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
+}
+
+/* Test that text is dropped, and no key command sent, with text input closed. */
+BOOST_AUTO_TEST_CASE(text_with_text_input_closed_reaches_nobody)
+{
+	const sdl_events sdl;
+	push_text("x");
+	dcx::event_poll();
+	BOOST_TEST(presses().empty());
+}
+
+/* Test that the text events of a batch stay whole while a handler runs a menu of its own and so
+ * pumps events: SDL frees the text of its events at the next pump.  The handler of the first key
+ * overwrites the memory the later text events point to, and pumps.
+ */
+BOOST_AUTO_TEST_CASE(text_survives_a_handler_that_pumps_events)
+{
+	const sdl_events sdl;
+	dcx::key_text_input_open();
+	reused_memory = {'B', '\0'};
+	push_key(SDLK_A, true);
+	push_text("A");
+	push_key(SDLK_BACKSPACE, true);
+	push_key(SDLK_BACKSPACE, false);
+	push_text(reused_memory.data());
+	on_key_command = [] {
+		reused_memory[0] = 'X';
+		SDL_PumpEvents();
+		on_key_command = nullptr;
+	};
+	dcx::event_poll();
+	const std::vector<press> expected{{KEY_A, 'A'}, {KEY_BACKSP, 255}, {0, 'B'}};
+	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
+}
+
+/* Test that the keys queued in the same batch as the key that opens a field give their keycodes:
+ * SDL queued them when text input was off, so no text event follows. */
+BOOST_AUTO_TEST_CASE(keys_queued_before_the_field_opened_give_their_keycodes)
+{
+	const sdl_events sdl;
+	push_key(SDLK_F1, true);
+	push_key(SDLK_A, true);
+	push_key(SDLK_B, true);
+	on_key_command = [] {
+		dcx::key_text_input_open();
+		on_key_command = nullptr;
+	};
+	dcx::event_poll();
+	const std::vector<press> expected{{KEY_F1, 255}, {KEY_A, 'a'}, {KEY_B, 'b'}};
+	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
+}
+
+/* Test that a key queued after the field opened and brought no text gives nothing: its text
+ * would have come with it. */
+BOOST_AUTO_TEST_CASE(a_key_queued_after_the_field_opened_gives_only_its_text)
+{
+	const sdl_events sdl;
+	dcx::key_text_input_open();
+	push_key(SDLK_A, true);
+	dcx::event_poll();
+	const std::vector<press> expected{{KEY_A, 255}};
+	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
 }

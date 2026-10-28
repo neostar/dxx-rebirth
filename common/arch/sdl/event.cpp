@@ -29,6 +29,7 @@
 #include "partial_range.h"
 #if SDL_MAJOR_VERSION == 3
 #include "common/sdl/display.h"
+#include "common/sdl/text_input.h"
 #endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script_harness.h"
@@ -152,6 +153,10 @@ window_event_result event_poll()
 #endif
 		if (peep <= 0)
 			break;
+#if SDL_MAJOR_VERSION == 3
+		/* A handler may pump events in the middle of the batch, which frees SDL's text. */
+		const sdl::event_text_copies text_copies{std::span{events.data(), static_cast<std::size_t>(peep)}};
+#endif
 		state.process_event_batch(unchecked_partial_range(events, static_cast<unsigned>(peep)));
 		if (state.highest_result == window_event_result::deleted)
 			break;
@@ -216,10 +221,20 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 #if SDL_MAJOR_VERSION == 3
 			case SDL_EVENT_TEXT_INPUT:
 				if (text_taken)
+				{
 					--text_taken;
-				else
-					key_text_input(event.text);
-				continue;
+					continue;
+				}
+				/* A text event no key event brought along: after Backspace down and up on Cocoa,
+				 * alone from an input method, or at the start of a batch.
+				 */
+				if (clean_uniframe)
+				{
+					clean_uniframe=0;
+					unicode_frame_buffer = {};
+				}
+				result = key_text_command(event.text);
+				break;
 #endif
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
