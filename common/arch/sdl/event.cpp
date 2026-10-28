@@ -175,6 +175,10 @@ window_event_result event_poll()
 
 void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL_Event *> events)
 {
+#if SDL_MAJOR_VERSION == 3
+	/* The text events that key_take_text took ahead of their key's handler. */
+	unsigned text_taken{0};
+#endif
 	for (auto &&event : events)
 	{
 		window_event_result result;
@@ -203,8 +207,20 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 					clean_uniframe=0;
 					unicode_frame_buffer = {};
 				}
+#if SDL_MAJOR_VERSION == 3
+				/* SDL sends a key's text after the key, but the key's handler reads it. */
+				text_taken += key_take_text(event.key, std::span<const SDL_Event>{&event + 1, events.end()});
+#endif
 				result = key_handler(&event.key);
 				break;
+#if SDL_MAJOR_VERSION == 3
+			case SDL_EVENT_TEXT_INPUT:
+				if (text_taken)
+					--text_taken;
+				else
+					key_text_input(event.text);
+				continue;
+#endif
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
 				if (CGameArg.CtlNoMouse)

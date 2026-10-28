@@ -5305,6 +5305,11 @@ class DXXArchive(DXXCommon):
 			'common/sdl/unittest/key_oracle.cpp',
 			'common/arch/sdl/key.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-event-poll-sdl3', (
+			'common/sdl/unittest/event_poll.cpp',
+			'common/arch/sdl/event.cpp',
+			'common/arch/sdl/key.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-text-input', (
 			'common/sdl/unittest/text_input.cpp',
 			), use_default_libs=True),

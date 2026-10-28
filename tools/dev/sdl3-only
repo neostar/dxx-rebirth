@@ -10,3 +10,4 @@ common/sdl/unittest/display.cpp
 common/sdl/unittest/key_events.cpp
 common/sdl/unittest/key_oracle.cpp
 common/sdl/unittest/text_input.cpp
+common/sdl/unittest/event_poll.cpp
