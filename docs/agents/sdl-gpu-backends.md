@@ -136,13 +136,13 @@ texture is bound and load_op is not LOAD" (S0 `:2036`; depth: "any load ops are 
    **depth-reset draw** in the pass: a viewport quad, depth compare ALWAYS, colour writes off (M2).
 3. The **pipeline cache** (#26, `pipeline_key` in `common/render/sdlgpu_frame.h`). Built so in
    #26; lines (#32) and points remain to confirm it: every topology reaches SDL as a
-   triangle list (fans by `fan_to_list`, lines expanded on the CPU in #32, points undecided), so
+   triangle list (fans by `fan_to_list`, strips by `strip_to_list`, lines and points as clip-space quads by `line_quads.h`, #32, ADR 2's pixel-centre rule), so
    the key is (blend, depth, cull, alpha test) = 5 x 2 x 2 x 2 = 40 pipelines (#29) per (colour format, depth
    format, sample count), plus the depth-reset pipeline; SDL builds its own blit pipelines for
    `SDL_BlitGPUTexture`. The spike saw only 14 GL state combinations, about 6 pipelines (spike
    FINDINGS). `alpha_ref`, `wrap` and `line_width` are uniform, sampler and CPU state. Build the
    set at device creation (#24 asks this) and rebuild it when MSAA or the depth format changes;
-   no disk pipeline cache. If points stay points, topology joins the key.
+   no disk pipeline cache. Topology is not in the key: points are quads too.
 4. Keep `discard` out of opaque draws (#29, built: `tex_opaque.frag.hlsl`; a draw takes the discarding pipeline when its reference is above 0 and its texture has `has_transparency` or a vertex alpha is below the reference; every depth-tested draw also keeps the discarding pipeline until the depth model is decided, ADR 2): on Apple GPUs discard makes
    "feedback fragments", which with blending "reduce hidden surface removal efficiency" (V-A2).
 
