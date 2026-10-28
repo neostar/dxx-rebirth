@@ -5044,7 +5044,7 @@ class DXXCommon(LazyObjectConstructor):
 		# is that the `check` target will not attempt to run them.
 		runnable_runtime_tests = [] if user_settings._enumerated_build_platform == user_settings._enumerated_host_platform else None
 		# Tests of the SDL3 arm run in the SDL3 build only.
-		for test in (*runtime_test_boost_tests, *(self.sdl3_runtime_tests if user_settings.sdl3 else ())):
+		for test in (*runtime_test_boost_tests, *(self.sdl3_runtime_tests if user_settings.sdl3 else ()), *(self.sdl2_runtime_tests if user_settings.sdl2 else ())):
 			LIBS = [] if (env_LIBS is None or not test.use_default_libs) else env_LIBS.copy()
 			LIBS.extend((
 				'boost_unit_test_framework',
@@ -5099,6 +5099,7 @@ class DXXCommon(LazyObjectConstructor):
 	rtrace_programs: collections.abc.Sequence[RuntimeTest] = None
 	sdlgpu_programs: collections.abc.Sequence[RuntimeTest] = None
 	sdl3_runtime_tests: collections.abc.Sequence[RuntimeTest] = ()
+	sdl2_runtime_tests: collections.abc.Sequence[RuntimeTest] = ()
 
 class DXXArchive(DXXCommon):
 	PROGRAM_NAME: typing.Final[str] = 'DXX-Archive'
@@ -5283,6 +5284,12 @@ class DXXArchive(DXXCommon):
 			'common/render/trace.cpp',
 			)),
 			)
+	sdl2_runtime_tests = (
+		RuntimeTest('test-key-oracle-sdl2', (
+			'common/sdl/unittest/key_oracle.cpp',
+			'common/arch/sdl/key.cpp',
+			), use_default_libs=True),
+		)
 	sdl3_runtime_tests = (
 		RuntimeTest('test-frame-pacer-sdl', (
 			'common/sdl/unittest/frame_pacer_sdl.cpp',
@@ -5292,6 +5299,10 @@ class DXXArchive(DXXCommon):
 			), use_default_libs=True),
 		RuntimeTest('test-key-sdl3', (
 			'common/sdl/unittest/key_events.cpp',
+			'common/arch/sdl/key.cpp',
+			), use_default_libs=True),
+		RuntimeTest('test-key-oracle-sdl3', (
+			'common/sdl/unittest/key_oracle.cpp',
 			'common/arch/sdl/key.cpp',
 			), use_default_libs=True),
 		RuntimeTest('test-sdl-init', (
