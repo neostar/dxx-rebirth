@@ -5136,6 +5136,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-link-stub', (
 			'common/sdl/unittest/link_stub.cpp',
 			)),
+		RuntimeTest('test-window-state', (
+			'common/sdl/unittest/window_state.cpp',
+			)),
 		*((RuntimeTest('test-macos-defaults', (
 			'common/sdl/unittest/macos_defaults.mm',
 			'common/sdl/macos_defaults.mm',
