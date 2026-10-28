@@ -133,6 +133,7 @@ check "$flash" flash "${#expected_flash[@]}" || rc=1
 check "$walls" walls "${#expected_walls[@]}" || rc=1
 check "$alpha" alpha "${#expected_alpha[@]}" || rc=1
 check "$lines_rtr" lines "${#expected_lines[@]}" || rc=1
+check "$fonts" fonts "${#expected_fonts[@]}" || rc=1
 if [[ $smoke -eq 0 ]]; then
 	if cp "$tmp/hashes" "$hashes"; then
 		echo "rtrace-d3d12: frame hashes (recorded in $hashes, not compared):"

@@ -717,14 +717,16 @@ struct ramp_texture
 	ramp_texture(const texture_format format, const bool ramps_alpha)
 	    : rgba{[ramps_alpha] {
 		      std::vector<std::uint8_t> p(ramp_texels * 4);
+		      const auto level{
+		          [](const std::size_t v) { return static_cast<std::uint8_t>(v * 4); }};
 		      for (std::size_t i{0}; i != 64; ++i)
 		      {
-			      const auto level{
-			          [](const std::size_t v) { return static_cast<std::uint8_t>(v * 4); }};
-			      p[i * 4] = ramps_alpha ? std::uint8_t{255} : level(i);
-			      p[i * 4 + 1] = ramps_alpha ? std::uint8_t{255} : level(63 - i);
-			      p[i * 4 + 2] = ramps_alpha ? std::uint8_t{255} : level(i * 7 % 64);
-			      p[i * 4 + 3] = ramps_alpha ? level(i) : std::uint8_t{255};
+			      const std::uint8_t ramp{level(i)};
+			      const std::uint8_t opaque{255};
+			      p[i * 4] = ramps_alpha ? opaque : ramp;
+			      p[i * 4 + 1] = ramps_alpha ? opaque : level(63 - i);
+			      p[i * 4 + 2] = ramps_alpha ? opaque : level(i * 7 % 64);
+			      p[i * 4 + 3] = ramps_alpha ? ramp : opaque;
 		      }
 		      return p;
 	      }()},

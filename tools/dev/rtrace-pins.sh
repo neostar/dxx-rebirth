@@ -31,3 +31,7 @@ lines_rtr=$root/common/render/rtrace/synthetic/lines.rtr
 # to GL's pixels.
 expected_oversize=('0 64x48 d7b92cb41fbcf729' '1 64x48 dbd8d0810c396d39')
 oversize=$root/common/render/rtrace/synthetic/oversize.rtr
+# The fonts trace (#33): the ramps of the font formats (frames 0-7; the formats are
+# not quantized, so frames 2-6 repeat frames 0 and 1) and text in them (8-10).
+expected_fonts=('0 64x48 49e2bd63b6ae0b25' '1 64x48 e3483f86e1fe7b25' '2 64x48 49e2bd63b6ae0b25' '3 64x48 e3483f86e1fe7b25' '4 64x48 e3483f86e1fe7b25' '5 64x48 e3483f86e1fe7b25' '6 64x48 e3483f86e1fe7b25' '7 64x48 51a3b262cedf3725' '8 64x48 d4e0fa5984a7c7e5' '9 64x48 9514bc61e4b568fd' '10 64x48 9514bc61e4b568fd')
+fonts=$root/common/render/rtrace/synthetic/fonts.rtr

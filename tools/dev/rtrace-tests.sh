@@ -9,7 +9,7 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample, overbright, flash, walls, alpha, lines and oversize traces to compare with their
+#   sample, overbright, flash, walls, alpha, lines, oversize and fonts traces to compare with their
 #   writers, its
 #   report written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
@@ -20,10 +20,11 @@
 # - rtrace on synthetic/alpha.rtr (#29), once: its six pinned lines;
 # - rtrace on synthetic/lines.rtr (#32), once: its five pinned lines;
 # - rtrace on synthetic/oversize.rtr (#18), once: its two pinned lines;
+# - rtrace on synthetic/fonts.rtr (#33), once: its eleven pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
-#   overbright, flash, walls, alpha, lines and oversize traces (the last, viewports past the
+#   overbright, flash, walls, alpha, lines, oversize and fonts traces (the oversize one, viewports past the
 #   target, which SDL's debug mode asserts on unclamped), through no-window.sh and gpu-validate.sh
 #   rather than WRAPPER, each of which must log GL's pinned lines (the lines trace SDL_GPU's own
 #   on Metal, which differ from GL's by pixels at line ends, within the tolerance test-sdlgpu
@@ -136,7 +137,7 @@ rc=0
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
 	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha" "$lines_rtr" \
-	"$oversize"; then
+	"$oversize" "$fonts"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -222,6 +223,15 @@ elif ! logs_lines "$tmp/oversize.log" "${expected_oversize[@]}"; then
 	cat "$tmp/oversize.log" >&2
 	rc=1
 fi
+# rtrace on the fonts trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$fonts" "$tmp/fonts.log"; then
+	echo "rtrace-tests: rtrace on the fonts trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/fonts.log" "${expected_fonts[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the fonts trace:" >&2
+	cat "$tmp/fonts.log" >&2
+	rc=1
+fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
 # must fail; through no-window.sh alone, which keeps the status.
 head -c 20 "$sample" > "$tmp/no-frames.rtr"
@@ -270,6 +280,7 @@ else
 	check_gpu "$walls" walls "${expected_walls[@]}" || rc=1
 	check_gpu "$alpha" alpha "${expected_alpha[@]}" || rc=1
 	check_gpu "$oversize" oversize "${expected_oversize[@]}" || rc=1
+	check_gpu "$fonts" fonts "${expected_fonts[@]}" || rc=1
 	pinned_as="the pinned Metal ones"
 	check_gpu "$lines_rtr" lines "${expected_lines_metal[@]}" || rc=1
 fi
