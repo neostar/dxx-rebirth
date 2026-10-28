@@ -218,6 +218,25 @@ inline void append_quad(std::vector<vertex> &out, const vertex &c0, const vertex
 	out.insert(out.end(), q.begin(), q.end());
 }
 
+/* Whether the line from window point (x0, y0) to (x1, y1) is x-major.  GL
+ * (Apple's, measured on the lines trace, #32) takes x-major for a tie, and
+ * ties are common: the endpoints of an exact diagonal are float, and carry
+ * rounding of 4e-6 pixel at 64 px (a float's ulp there), which puts |dx|
+ * and |dy| that far apart either way.  GL's vertices lie on the
+ * rasteriser's grid of 1/256 pixel, where that rounding is gone, but each
+ * endpoint's x and y round on their own: a diagonal whose endpoints round
+ * to different extents (the trace's 45 degree spoke, 1493 against 1494
+ * units) is not a tie, and GL takes y-major there.  So the endpoints are
+ * rounded to that grid before the extents are compared.
+ */
+[[nodiscard]]
+inline bool x_major(const double x0, const double y0, const double x1, const double y1)
+{
+	constexpr double grid{256};
+	const auto snapped{[](const double v) { return std::round(v * grid); }};
+	return std::abs(snapped(x1) - snapped(x0)) >= std::abs(snapped(y1) - snapped(y0));
+}
+
 inline void append_line(std::vector<vertex> &out, const expansion_view &view, const vertex &a,
                         const vertex &b)
 {
@@ -236,7 +255,13 @@ inline void append_line(std::vector<vertex> &out, const expansion_view &view, co
 	const double dy{(q.c[1] / q.c[3] - p.c[1] / p.c[3]) * view.viewport.height / 2};
 	if (dx == 0 && dy == 0)
 		return;
-	const std::size_t minor{std::abs(dx) >= std::abs(dy) ? 1u : 0u};
+	const auto window{[&](const clipped &e, const std::size_t axis, const double extent) {
+		return (e.c[axis] / e.c[3] * 0.5 + 0.5) * extent;
+	}};
+	const double w{static_cast<double>(view.viewport.width)};
+	const double h{static_cast<double>(view.viewport.height)};
+	const std::size_t minor{
+	    x_major(window(p, 0, w), window(p, 1, h), window(q, 0, w), window(q, 1, h)) ? 1u : 0u};
 	const double width{whole_pixels(view.size)};
 	const auto sa{window_step(view, p.c[3], minor, width)};
 	const auto sb{window_step(view, q.c[3], minor, width)};

@@ -26,6 +26,7 @@
 
 #include "common/render/ambient.h"
 #include "common/render/render_device.h"
+#include "common/render/rtrace/sample_trace.h"
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth line quads
@@ -353,4 +354,33 @@ BOOST_AUTO_TEST_CASE(only_diagonal_recipes_are_expandable)
 	BOOST_TEST(render::has_diagonal_recipe(view));
 	view.modelview[4] = 0.5f;
 	BOOST_TEST(!render::has_diagonal_recipe(view));
+}
+
+/* Test that the lines trace's exact diagonals take GL's major axis (#32,
+ * measured: the spokes' colours in Apple's GL).  Their float endpoints
+ * leave |dx| and |dy| a few 1e-6 pixels apart, either way; on GL's grid of
+ * 1/256 pixel the 135, 225 and 315 degree spokes are ties, which GL takes
+ * as x-major, and the 45 degree one is a unit short of a tie in x, so it
+ * is y-major.  The first two corners of the quad are one endpoint's, apart
+ * along the minor axis: in y for an x-major line.
+ */
+BOOST_AUTO_TEST_CASE(diagonal_spokes_take_gls_major_axis)
+{
+	namespace rt = dcx::render::rtrace;
+	const auto spokes{rt::sample_spokes(32.37f, 24.81f)};
+	for (const auto [spoke, x_major] : {std::pair{std::size_t{3}, false},
+	                                    {std::size_t{9}, true},
+	                                    {std::size_t{15}, true},
+	                                    {std::size_t{21}, true}})
+	{
+		const std::array<render::vertex, 2> v{{spokes[2 * spoke], spokes[2 * spoke + 1]}};
+		const auto view{render::expansion_view_of(rt::line_draw(render::topology::lines, v, 1))};
+		const auto list{render::lines_to_list(view, v)};
+		BOOST_REQUIRE(list.size() == 6u);
+		BOOST_TEST_CONTEXT("spoke " << spoke)
+		{
+			BOOST_TEST((list[0].pos[0] == list[1].pos[0]) == x_major);
+			BOOST_TEST((list[0].pos[1] == list[1].pos[1]) != x_major);
+		}
+	}
 }
