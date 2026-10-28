@@ -15,10 +15,12 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -211,6 +213,52 @@ constexpr gpu_viewport viewport_on(const extent target, const viewport &v)
 	        .max_depth = 1.f};
 }
 
+/* A GL viewport fitted to the target (fit_viewport): the part of it the
+ * target holds, as SDL_GPU's, and the change of normalised device
+ * coordinates from the whole viewport to that part: ndc' = ndc * scale +
+ * offset per axis, x then y.
+ */
+struct fitted_viewport
+{
+	gpu_viewport viewport;
+	bool clamped;
+	std::array<float, 2> scale;
+	std::array<float, 2> offset;
+};
+
+/* The GL viewport v on target.  SDL's debug mode asserts on a viewport
+ * that reaches past its render target (SDL_gpu.c, SDL_SetGPUViewport,
+ * 3.4.18), so one that does is clamped to the target, with the scale and
+ * offset that keep each pixel inside where the whole viewport put it;
+ * nullopt when no pixel of it is inside.  A viewport inside is v as it
+ * is, scale 1 and offset 0.
+ */
+[[nodiscard]]
+constexpr std::optional<fitted_viewport> fit_viewport(const extent target, const viewport &v)
+{
+	const gpu_viewport whole{viewport_on(target, v)};
+	const auto x0{std::max(0.f, whole.x)};
+	const auto y0{std::max(0.f, whole.y)};
+	const auto x1{std::min(static_cast<float>(target.width), whole.x + whole.w)};
+	const auto y1{std::min(static_cast<float>(target.height), whole.y + whole.h)};
+	if (!(x1 > x0 && y1 > y0))
+		return std::nullopt;
+	gpu_viewport part{whole};
+	part.x = x0;
+	part.y = y0;
+	part.w = x1 - x0;
+	part.h = y1 - y0;
+	if (part == whole)
+		return fitted_viewport{
+		    .viewport = whole, .clamped = false, .scale = {{1, 1}}, .offset = {{0, 0}}};
+	/* x grows right in both; SDL_GPU's y grows down while ndc's grows up. */
+	return fitted_viewport{.viewport = part,
+	                       .clamped = true,
+	                       .scale = {{whole.w / part.w, whole.h / part.h}},
+	                       .offset = {{(2 * (whole.x - part.x) + whole.w - part.w) / part.w,
+	                                   (part.h - whole.h - 2 * (whole.y - part.y)) / part.h}}};
+}
+
 /* How a render pass begins: each target cleared or loaded. */
 struct pass_ops
 {
@@ -361,6 +409,20 @@ class frame
 	 * first.  Throws std::invalid_argument on texture_slot::none.
 	 */
 	void texture(texture_slot slot, const texture_image *image);
+	/* The draws whose viewport reached past the target, since the frame
+	 * was made: clamped to it (fit_viewport), or dropped with no pixel of
+	 * it inside.
+	 */
+	struct fixes
+	{
+		unsigned clamped;
+		unsigned dropped;
+	};
+	[[nodiscard]]
+	fixes viewport_fixes() const
+	{
+		return fixes_;
+	}
 	/* Whether a draw of this frame samples slot. */
 	[[nodiscard]]
 	bool samples(const texture_slot slot) const
@@ -372,6 +434,9 @@ class frame
 	 * whether anything was encoded.
 	 */
 	bool encode(commands &c, clear_targets undefined);
+
+  private:
+	fixes fixes_{};
 };
 
 }

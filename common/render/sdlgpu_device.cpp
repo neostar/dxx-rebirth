@@ -819,7 +819,27 @@ std::unique_ptr<device> device::create(const config &c)
 
 void device::draw(const draw_call &call)
 {
-	state_->record.draw(call);
+	auto &record{state_->record};
+	const auto before{record.viewport_fixes()};
+	record.draw(call);
+	/* Logged at the first of each, as information: a game draws the same
+	 * viewport for many frames, and a fitted one draws GL's pixels, so it
+	 * is no validation failure (gpu-validate.sh fails on a warning).
+	 */
+	const auto after{record.viewport_fixes()};
+	const auto &v{call.viewport};
+	if (before.clamped == 0 && after.clamped != 0)
+		SDL_LogInfo(SDL_LOG_CATEGORY_GPU,
+		            "sdlgpu: viewport (%d, %d, %ux%u) reaches past the %ux%u target: clamped "
+		            "to it, which SDL requires; later ones are not logged",
+		            v.x, v.y, v.size.width, v.size.height, state_->cfg.target.width,
+		            state_->cfg.target.height);
+	if (before.dropped == 0 && after.dropped != 0)
+		SDL_LogInfo(SDL_LOG_CATEGORY_GPU,
+		            "sdlgpu: viewport (%d, %d, %ux%u) holds no pixel of the %ux%u target: draw "
+		            "dropped; later ones are not logged",
+		            v.x, v.y, v.size.width, v.size.height, state_->cfg.target.width,
+		            state_->cfg.target.height);
 }
 
 void device::texture(const texture_slot slot, const texture_image *const image)

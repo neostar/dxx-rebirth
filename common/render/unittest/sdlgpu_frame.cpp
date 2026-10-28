@@ -789,3 +789,81 @@ BOOST_AUTO_TEST_CASE(only_the_alpha_test_shader_discards)
 	BOOST_TEST(discards(dcx::shaders::tex_modulate_frag::msl));
 	BOOST_TEST(!discards(dcx::shaders::tex_opaque_frag::msl));
 }
+
+namespace {
+
+/* Where the pushed projection puts a model point (x, y, 0, 1) of the
+ * screen-ortho quad, in normalised device coordinates.
+ */
+std::array<float, 2> ndc_of(const render::matrix &p, const float x, const float y)
+{
+	const float w{p[3] * x + p[7] * y + p[15]};
+	return {{(p[0] * x + p[4] * y + p[12]) / w, (p[1] * x + p[5] * y + p[13]) / w}};
+}
+
+}
+
+/* Test that a viewport reaching past the target (the #29 spike tripped
+ * SDL's "Viewport size exceeds current render target dimensions") runs
+ * clamped to the target, with a projection that keeps every pixel inside
+ * where the whole viewport put it.  On the 64x48 target the GL viewport
+ * (32, -24, 64x48) covers x 32-96 and, from the top, y 24-72; the part
+ * inside is x 32-64, y 24-48.  Model x 0.25 lay at window x 48, now the
+ * middle of the clamped viewport (ndc 0); x 0 stays at its left edge (-1).
+ * Model y 0.75 lay at window y 36, the middle again; y 0.5 at y 48, the
+ * clamped bottom (-1).
+ */
+BOOST_AUTO_TEST_CASE(viewport_past_the_target_is_clamped_keeping_its_pixels)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.viewport = {.x = 32, .y = -24, .size = {.width = 64, .height = 48}};
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const auto &d{c.draws.front()};
+	BOOST_TEST(
+	    (d.viewport == sdlgpu::gpu_viewport{
+	                       .x = 32, .y = 24, .w = 32, .h = 24, .min_depth = 0.5f, .max_depth = 1}));
+	const auto &p{d.vertex.projection};
+	BOOST_TEST(ndc_of(p, 0.25f, 0.75f)[0] == 0.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.25f, 0.75f)[1] == 0.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.f, 0.5f)[0] == -1.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.f, 0.5f)[1] == -1.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(f.viewport_fixes().clamped == 1u);
+	BOOST_TEST(f.viewport_fixes().dropped == 0u);
+}
+
+/* Test that a viewport inside the target runs as it is, its projection
+ * untouched, and counts no fix.
+ */
+BOOST_AUTO_TEST_CASE(viewport_inside_the_target_is_kept)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.viewport = {.x = 0, .y = 0, .size = target};
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const render::matrix ortho{{2, 0, 0, 0, 0, 2, 0, 0, 0, 0, -1, 0, -1, -1, 0, 1}};
+	BOOST_TEST(c.draws.front().vertex.projection == ortho, boost::test_tools::per_element());
+	BOOST_TEST(f.viewport_fixes().clamped == 0u);
+}
+
+/* Test that a draw whose viewport holds no pixel of the target is dropped,
+ * never passed to SDL, and counted.
+ */
+BOOST_AUTO_TEST_CASE(viewport_wholly_outside_the_target_is_dropped)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.viewport = {.x = 64, .y = 0, .size = {.width = 16, .height = 16}};
+	f.draw(q.call);
+	counting_commands c;
+	(void)f.encode(c, none);
+	BOOST_TEST(c.draws.empty());
+	BOOST_TEST(c.viewport_sets == 0u);
+	BOOST_TEST(f.viewport_fixes().dropped == 1u);
+}

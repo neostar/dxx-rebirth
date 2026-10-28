@@ -65,6 +65,27 @@ bool changes(std::optional<T> &bound, const T &value)
 	return true;
 }
 
+/* p followed by the fitted viewport's change of normalised device
+ * coordinates, in clip space: x' = x * scale + w * offset, likewise y.
+ * p is column-major, as GL keeps it.
+ */
+[[nodiscard]]
+matrix refit(matrix p, const fitted_viewport &f)
+{
+	if (!f.clamped)
+		return p;
+	for (std::size_t column{0}; column != 4; ++column)
+	{
+		const float w{p.at(column * 4 + 3)};
+		for (std::size_t row{0}; row != 2; ++row)
+		{
+			float &e{p.at(column * 4 + row)};
+			e = e * f.scale.at(row) + w * f.offset.at(row);
+		}
+	}
+	return p;
+}
+
 }
 
 void frame::draw(const draw_call &call)
@@ -109,6 +130,14 @@ void frame::draw(const draw_call &call)
 	}
 	if (list.empty())
 		return;
+	const auto fitted{fit_viewport(target_, call.viewport)};
+	if (!fitted)
+	{
+		++fixes_.dropped;
+		return;
+	}
+	if (fitted->clamped)
+		++fixes_.clamped;
 	/* GL culls triangles only: the quads of a line or a point are drawn
 	 * whichever way they wind.
 	 */
@@ -123,18 +152,18 @@ void frame::draw(const draw_call &call)
 	vertices_.insert(vertices_.end(), list.begin(), list.end());
 	if (textured)
 		sampled_.insert(call.texture.index);
-	records_.emplace_back(
-	    recorded_draw{.key = key_of(state, needs_alpha_test(state, transparent, call.vertices)),
-		              .viewport = viewport_on(target_, call.viewport),
-		              .vertex = {.projection = matrix_of(call.transforms.projection),
-		                         .modelview = matrix_of(call.transforms.modelview)},
-		              .fragment = {.alpha_ref = call.state.alpha_ref,
-		                           .use_texture = textured ? 1u : 0u,
-		                           .pad = {}},
-		              .texture = call.texture,
-		              .sampler = sampler,
-		              .first = first,
-		              .count = count});
+	records_.emplace_back(recorded_draw{
+	    .key = key_of(state, needs_alpha_test(state, transparent, call.vertices)),
+	    .viewport = fitted->viewport,
+	    .vertex = {.projection = refit(matrix_of(call.transforms.projection), fitted.value()),
+		           .modelview = matrix_of(call.transforms.modelview)},
+	    .fragment = {.alpha_ref = call.state.alpha_ref,
+		             .use_texture = textured ? 1u : 0u,
+		             .pad = {}},
+	    .texture = call.texture,
+	    .sampler = sampler,
+	    .first = first,
+	    .count = count});
 }
 
 void frame::texture(const texture_slot slot, const texture_image *const image)
