@@ -12,7 +12,8 @@
  * overbright.rtr, textured quads with vertex colours above 1 (#27); and
  * flash.rtr, the blend modes and the red and negative palette flashes (#30);
  * and walls.rtr, lit walls in perspective, depth-tested and culled (#28);
- * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29).
+ * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29); and
+ * lines.rtr, lines, points and strips (#32).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -20,6 +21,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -470,6 +472,163 @@ inline std::vector<std::uint8_t> alpha_trace()
 	w.clear({.color = true, .depth = true});
 	w.draw(alpha_draw(white, {1}, 1));
 	w.present({.frame = 5});
+	return w.take();
+}
+
+/* A vertex at window pixel (x, y) of the sample target, in the ortho
+ * projection of sample_draw.
+ */
+[[nodiscard]]
+inline vertex sample_pixel(const float x, const float y, const std::array<float, 4> &rgba)
+{
+	return {.pos = {{x / static_cast<float>(sample_target.width),
+	                 y / static_cast<float>(sample_target.height), 0}},
+	        .rgba = rgba,
+	        .uv = {{0, 0}}};
+}
+
+/* A draw of lines or points of width in the sample's 2D projection,
+ * blended.  The call views the vertices.
+ */
+[[nodiscard]]
+inline draw_call line_draw(const topology t, const std::span<const vertex> v, const float width)
+{
+	draw_call c{sample_draw(t, v)};
+	c.state.line_width = width;
+	return c;
+}
+
+/* The spokes of the lines trace's first two frames: lines from a ring
+ * around (cx, cy) to a larger one every 15 degrees, with endpoints off the
+ * pixel grid and colours that change along each line (the automap's lines,
+ * gr_line at linedotscale 1, the spike's 136 open pixels), then the exact
+ * diagonals and axis-aligned lines of each quarter-pixel offset.
+ */
+[[nodiscard]]
+inline std::vector<vertex> sample_spokes(const float cx, const float cy)
+{
+	std::vector<vertex> v;
+	for (std::size_t i{0}; i != 24; ++i)
+	{
+		const double a{static_cast<double>(i) * 15 * 3.14159265358979323846 / 180};
+		const float inner{5.f + static_cast<float>(i % 4) * 0.25f};
+		const float t{static_cast<float>(i) / 24};
+		v.push_back(sample_pixel(cx + inner * static_cast<float>(std::cos(a)),
+		                         cy + inner * static_cast<float>(std::sin(a)), {{1, t, 0.2f, 1}}));
+		v.push_back(sample_pixel(cx + 14 * static_cast<float>(std::cos(a)),
+		                         cy + 14 * static_cast<float>(std::sin(a)), {{0.2f, 1, t, 0.6f}}));
+	}
+	return v;
+}
+
+/* The lines trace's bytes (#32).  Frames 0 and 1, the same scene at
+ * widths 1 and 2: spokes (sample_spokes), a diagonal, a horizontal and a
+ * vertical at each quarter-pixel offset, and a flat-coloured polyline
+ * through the corners of the target.  Frame 2, a 16-sided line loop, a
+ * triangle strip (the reticle's), and points of 1, 2, 3 and 4 pixels at
+ * off-grid positions.  Frame 3, 3D lines (g3_draw_line: width 1, depth
+ * tested and written, no culling) across a wall at 2 deep, in front of it
+ * and behind it, which the depth test hides.  Frame 4, lines reaching past
+ * the eye, in the 3D view: one from in front of it to behind it at width 1,
+ * one at width 2, one wholly behind it (GL draws nothing), and one that
+ * crosses the near plane with its far end on screen: GL clips each in clip
+ * space, where a divide first would mirror the endpoint behind the eye
+ * through the centre of the screen (ADR 2's pixel-centre rule).
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> lines_trace()
+{
+	trace::writer w{sample_target};
+	for (const float width : {1.f, 2.f})
+	{
+		w.clear({.color = true, .depth = true});
+		auto spokes{sample_spokes(32.37f, 24.81f)};
+		w.draw(line_draw(topology::lines, spokes, width));
+		std::vector<vertex> grid;
+		for (std::size_t k{0}; k != 4; ++k)
+		{
+			const float o{static_cast<float>(k) * 0.25f};
+			const float c{0.3f + 0.2f * static_cast<float>(k)};
+			const std::array<float, 4> col{{c, 1, 1 - c, 1}};
+			const float x{2.f + static_cast<float>(k) * 3};
+			grid.push_back(sample_pixel(x + o, 2 + o, col));
+			grid.push_back(sample_pixel(x + 10 + o, 12 + o, col));
+			grid.push_back(sample_pixel(x + o, 14 + 3 * static_cast<float>(k) + o, col));
+			grid.push_back(sample_pixel(x + 12 + o, 14 + 3 * static_cast<float>(k) + o, col));
+			grid.push_back(sample_pixel(54 + 2 * static_cast<float>(k) + o, 2 + o, col));
+			grid.push_back(sample_pixel(54 + 2 * static_cast<float>(k) + o, 12 + o, col));
+		}
+		w.draw(line_draw(topology::lines, grid, width));
+		const std::array<vertex, 4> corners{
+		    {sample_pixel(1.5f, 45.5f, {{1, 1, 0, 1}}), sample_pixel(62.5f, 45.5f, {{1, 1, 0, 1}}),
+			 sample_pixel(62.5f, 1.5f, {{1, 1, 0, 1}}), sample_pixel(1.5f, 1.5f, {{1, 1, 0, 1}})}};
+		w.draw(line_draw(topology::lines, corners, width));
+		w.present({.frame = width < 2 ? 0u : 1u});
+	}
+	w.clear({.color = true, .depth = true});
+	std::vector<vertex> loop;
+	for (std::size_t i{0}; i != 16; ++i)
+	{
+		const double a{static_cast<double>(i) * 3.14159265358979323846 / 8};
+		loop.push_back(sample_pixel(16.3f + 10.3f * static_cast<float>(std::cos(a)),
+		                            30.7f + 10.3f * static_cast<float>(std::sin(a)),
+		                            {{0, 1, 0, 0.8f}}));
+	}
+	w.draw(line_draw(topology::line_loop, loop, 2));
+	const std::array<vertex, 4> strip{
+	    {sample_pixel(34.5f, 22.2f, {{1, 0, 0, 1}}), sample_pixel(34.5f, 30.9f, {{1, 0, 0, 1}}),
+		 sample_pixel(45.8f, 22.2f, {{0, 0, 1, 1}}), sample_pixel(45.8f, 30.9f, {{0, 0, 1, 1}})}};
+	w.draw(line_draw(topology::strip, strip, 1));
+	for (std::size_t size{1}; size != 5; ++size)
+	{
+		const std::array<vertex, 2> dots{{
+		    sample_pixel(10.3f + 12 * static_cast<float>(size), 8.6f, {{1, 0.5f, 0, 1}}),
+		    sample_pixel(10.8f + 12 * static_cast<float>(size), 12.1f, {{0, 1, 1, 1}}),
+		}};
+		w.draw(line_draw(topology::points, dots, static_cast<float>(size)));
+	}
+	w.present({.frame = 2});
+	w.clear({.color = true, .depth = true});
+	const auto wall{wall_quad({{{{-1, -1, -2}}, {{-1, 1, -2}}, {{1, 1, -2}}, {{1, -1, -2}}}},
+	                          flat({{0, 0, 0, 1}}), 0)};
+	w.draw(wall_draw(wall));
+	std::vector<vertex> deep;
+	for (std::size_t i{0}; i != 6; ++i)
+	{
+		const float k{static_cast<float>(i)};
+		const float z0{-1.5f - 0.1f * k}, z1{-2.5f + 0.05f * k};
+		deep.push_back({.pos = {{-0.9f + 0.03f * k, -0.95f + 0.1f * k, z0}},
+		                .rgba = {{1, 0.9f, 0.1f * k, 1}},
+		                .uv = {{0, 0}}});
+		deep.push_back({.pos = {{0.9f - 0.02f * k, -0.25f - 0.08f * k, z1}},
+		                .rgba = {{1, 0.9f, 0.1f * k, 1}},
+		                .uv = {{0, 0}}});
+	}
+	draw_call lines3d{wall_draw(deep)};
+	lines3d.topology = topology::lines;
+	lines3d.state.cull = cull::none;
+	lines3d.state.line_width = 1;
+	w.draw(lines3d);
+	w.present({.frame = 3});
+	w.clear({.color = true, .depth = true});
+	const auto eye_line{[](const float x0, const float y0, const float z0, const float x1,
+	                       const float y1, const float z1, const std::array<float, 4> &rgba) {
+		return std::array<vertex, 2>{{{.pos = {{x0, y0, z0}}, .rgba = rgba, .uv = {{0, 0}}},
+		                              {.pos = {{x1, y1, z1}}, .rgba = rgba, .uv = {{0, 0}}}}};
+	}};
+	const auto draw_eye_line{[&w](const std::array<vertex, 2> &v, const float width) {
+		draw_call c{wall_draw(v)};
+		c.topology = topology::lines;
+		c.state.depth = depth::off;
+		c.state.cull = cull::none;
+		c.state.line_width = width;
+		w.draw(c);
+	}};
+	draw_eye_line(eye_line(-0.5f, -0.2f, -1, 0.4f, 0.3f, 1, {{1, 0, 0, 1}}), 1);
+	draw_eye_line(eye_line(0.5f, -0.3f, -1.5f, -0.2f, 0.6f, 2, {{0, 1, 0, 1}}), 2);
+	draw_eye_line(eye_line(0.3f, 0.2f, 1, -0.4f, -0.1f, 3, {{0, 0, 1, 1}}), 1);
+	draw_eye_line(eye_line(0.8f, 0.7f, -3, 0.1f, 0.2f, -0.05f, {{1, 1, 0, 1}}), 1);
+	w.present({.frame = 4});
 	return w.take();
 }
 

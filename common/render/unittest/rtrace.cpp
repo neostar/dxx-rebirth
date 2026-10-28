@@ -350,15 +350,16 @@ namespace {
 
 /* The bytes of the committed trace the i-th argument after `--` names:
  * tools/dev/rtrace-tests.sh passes the sample's, the overbright
- * trace's, the flash trace's, the walls trace's, then the alpha trace's.
+ * trace's, the flash trace's, the walls trace's, the alpha trace's, then the
+ * lines trace's.
  */
 [[nodiscard]]
 bytes committed_trace(const std::size_t i)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
 	BOOST_REQUIRE_MESSAGE(
-	    suite.argc == 6,
-	    "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS ALPHA");
+	    suite.argc == 7,
+	    "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS ALPHA LINES");
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	std::ifstream in{args[i], std::ios::binary};
@@ -406,6 +407,14 @@ BOOST_AUTO_TEST_CASE(walls_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(alpha_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(5) == render::rtrace::alpha_trace()));
+}
+
+/* Test that the committed lines trace is the writer's: its bytes are what
+ * lines_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(lines_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(6) == render::rtrace::lines_trace()));
 }
 
 /* Test the alpha trace on GL (#29): GL_GEQUAL discards a texel whose alpha

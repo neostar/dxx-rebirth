@@ -9,19 +9,22 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample, overbright, flash, walls and alpha traces to compare with their writers, its report
-#   written to a file and read back;
+#   sample, overbright, flash, walls, alpha and lines traces to compare with their writers, its
+#   report written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
 # - rtrace on synthetic/flash.rtr (#30), once: its three pinned lines;
 # - rtrace on synthetic/walls.rtr (#28), once: its three pinned lines;
 # - rtrace on synthetic/alpha.rtr (#29), once: its six pinned lines;
+# - rtrace on synthetic/lines.rtr (#32), once: its five pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
-#   overbright, flash, walls and alpha traces, through no-window.sh and gpu-validate.sh rather than
-#   WRAPPER, each of which must log GL's pinned lines; the pins are Apple's
+#   overbright, flash, walls, alpha and lines traces, through no-window.sh and gpu-validate.sh
+#   rather than WRAPPER, each of which must log GL's pinned lines (the lines trace SDL_GPU's own
+#   on Metal, which differ from GL's by pixels at line ends, within the tolerance test-sdlgpu
+#   holds, #32); the pins are Apple's
 #   GL on Metal, so another driver it names is a SKIP (lavapipe compares
 #   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
 #   driver fails.
@@ -129,7 +132,7 @@ rc=0
 # The replay tests.
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
-	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha"; then
+	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha" "$lines_rtr"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi
@@ -196,6 +199,15 @@ elif ! logs_lines "$tmp/alpha.log" "${expected_alpha[@]}"; then
 	cat "$tmp/alpha.log" >&2
 	rc=1
 fi
+# rtrace on the lines trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$lines_rtr" "$tmp/lines.log"; then
+	echo "rtrace-tests: rtrace on the lines trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/lines.log" "${expected_lines[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the lines trace:" >&2
+	cat "$tmp/lines.log" >&2
+	rc=1
+fi
 # rtrace on the sample's 20-byte header alone, a trace without a frame,
 # must fail; through no-window.sh alone, which keeps the status.
 head -c 20 "$sample" > "$tmp/no-frames.rtr"
@@ -208,7 +220,9 @@ if bounded "$dev_dir/no-window.sh" "$root/$build/common/rtrace" "$tmp/no-frames.
 fi
 # R3: rtrace-gpu, each synthetic trace through SDL_GPU, logs GL's lines.
 rtrace_gpu=$root/build/$profile-sdl3/common/rtrace-gpu
-# Run rtrace-gpu on trace $1, named $2, which must log lines $3....
+# Run rtrace-gpu on trace $1, named $2, which must log lines $3...; they are
+# GL's unless pinned_as says otherwise.
+pinned_as="GL's"
 check_gpu()
 {
 	local trace=$1 name=$2 out=$tmp/gpu-$2 driver gpu_program=$rtrace_gpu
@@ -227,7 +241,7 @@ check_gpu()
 		printf 'SKIP rtrace-gpu (%s, %s): driver %s; the pinned lines are Metal'"'"'s, %s\n' \
 			"$profile" "$name" "$driver" 'FLIP compares other drivers (#25)'
 	elif ! logs_lines "$out.log" "${@:3}"; then
-		echo "rtrace-tests: rtrace-gpu's frame hashes of the $name trace are not GL's:" >&2
+		echo "rtrace-tests: rtrace-gpu's frame hashes of the $name trace are not $pinned_as:" >&2
 		cat "$out.log" >&2
 		return 1
 	fi
@@ -241,6 +255,8 @@ else
 	check_gpu "$flash" flash "${expected_flash[@]}" || rc=1
 	check_gpu "$walls" walls "${expected_walls[@]}" || rc=1
 	check_gpu "$alpha" alpha "${expected_alpha[@]}" || rc=1
+	pinned_as="the pinned Metal ones"
+	check_gpu "$lines_rtr" lines "${expected_lines_metal[@]}" || rc=1
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

@@ -33,6 +33,7 @@ make_rtrace_repo()
 	printf 'a stand-in for the flash trace\n' > "$r/common/render/rtrace/synthetic/flash.rtr"
 	printf 'a stand-in for the walls trace\n' > "$r/common/render/rtrace/synthetic/walls.rtr"
 	printf 'a stand-in for the alpha trace\n' > "$r/common/render/rtrace/synthetic/alpha.rtr"
+	printf 'a stand-in for the lines trace\n' > "$r/common/render/rtrace/synthetic/lines.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$DEV_DIR/rtrace-pins.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -79,6 +80,10 @@ if [[ $1 == *alpha.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
 	exit 0
 fi
+if [[ $1 == *lines.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_LINES0:-0 64x48 43915bf482b8cf4c}" '1 64x48 4b23b29c3834f106' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903' > "$2"
+	exit 0
+fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 EOF
 	cat > "$r/fakes/test-rtrace" <<'EOF'
@@ -117,6 +122,10 @@ if [[ $1 == *walls.rtr ]]; then
 fi
 if [[ $1 == *alpha.rtr ]]; then
 	printf '%s\n' "${FAKE_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
+	exit 0
+fi
+if [[ $1 == *lines.rtr ]]; then
+	printf '%s\n' "${FAKE_LINES0:-0 64x48 a5d12a818955d06e}" '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 14d868bc00457065' '4 64x48 96e0fb1fb76d65bd' > "$2"
 	exit 0
 fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
@@ -360,6 +369,25 @@ test_alpha_lines_are_pinned()
 		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the alpha trace are not GL's:"
+}
+
+# Test that rtrace logging other lines than the lines trace's GL pins fails,
+# and rtrace-gpu logging other lines than its pinned Metal ones, which are
+# not GL's, fails, naming the trace.
+test_lines_pins_are_gl_and_metal()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_LINES0='0 64x48 5555555555555555' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the lines trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_LINES0='0 64x48 5555555555555555' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the lines trace are not the pinned Metal ones:"
+	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
 }
 
 run_tests --parallel

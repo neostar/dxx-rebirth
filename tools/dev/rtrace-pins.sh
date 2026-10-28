@@ -21,3 +21,9 @@ walls=$root/common/render/rtrace/synthetic/walls.rtr
 # The alpha trace (#29).
 expected_alpha=('0 64x48 184a14cee6aceb25' '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925')
 alpha=$root/common/render/rtrace/synthetic/alpha.rtr
+# The lines trace (#32): GL's frames, then SDL_GPU's on Metal.  Frame 2 is
+# the same; the others differ by a few pixels at the ends of lines, which
+# test-sdlgpu holds within the tolerance of ADR 2's pixel-centre rule.
+expected_lines=('0 64x48 a5d12a818955d06e' '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 14d868bc00457065' '4 64x48 96e0fb1fb76d65bd')
+expected_lines_metal=('0 64x48 43915bf482b8cf4c' '1 64x48 4b23b29c3834f106' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903')
+lines_rtr=$root/common/render/rtrace/synthetic/lines.rtr
