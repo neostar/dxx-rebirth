@@ -74,8 +74,16 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
     an x-major line, horizontal for a y-major one; ties at |dx| = |dy| take x-major), with
     Metal's ties as above and no slide: GL's wide ties do not follow the line's direction
     (probed at widths 2 and 3, up and down, left and right; `wide_line_ties_do_not_follow_the_direction_on_gl`).
-    Axis-aligned lines match pixel for pixel. The lines trace's width-2 frame is 10 px off GL,
-    all at the ends of exact 45-degree lines (six of its eight), where GL's end pixel differs.
+    Axis-aligned lines match pixel for pixel. The lines trace's width-2 frame is bit-exact with GL.
+  - **Major axis**: x-major when the endpoints, rounded to a 1/256 pixel grid in window space,
+    have |dx| >= |dy| (`x_major`). GL's float endpoints put |dx| and |dy| of an exact diagonal
+    about 1e-6 pixel apart either way, so a plain comparison picked y-major on all four 45-degree
+    spokes of the lines trace and drew three of them against GL (colours along y where GL runs
+    them along x). On the grid the 135, 225 and 315 degree spokes tie, which is x-major, and the
+    45 degree one is a unit short of a tie and stays y-major, as GL has it
+    (`diagonal_spokes_take_gls_major_axis`). The grid is inferred from these four spokes
+    (several grids and roundings fit them): a hardware vertex grid of 1/256 pixel is the
+    working model, not a measured GL fact.
   - Width 1: GL's diamond-exit rule includes a centre at the line's start and not at its end,
     whichever way it runs. The adapter slides the line 1/256 pixel along itself, away from the
     included end, which moves the ties to GL's. Only ties at pixel centres follow; an endpoint
@@ -84,21 +92,27 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
     1.5 to 2). The game's widths are whole (`linedotscale`).
   - Quads are drawn without culling, as GL culls triangles only.
   - **R3 tolerance** (Metal): on the lines trace (`lines.rtr`), loops, strips and points are
-    bit-exact (frame 2 has GL's hash). The other frames cover GL's pixels but at most 13, 10, 2
-    and 1 of 3072 px in frames 0, 1, 3 and 4, each next to a pixel both cover, plus colour
-    differences (below). GL's golden coverage and colours are `rtrace/lines_coverage.h` and
+    bit-exact (frame 2 has GL's hash). The other frames cover GL's pixels but at most 14, 0, 2
+    and 1 of 3072 px in frames 0, 1, 3 and 4, each
+    next to a pixel both cover, plus colour differences (below). GL's golden coverage and colours are `rtrace/lines_coverage.h` and
     `rtrace/lines_colours.h`; `lines_trace_frames_match_gl_within_the_tolerance` holds the adapter
-    to both. Each coverage difference is one pixel at one end of a line, at most one per end (13
-    of 76 ends in frame 0). The limits stay the measured counts: a rule of one pixel per end
+    to both. Each coverage difference is one pixel at one end of a line, at most one per end (14
+    of 76 ends in frame 0); frame 1 is bit-exact with GL. Five of frame 0's 14 are ends of exact
+    diagonals, where the end pixel is the diamond-exit rule's tie (moving the major axis shifted
+    two of them from one spoke to another: 13 became 14); the other nine are at ends of ordinary
+    lines, inside a pixel's diamond (unmodelled, as in the width-1 bullet). The limits stay the measured counts: a rule of one pixel per end
     would allow 76. Vulkan and D3D12 are judged by FLIP in #37 (R4's bounds).
-  - **Colour along a line** differs from GL's systematically. GL projects the pixel centre onto
-    the line to find the fraction along it; the quad interpolates along the major axis, so the
-    fraction differs by at most 0.5 * width * |minor| / L^2 (L the line's length in pixels, plus
-    a pixel's length at the ends) times the colour range. Every colour difference in frames 0
-    and 1 is on a pixel one line covers; pixels two lines cover match GL exactly. The largest
-    differences: 20 levels (frame 0, 17 px over 2) and 38 (frame 1, 34 px over 2); frames 3 and
-    4 are exact on the pixels both cover. Vertex colours are clamped to [0, 1] before they
-    interpolate, as GL does (`colours_above_one_are_clamped_along_a_clipped_line`).
+  - **Colour along a line** is GL's to the byte on every pixel but 14 of frame 0, which are 1
+    level off in one channel (frame 1, 3 and 4 are exact on the pixels both cover). GL
+    interpolates along the major axis at the pixel's centre, not at the centre's projection onto
+    the line (the earlier model of this paragraph, refuted: the 38-level differences it
+    explained were the three diagonals above running along the wrong axis). The 14 pixels sit
+    on 8 spokes, five of them on the vertical one; GL's value is within 0.45 level of the exact
+    interpolation (round to nearest) and the quad's within 0.6, a half level off in either
+    direction. Cause open: not the 1/256 slide (0.1 level at most); candidates are the
+    rasteriser's attribute precision and the blend's rounding. Vertex colours are clamped to
+    [0, 1] before they interpolate, as GL does
+    (`colours_above_one_are_clamped_along_a_clipped_line`).
   - **Not measured**: the 1/256 pixel slide needs at least 8 subpixel bits. D3D12 has exactly 8
     and keeps the slide only by rounding to nearest; Vulkan guarantees 4 (#37 checks). Wide lines
     and points at a sub-viewport's edge: GL spills fragments past the viewport (only the scissor
