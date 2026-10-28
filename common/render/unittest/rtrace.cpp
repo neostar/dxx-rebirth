@@ -22,6 +22,7 @@
 #include <iomanip>
 #include <ios>
 #include <iterator>
+#include <set>
 #include <span>
 #include <sstream>
 #include <stdexcept>
@@ -570,6 +571,44 @@ BOOST_AUTO_TEST_CASE(alpha_test_discards_below_the_reference_on_gl)
 	BOOST_TEST(black(4) == 0u);
 	/* A reference of 1 keeps only the texel of alpha 1, equal to it. */
 	BOOST_TEST(black(5) == 15 * block);
+}
+
+/* Test what GL keeps of 64 levels in each font format (#33), measured on
+ * Apple's GL on Metal: GL_RGBA2 keeps all eight bits of every channel, so
+ * its frames are the RGBA8 ones; GL_LUMINANCE4_ALPHA4 and GL_INTENSITY4
+ * keep eight bits of red and sample it as the colour (intensity also as
+ * alpha), so every texel is a grey of the red the RGBA8 frame shows.  No
+ * format is quantized to its name's bit depth, so SDL_GPU needs no
+ * quantization: test-sdlgpu's fonts_trace_frames_match_gl holds it to
+ * these frames.
+ */
+BOOST_AUTO_TEST_CASE(gl_keeps_the_font_formats_at_eight_bits)
+{
+	const auto o{replay_on_gl(render::rtrace::fonts_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 11u);
+	const auto &rgba8_colour{o.frames[0].rgb};
+	const auto &rgba8_alpha{o.frames[1].rgb};
+	/* The control: the RGBA8 frame holds all 64 levels of red, so the
+	 * equal frames below are not equal for being flattened alike. */
+	std::set<std::uint8_t> reds;
+	for (std::size_t i{0}; i != rgba8_colour.size(); i += 3)
+		reds.insert(rgba8_colour[i]);
+	BOOST_TEST(reds.size() == 64u);
+	BOOST_TEST((o.frames[2].rgb == rgba8_colour));
+	BOOST_TEST((o.frames[3].rgb == rgba8_alpha));
+	for (const std::size_t f : {4u, 6u})
+		for (std::size_t i{0}; i != rgba8_colour.size(); i += 3)
+			BOOST_TEST_CONTEXT("frame " << f << " byte " << i)
+			{
+				BOOST_TEST(o.frames[f].rgb[i] == rgba8_colour[i]);
+				BOOST_TEST(o.frames[f].rgb[i + 1] == rgba8_colour[i]);
+				BOOST_TEST(o.frames[f].rgb[i + 2] == rgba8_colour[i]);
+			}
+	/* The alpha ramps: L4A4 keeps eight bits of alpha; intensity4's alpha
+	 * is its red, 255 in a white texel, so the frame is the white texture. */
+	BOOST_TEST((o.frames[5].rgb == rgba8_alpha));
+	BOOST_TEST(every_pixel_is(o.frames[7].rgb, {{255, 255, 255}}));
 }
 
 /* Test the depth band trace on GL (#28): between the near plane and twice

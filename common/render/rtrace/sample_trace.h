@@ -14,7 +14,8 @@
  * and walls.rtr, lit walls in perspective, depth-tested and culled (#28);
  * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29); and
  * lines.rtr, lines, points and strips (#32); and oversize.rtr, viewports
- * reaching past the target (#18).
+ * reaching past the target (#18); and fonts.rtr, the font formats' ramps
+ * and text (#33).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -28,6 +29,9 @@
 #include <span>
 #include <vector>
 
+#include "common/render/ambient.h"
+#include "common/render/blit.h"
+#include "common/render/palette_expand.h"
 #include "common/render/render_device.h"
 #include "common/render/trace.h"
 
@@ -691,4 +695,190 @@ inline std::vector<std::uint8_t> oversize_trace()
 	w.present({.frame = 1});
 	return w.take();
 }
+
+/* The texels of the ramp and font textures. */
+inline constexpr std::size_t ramp_texels{std::size_t{8} * 8};
+inline constexpr std::size_t font_texels{std::size_t{16} * 8};
+
+/* The formats the ramp trace measures, in frame order (two frames each). */
+inline constexpr std::array<texture_format, 4> ramp_formats{
+    {texture_format::rgba8, texture_format::rgba2, texture_format::luminance4_alpha4,
+	 texture_format::intensity4}};
+
+/* The 8x8 texture of the ramp trace: 64 levels i * 4, the palette's six
+ * bits scaled to eight (palette_expand.h).  With ramps_alpha false, red
+ * runs up with the texel, green down and blue scrambles, alpha 255; with
+ * it true, the colour is white and alpha runs up.
+ */
+struct ramp_texture
+{
+	std::vector<std::uint8_t> rgba;
+	texture_image image;
+	ramp_texture(const texture_format format, const bool ramps_alpha)
+	    : rgba{[ramps_alpha] {
+		      std::vector<std::uint8_t> p(ramp_texels * 4);
+		      for (std::size_t i{0}; i != 64; ++i)
+		      {
+			      const auto level{
+			          [](const std::size_t v) { return static_cast<std::uint8_t>(v * 4); }};
+			      p[i * 4] = ramps_alpha ? std::uint8_t{255} : level(i);
+			      p[i * 4 + 1] = ramps_alpha ? std::uint8_t{255} : level(63 - i);
+			      p[i * 4 + 2] = ramps_alpha ? std::uint8_t{255} : level(i * 7 % 64);
+			      p[i * 4 + 3] = ramps_alpha ? level(i) : std::uint8_t{255};
+		      }
+		      return p;
+	      }()},
+	      image{{.size = {8, 8},
+		         .format = format,
+		         .filter = filter::nearest,
+		         .anisotropic = false,
+		         .has_transparency = ramps_alpha},
+		        rgba}
+	{}
+	ramp_texture(const ramp_texture &) = delete;
+	ramp_texture &operator=(const ramp_texture &) = delete;
+	ramp_texture(ramp_texture &&) = delete;
+	ramp_texture &operator=(ramp_texture &&) = delete;
+	~ramp_texture() = default;
+};
+
+/* The font atlas of the text frames: 16 by 8 palette indices, glyphs of
+ * index 1 (a palette colour for rgba2) on 255, the transparent one, with a
+ * run of 254, the super-transparent one, in the third glyph.
+ */
+inline constexpr std::array<std::uint8_t, font_texels> font_indices{[] {
+	std::array<std::uint8_t, font_texels> p{};
+	for (std::size_t i{0}; i != p.size(); ++i)
+	{
+		const std::size_t x{i % 16}, y{i / 16};
+		const bool ink{(x % 8 == y) || (x % 8 + y == 7) || x % 8 == 0};
+		p[i] = ink ? std::uint8_t{1} : std::uint8_t{255};
+		if (x >= 10 && x < 13 && y == 4)
+			p[i] = 254;
+	}
+	return p;
+}()};
+
+/* The palette the font atlas is expanded with: index 1 is (40, 20, 60) of
+ * 63, every other entry black.
+ */
+struct font_palette_entry
+{
+	std::uint8_t r, g, b;
+};
+
+struct font_palette
+{
+	[[nodiscard]]
+	font_palette_entry operator[](const std::size_t i) const
+	{
+		return i == 1 ? font_palette_entry{.r = 40, .g = 20, .b = 60}
+		              : font_palette_entry{.r = 0, .g = 0, .b = 0};
+	}
+};
+
+/* The font atlas as a texture image of format, expanded from the palette
+ * indices as the front end does (palette_expand.h).
+ */
+struct font_texture
+{
+	std::vector<std::uint8_t> rgba;
+	texture_image image;
+	explicit font_texture(const texture_format format)
+	    : rgba(font_texels * 4), image{{.size = {16, 8},
+		                                .format = format,
+		                                .filter = filter::nearest,
+		                                .anisotropic = false,
+		                                .has_transparency = true},
+		                               rgba}
+	{
+		expand_palette(font_palette{},
+		               {.indices = font_indices,
+		                .stride = 16,
+		                .x = 0,
+		                .y = 0,
+		                .size = {16, 8},
+		                .transparent = true,
+		                .super_transparent = format == texture_format::luminance4_alpha4},
+		               format, {16, 8}, rgba);
+	}
+	font_texture(const font_texture &) = delete;
+	font_texture &operator=(const font_texture &) = delete;
+	font_texture(font_texture &&) = delete;
+	font_texture &operator=(font_texture &&) = delete;
+	~font_texture() = default;
+};
+
+/* The fonts trace's bytes (#33): what the three font formats keep, and
+ * text in them.  Frames 0 to 7, for each of ramp_formats (rgba8 as the
+ * reference, rgba2, luminance4_alpha4, intensity4), the colour ramp of
+ * ramp_texture over the target unblended, then the alpha ramp blended
+ * over black; texel (x, y) fills the 8 by 6 pixels at column x * 8, row
+ * y * 6 from the bottom.  Frames 8 to 10, text: the glyphs of a 16 by 8
+ * atlas (font_indices), expanded as rgba2, luminance4_alpha4 and
+ * intensity4, blitted as the front end blits a string (ambient state,
+ * blit_vertices, bitmap_uv) in three vertex colours, one of them
+ * translucent, over a grey quad.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> fonts_trace()
+{
+	trace::writer w{sample_target};
+	const auto whole{sample_quad(flat({{1, 1, 1, 1}}), 1)};
+	std::uint32_t frame{0};
+	std::uint32_t slot{1};
+	for (const auto f : ramp_formats)
+		for (const bool alpha : {false, true})
+		{
+			const ramp_texture t{f, alpha};
+			w.texture({slot}, &t.image);
+			w.clear({.color = true, .depth = true});
+			draw_call c{sample_draw(topology::fan, whole)};
+			c.texture = {slot};
+			c.state.blend = alpha ? blend::normal : blend::none;
+			c.state.alpha_ref = alpha_test_off;
+			w.draw(c);
+			w.present({.frame = frame++});
+			++slot;
+		}
+	const auto grey{sample_flat_quad({{0.3f, 0.3f, 0.3f, 1}})};
+	for (const auto f :
+	     {texture_format::rgba2, texture_format::luminance4_alpha4, texture_format::intensity4})
+	{
+		const font_texture t{f};
+		w.texture({slot}, &t.image);
+		w.clear({.color = true, .depth = true});
+		w.draw(sample_draw(topology::fan, grey));
+		ambient a;
+		a.viewport = {.x = 0, .y = 0, .size = sample_target};
+		const std::array<std::array<float, 16>, 3> tints{{
+		    {{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}},
+		    {{1, 0.2f, 0.2f, 1, 1, 0.2f, 0.2f, 1, 0.2f, 1, 0.2f, 1, 0.2f, 1, 0.2f, 1}},
+		    {{0.2f, 0.4f, 1, 0.6f, 0.2f, 0.4f, 1, 0.6f, 0.2f, 0.4f, 1, 0.6f, 0.2f, 0.4f, 1, 0.6f}},
+		}};
+		for (std::size_t g{0}; g != 3; ++g)
+		{
+			const int gx{g == 2 ? 8 : 0}, gy{g == 1 ? 4 : 0};
+			const auto uv{bitmap_uv({.x = gx,
+			                         .y = gy,
+			                         .w = 8,
+			                         .h = 4,
+			                         .tex_w = 16,
+			                         .tex_h = 8,
+			                         .tex_tw = 16,
+			                         .tex_th = 8,
+			                         .u = 1,
+			                         .v = 1})};
+			const auto v{
+			    blit_vertices(canvas_rect(4 + static_cast<int>(g) * 20,
+				                          10 + static_cast<int>(g) * 8, 16, 8, sample_target),
+				              uv, tints[g])};
+			w.draw(a.fan(v, {slot}));
+		}
+		w.present({.frame = frame++});
+		++slot;
+	}
+	return w.take();
+}
+
 }
