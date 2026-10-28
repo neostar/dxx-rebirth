@@ -60,20 +60,29 @@ run_check()
 }
 
 # Make a throwaway source tree with an allow list naming the adapter, an
-# empty pending list and one source with no GL call.  Prints the tree's path.
+# empty pending list and one source with no GL call, in a git repository
+# (the text pass reads the tracked files).  Prints the tree's path.
 make_text_tree()
 {
 	local t
-	t=$(make_scratch) || die "make_scratch failed"
+	t=$(make_repo) || die "make_repo failed"
 	printf 'int main() { return 0; }\n' > "$t/main.cpp"
 	printf '^common/render/gl_device\\.cpp$\n' > "$t/allow"
 	: > "$t/pending"
 	printf '%s\n' "$t"
 }
 
-run_text()
+# Run the text pass on tree $1 as it is, tracking nothing new.
+run_text_as_is()
 {
 	python3 "$CHECK" text "$1" "$1/allow" "$1/pending" 2>&1
+}
+
+# Track everything in tree $1 (as a commit would), then run the text pass.
+run_text()
+{
+	tgit -C "$1" add -A -f || die "tracking the tree failed"
+	run_text_as_is "$1"
 }
 
 # Test that a GL call in game code is reported at its line and fails, and
@@ -245,6 +254,54 @@ test_text_pass_counts_calls_and_ignores_text_that_is_not_code()
 	out=$(run_text "$t") && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "allows 3 but has 2: lower it"
+}
+
+# Test that the text pass reads the tracked files only (git ls-files): an
+# untracked file with a GL call, such as the docs/reference mirror or a
+# scratch file, never counts, and the same file tracked fails.
+test_text_pass_reads_tracked_files_only()
+{
+	local t out rc
+	t=$(make_text_tree) || die "make_text_tree failed"
+	mkdir -p "$t/similar" "$t/docs/reference"
+	tgit -C "$t" add -A || die "tracking the tree failed"
+	printf 'void f() { glFlush(); }\n' > "$t/docs/reference/mirror.c"
+	printf 'void f() { glFlush(); }\n' > "$t/similar/scratch.cpp"
+	out=$(run_text_as_is "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "gl_calls (text): 0 GL call(s)"
+	tgit -C "$t" add similar/scratch.cpp || die "tracking scratch.cpp failed"
+	out=$(run_text_as_is "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "similar/scratch.cpp"
+	assert_not_contains "$out" "mirror.c"
+}
+
+# Test that a tracked file deleted in the working tree is skipped, not a
+# crash of the text pass.
+test_text_pass_skips_a_tracked_file_deleted_in_the_working_tree()
+{
+	local t out rc
+	t=$(make_text_tree) || die "make_text_tree failed"
+	printf 'void f() { glFlush(); }\n' > "$t/gone.cpp"
+	tgit -C "$t" add -A -f || die "tracking the tree failed"
+	rm "$t/gone.cpp"
+	out=$(run_text_as_is "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "gl_calls (text): 0 GL call(s)"
+}
+
+# Test that the text pass fails, not passes, where it cannot list the
+# tracked files: a ROOT that is no git repository.
+test_text_pass_fails_outside_a_repository()
+{
+	local t out rc
+	t=$(make_scratch) || die "make_scratch failed"
+	printf 'int main() { return 0; }\n' > "$t/main.cpp"
+	printf '^x$\n' > "$t/allow"; : > "$t/pending"
+	out=$(run_text_as_is "$t") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "cannot list the tracked files"
 }
 
 # Test that a text pass that finds no C or C++ source fails, as from a

@@ -8,11 +8,15 @@
 #   python3 check_gl_calls.py text ROOT [ALLOW [PENDING]]
 #       The text pass (check.sh --fast): no dependency but Python.  It strips
 #       comments, string literals and #define lines from every C and C++
-#       source under ROOT (outside third_party, build*, traces and dot
-#       directories) and matches `glFoo(`, `gluFoo(` and the front end's
-#       OGL_ENABLE, OGL_DISABLE and OGL_BINDTEXTURE macros.  It sees every
+#       source tracked by git under ROOT (git ls-files: an untracked file,
+#       the docs/reference mirror among them, never counts; third_party,
+#       build*, traces and dot directories are left out) and matches
+#       `glFoo(`, `gluFoo(` and the front end's OGL_ENABLE, OGL_DISABLE and
+#       OGL_BINDTEXTURE macros.  It sees every
 #       preprocessor branch of every file, also those a build leaves out.
-#       A ROOT with no such source fails.
+#       A tracked file deleted in the working tree is skipped; an unstaged
+#       new file is not read (the gate sees commits).
+#       A ROOT with no such source, or that is no git repository, fails.
 #   python3 check_gl_calls.py clang ROOT BUILD_DIR CLANG_QUERY [ALLOW [PENDING]]
 #       The precise pass (check.sh): clang-query on every translation unit of
 #       BUILD_DIR/compile_commands.json (build/dev) lists the calls of a
@@ -93,23 +97,47 @@ def strip_text(text):
 	return re.sub(r'(?m)^[ \t]*#[ \t]*define\b[^\n]*(?:\\\n[^\n]*)*', blank, text)
 
 
-def text_hits(root):
+def tracked_sources(root):
+	"""Return the tracked C and C++ sources under root (git ls-files), as
+	paths below it, or None when git cannot list them.  A tracked file
+	deleted in the working tree is left out."""
+	try:
+		out = subprocess.run(['git', '-C', root, 'ls-files', '-z'], capture_output=True,
+			check=True).stdout
+	except (OSError, subprocess.CalledProcessError):
+		return None
+	paths = []
+	for rel in out.decode('utf-8', errors='replace').split('\0'):
+		parts = rel.split('/')
+		if (rel.endswith(SOURCE) and parts[0] not in SKIP_DIRS
+				and not any(d.startswith(('.', 'build')) for d in parts[:-1])
+				and os.path.exists(os.path.join(root, rel))):
+			paths.append(os.path.join(root, rel))
+	return paths
+
+
+def text_hits(root, problems):
 	"""Return ({(path, line, column)} of the GL calls the text pass sees, the
-	number of sources it read)."""
+	number of sources it read).  It reads the tracked files only, so an
+	untracked mirror or scratch file never counts; where git cannot list
+	them it adds a problem."""
 	hits, sources = set(), 0
-	for directory, subdirs, names in os.walk(root):
-		subdirs[:] = [d for d in subdirs
-			if not d.startswith(('.', 'build')) and not (directory == root and d in SKIP_DIRS)]
-		for name in names:
-			if not name.endswith(SOURCE):
-				continue
-			path = os.path.join(directory, name)
-			sources += 1
+	paths = tracked_sources(root)
+	if paths is None:
+		problems.append(f'cannot list the tracked files under {root} (git ls-files): '
+			'is ROOT a git repository?')
+		return hits, sources
+	for path in paths:
+		sources += 1
+		try:
 			with open(path, encoding='utf-8', errors='replace') as f:
 				text = strip_text(f.read())
-			for number, line in enumerate(text.split('\n'), 1):
-				for m in TEXT_CALL.finditer(line):
-					hits.add((path, number, m.start() + 1))
+		except OSError as e:
+			problems.append(f'cannot read the tracked file {path}: {e.strerror}')
+			continue
+		for number, line in enumerate(text.split('\n'), 1):
+			for m in TEXT_CALL.finditer(line):
+				hits.add((path, number, m.start() + 1))
 	return hits, sources
 
 
@@ -248,8 +276,8 @@ def main(argv):
 			return 0
 		found, problems = clang_hits(root, build_dir, clang_query)
 	else:
-		found, sources = text_hits(root)
-		if not sources:
+		found, sources = text_hits(root, problems)
+		if not sources and not problems:
 			problems.append(f'no C or C++ source under {root}: wrong ROOT?')
 	outside, pending = compare(root, found, allow_path, pending_path, problems)
 	for p in problems[:20]:
