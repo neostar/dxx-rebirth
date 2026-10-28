@@ -23,16 +23,6 @@ namespace {
 
 using bytes = std::vector<std::uint8_t>;
 
-[[nodiscard]]
-render::texture_desc desc_of(const render::filter f, const bool anisotropic)
-{
-	return {.size = {.width = 64, .height = 16},
-	        .format = render::texture_format::rgba8,
-	        .filter = f,
-	        .anisotropic = anisotropic,
-	        .has_transparency = false};
-}
-
 }
 
 /* Test that a full chain runs down to 1x1: one level more than the base-2
@@ -49,18 +39,6 @@ BOOST_AUTO_TEST_CASE(chain_runs_down_to_one_texel)
 	            render::extent{.width = 4, .height = 1}));
 	BOOST_TEST((render::next_mip_extent({.width = 4, .height = 1}) ==
 	            render::extent{.width = 2, .height = 1}));
-}
-
-/* Test that GL's rule decides the levels kept: the full chain for a
- * trilinear or an anisotropic texture, the base alone for a nearest one
- * without anisotropy.
- */
-BOOST_AUTO_TEST_CASE(levels_follow_gls_mipmap_rule)
-{
-	BOOST_TEST(render::mip_levels_of(desc_of(render::filter::nearest, false)) == 1u);
-	BOOST_TEST(render::mip_levels_of(desc_of(render::filter::nearest, true)) == 7u);
-	BOOST_TEST(render::mip_levels_of(desc_of(render::filter::trilinear, false)) == 7u);
-	BOOST_TEST(render::mip_levels_of(desc_of(render::filter::trilinear, true)) == 7u);
 }
 
 /* Test the 2x2 box filter's rounding: four texels summing to 7 in a

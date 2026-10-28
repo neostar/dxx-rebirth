@@ -26,6 +26,7 @@
 #include <string_view>
 
 #include "common/render/caps.h"
+#include "common/render/mipmaps.h"
 #include "common/render/render_device.h"
 
 namespace dcx::render::sdlgpu {
@@ -165,6 +166,20 @@ constexpr sampler_choice choose_sampler(const render::filter f, const bool want_
 	const bool anisotropic{want_anisotropy && caps.common.anisotropic &&
 	                       (linear || caps.anisotropy_with_nearest)};
 	return {.linear = linear, .linear_mipmap = linear || anisotropic, .anisotropic = anisotropic};
+}
+
+/* How many levels the adapter keeps of a texture of d: GL's whole chain
+ * where the texture's sampler reads mipmaps (choose_sampler), else the
+ * base alone.  Like GL, which builds none for nearest without anisotropy,
+ * a nearest texture whose anisotropy the device drops (D3D12, or no
+ * anisotropy at all) keeps one level.
+ */
+[[nodiscard]]
+constexpr std::uint32_t mip_levels_of(const render::texture_desc &d, const device_caps &caps)
+{
+	return choose_sampler(d.filter, d.anisotropic, caps).linear_mipmap
+	           ? render::mip_level_count(d.size)
+			   : 1u;
 }
 
 }

@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "common/render/device.h"
-#include "common/render/mipmaps.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/sdlgpu_clears.h"
@@ -309,7 +308,12 @@ sampler_handle create_sampler(SDL_GPUDevice *const d, resource_ledger &l, const 
 	info.address_mode_w = address;
 	info.max_anisotropy = choice.anisotropic ? caps.max_anisotropy : 1.f;
 	info.enable_anisotropy = choice.anisotropic;
-	info.max_lod = 1000.f;
+	/* Without linear mipmaps the sampler is GL_NEAREST's, which reads the
+	 * base level alone; its texture keeps that level alone too
+	 * (mip_levels_of), also where the sampler dropped the anisotropy it
+	 * asked for (D3D12, or no anisotropy at all).
+	 */
+	info.max_lod = choice.linear_mipmap ? 1000.f : 0.f;
 	return {d, SDL_CreateGPUSampler(d, &info), &l, "SDL_CreateGPUSampler"};
 }
 
@@ -867,12 +871,12 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 	}
 	if (image == nullptr)
 	{
-		s.record.texture(slot, nullptr);
+		s.record.texture(slot, nullptr, 1);
 		s.textures.erase(slot.index);
 		return;
 	}
 	const extent size{image->desc().size};
-	const std::uint32_t levels{mip_levels_of(image->desc())};
+	const std::uint32_t levels{mip_levels_of(image->desc(), s.caps)};
 	/* The record and the handles change together or not at all: the new
 	 * handle and the map's node are made first, the record changes, and
 	 * only then does the handle take the node.
@@ -884,7 +888,7 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 		if (inserted || t->second.size != size || t->second.levels != levels)
 			fresh = create_target(s.gpu.get(), *s.ledger, color_format,
 			                      SDL_GPU_TEXTUREUSAGE_SAMPLER, size, no_clears, levels);
-		s.record.texture(slot, image);
+		s.record.texture(slot, image, levels);
 	}
 	catch (...)
 	{

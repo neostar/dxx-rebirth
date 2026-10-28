@@ -164,8 +164,8 @@ class device final : public render::device
 	 * pixels upload as RGBA8, as GL samples them: an RGB image with alpha
 	 * 255, a luminance image as a grey of its red, an intensity image as
 	 * its red in all four channels; no format is quantized (ADR 2).  A
-	 * trilinear or anisotropic texture also gets GL's mipmaps
-	 * (mipmaps.h).  Throws std::invalid_argument on texture_slot::none.
+	 * texture whose sampler reads mipmaps also gets GL's (mipmaps.h,
+	 * mip_levels_of).  Throws std::invalid_argument on texture_slot::none.
 	 */
 	void texture(texture_slot slot, const texture_image *image) override;
 

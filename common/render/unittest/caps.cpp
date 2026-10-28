@@ -247,6 +247,35 @@ BOOST_AUTO_TEST_CASE(sampler_choice_over_every_combination)
 	}
 }
 
+/* Test that a texture keeps its whole mip chain only where its sampler
+ * reads mipmaps: a trilinear one always, a nearest anisotropic one where
+ * the anisotropy stays (Metal, Vulkan); on D3D12, whose nearest sampler
+ * drops it, or on a device without anisotropy, it keeps its base alone,
+ * as a plain nearest one does.
+ */
+BOOST_AUTO_TEST_CASE(texture_keeps_the_levels_its_sampler_reads)
+{
+	const auto desc{[](const render::filter f, const bool anisotropic) {
+		return render::texture_desc{.size = {.width = 64, .height = 16},
+		                            .format = render::texture_format::rgba8,
+		                            .filter = f,
+		                            .anisotropic = anisotropic,
+		                            .has_transparency = false};
+	}};
+	constexpr auto nearest{render::filter::nearest};
+	constexpr auto trilinear{render::filter::trilinear};
+	const auto metal{caps_with(true)};
+	const auto d3d12{caps_with(false)};
+	auto none{caps_with(true)};
+	none.common.anisotropic = false;
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(nearest, false), metal) == 1u);
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(nearest, true), metal) == 7u);
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(nearest, true), d3d12) == 1u);
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(nearest, true), none) == 1u);
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(trilinear, false), none) == 7u);
+	BOOST_TEST(sdlgpu::mip_levels_of(desc(trilinear, true), d3d12) == 7u);
+}
+
 /* Test that the probe carries the query's answer into the caps, and that
  * only Metal and Vulkan are said to allow nearest anisotropy.
  */

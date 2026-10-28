@@ -729,6 +729,24 @@ BOOST_AUTO_TEST_CASE(filters_trace_frames_are_metals_pinned_ones)
 	           boost::test_tools::per_element());
 }
 
+/* Test that without anisotropy every filter looks as it does on GL
+ * without it, as on a device whose caps lack anisotropy: an anisotropic
+ * texture is drawn as the same texture without it.  A nearest texture
+ * then samples its base level alone, as GL_NEAREST does, though the
+ * adapter keeps its mipmaps; D3D12's nearest sampler, which drops
+ * anisotropy (device_caps::anisotropy_with_nearest), is this sampler.
+ */
+BOOST_AUTO_TEST_CASE(filters_without_anisotropy_ignore_the_ask)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::filters_trace(), false, 1)};
+	BOOST_REQUIRE(frames.size() == 6u);
+	for (std::size_t i{0}; i != 6; i += 2)
+		BOOST_TEST_CONTEXT("frames " << i << " and " << i + 1)
+		{
+			BOOST_TEST(frames[i + 1].hash == frames[i].hash);
+		}
+}
+
 /* Test that a slot given a trilinear image after a nearest one of the
  * same size gets the mip levels the new image needs: the filters texture
  * drawn into 2x2 pixels, where its fourth level shows, reads back as the

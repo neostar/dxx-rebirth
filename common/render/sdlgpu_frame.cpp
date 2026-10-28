@@ -167,7 +167,8 @@ void frame::draw(const draw_call &call)
 	    .count = count});
 }
 
-void frame::texture(const texture_slot slot, const texture_image *const image)
+void frame::texture(const texture_slot slot, const texture_image *const image,
+                    const std::uint32_t levels)
 {
 	if (slot == texture_slot::none)
 		throw std::invalid_argument("sdlgpu: texture_slot::none holds no texture");
@@ -214,7 +215,6 @@ void frame::texture(const texture_slot slot, const texture_image *const image)
 	 * the copy gives what GL's levels sample.
 	 */
 	pending_upload u{.slot = slot, .size = d.size, .levels = {}};
-	const std::uint32_t levels{mip_levels_of(d)};
 	u.levels.reserve(levels);
 	u.levels.push_back(std::move(base));
 	for (extent s{d.size}; u.levels.size() < levels; s = next_mip_extent(s))

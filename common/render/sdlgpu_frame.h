@@ -407,12 +407,13 @@ class frame
 	{
 		records_.emplace_back(targets);
 	}
-	/* Gives slot image, copied, uploaded when the frame is encoded; a null
-	 * image releases the slot.  A slot given twice uploads the last image.
-	 * Change no slot that samples() names: the device encodes the frame
-	 * first.  Throws std::invalid_argument on texture_slot::none.
+	/* Gives slot image, copied, uploaded when the frame is encoded with
+	 * levels of GL's mip chain (mip_levels_of); a null image releases the
+	 * slot.  A slot given twice uploads the last image.  Change no slot
+	 * that samples() names: the device encodes the frame first.  Throws
+	 * std::invalid_argument on texture_slot::none.
 	 */
-	void texture(texture_slot slot, const texture_image *image);
+	void texture(texture_slot slot, const texture_image *image, std::uint32_t levels);
 	/* The draws whose viewport reached past the target, since the frame
 	 * was made: clamped to it (fit_viewport), or dropped with no pixel of
 	 * it inside.

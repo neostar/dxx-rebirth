@@ -43,16 +43,6 @@ constexpr extent next_mip_extent(const extent size)
 	return {.width = std::max(size.width / 2u, 1u), .height = std::max(size.height / 2u, 1u)};
 }
 
-/* How many levels the adapter keeps of a texture of desc: GL builds the
- * chain for a trilinear texture and for an anisotropic one, and keeps one
- * level of any other (gl_device.cpp's upload).
- */
-[[nodiscard]]
-constexpr std::uint32_t mip_levels_of(const texture_desc &d)
-{
-	return d.filter == filter::trilinear || d.anisotropic ? mip_level_count(d.size) : 1u;
-}
-
 /* The level after the one of size whose RGBA rows rgba holds, as GLU's
  * halveImage_ubyte makes it: each texel the mean of the 2x2 block it
  * replaces, rounded half up ((a + b + c + d + 2) / 4); once one side is 1,

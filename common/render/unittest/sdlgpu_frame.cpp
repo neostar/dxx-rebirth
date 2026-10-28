@@ -588,7 +588,7 @@ BOOST_AUTO_TEST_CASE(textured_draw_binds_its_texture_and_sampler)
 {
 	sdlgpu::frame f{target};
 	const auto image{image_of({2, 2}, two_by_two, render::filter::trilinear, true)};
-	f.texture({1}, &image);
+	f.texture({1}, &image, 2);
 	quad repeat{{.wrap = render::wrap::repeat}};
 	repeat.call.texture = {1};
 	quad clamp{{.wrap = render::wrap::clamp}};
@@ -625,16 +625,16 @@ BOOST_AUTO_TEST_CASE(one_plan_covers_vertices_and_texture_rows)
 {
 	sdlgpu::frame f{target};
 	const auto first{image_of({2, 2}, two_by_two)};
-	f.texture({1}, &first);
+	f.texture({1}, &first, 1);
 	std::array<std::uint8_t, 64> rgb_pixels{};
 	rgb_pixels.fill(7);
 	const auto rgb{
 	    image_of({4, 4}, rgb_pixels, render::filter::nearest, false, render::texture_format::rgb8)};
-	f.texture({2}, &rgb);
+	f.texture({2}, &rgb, 1);
 	std::array<std::uint8_t, 16> again{};
 	again.fill(9);
 	const auto second{image_of({2, 2}, again)};
-	f.texture({1}, &second);
+	f.texture({1}, &second, 1);
 	const quad q;
 	f.draw(q.call);
 	counting_commands c;
@@ -680,7 +680,7 @@ BOOST_AUTO_TEST_CASE(font_formats_upload_the_texel_gl_samples)
 	for (const auto format : formats)
 		images.push_back(image_of({2, 2}, pixels, render::filter::nearest, false, format));
 	for (std::uint32_t i{0}; i != 3; ++i)
-		f.texture({i + 1}, &images[i]);
+		f.texture({i + 1}, &images[i], 1);
 	const quad q;
 	f.draw(q.call);
 	counting_commands c;
@@ -699,8 +699,9 @@ BOOST_AUTO_TEST_CASE(font_formats_upload_the_texel_gl_samples)
  * at its own multiple of 512 bytes: a 4x2 texture's red of 0 to 70 halves
  * to 2x1 texels of 25 and 45 ((0 + 10 + 40 + 50 + 2) / 4 and
  * (20 + 30 + 60 + 70 + 2) / 4), then to 1x1 of 35 ((25 + 45) / 2); an
- * anisotropic nearest texture gets its chain too, a plain nearest one its
- * base alone.
+ * anisotropic nearest texture gets its chain too where the device keeps
+ * it, a plain nearest one, or one the device keeps one level of, its base
+ * alone.
  */
 BOOST_AUTO_TEST_CASE(trilinear_texture_uploads_its_mip_chain)
 {
@@ -714,21 +715,22 @@ BOOST_AUTO_TEST_CASE(trilinear_texture_uploads_its_mip_chain)
 	const auto trilinear{image_of({4, 2}, pixels, render::filter::trilinear)};
 	const auto anisotropic{image_of({4, 2}, pixels, render::filter::nearest, true)};
 	const auto nearest{image_of({4, 2}, pixels)};
-	f.texture({1}, &trilinear);
-	f.texture({2}, &anisotropic);
-	f.texture({3}, &nearest);
+	f.texture({1}, &trilinear, 3);
+	f.texture({2}, &anisotropic, 3);
+	f.texture({3}, &nearest, 1);
+	f.texture({4}, &anisotropic, 1);
 	counting_commands c;
 	(void)f.encode(c, none);
-	BOOST_REQUIRE(c.texture_rows.size() == 7u);
+	BOOST_REQUIRE(c.texture_rows.size() == 8u);
 	const std::array<render::extent, 3> sizes{{{4, 2}, {2, 1}, {1, 1}}};
 	const std::array<std::vector<std::uint8_t>, 3> levels{
 	    {{pixels.begin(), pixels.end()}, {25, 0, 0, 255, 45, 0, 0, 255}, {35, 0, 0, 255}}};
-	for (std::uint32_t i{0}; i != 7; ++i)
+	for (std::uint32_t i{0}; i != 8; ++i)
 		BOOST_TEST_CONTEXT("rows " << i)
 		{
 			const auto &r{c.texture_rows[i]};
 			const std::uint32_t level{i < 6 ? i % 3 : 0};
-			BOOST_TEST((r.slot == render::texture_slot{i / 3 + 1}));
+			BOOST_TEST((r.slot == render::texture_slot{i < 6 ? i / 3 + 1 : i - 3}));
 			BOOST_TEST(r.level == level);
 			BOOST_TEST((r.size == sizes.at(level)));
 			BOOST_TEST(r.offset == std::size_t{512} * i);
@@ -743,7 +745,7 @@ BOOST_AUTO_TEST_CASE(texture_alone_uploads_without_a_pass)
 {
 	sdlgpu::frame f{target};
 	const auto image{image_of({2, 2}, two_by_two)};
-	f.texture({3}, &image);
+	f.texture({3}, &image, 1);
 	counting_commands c;
 	(void)f.encode(c, none);
 	BOOST_TEST(c.uploads == 1u);
@@ -764,8 +766,8 @@ BOOST_AUTO_TEST_CASE(frame_tells_which_slots_its_draws_sample)
 {
 	sdlgpu::frame f{target};
 	const auto image{image_of({2, 2}, two_by_two)};
-	f.texture({1}, &image);
-	f.texture({2}, &image);
+	f.texture({1}, &image, 1);
+	f.texture({2}, &image, 1);
 	quad q;
 	q.call.texture = {1};
 	f.draw(q.call);
@@ -786,8 +788,8 @@ BOOST_AUTO_TEST_CASE(textured_draw_of_empty_slot_is_refused)
 	q.call.texture = {1};
 	BOOST_CHECK_THROW(f.draw(q.call), std::invalid_argument);
 	const auto image{image_of({2, 2}, two_by_two)};
-	f.texture({1}, &image);
-	f.texture({1}, nullptr);
+	f.texture({1}, &image, 1);
+	f.texture({1}, nullptr, 1);
 	BOOST_CHECK_THROW(f.draw(q.call), std::invalid_argument);
 	counting_commands c;
 	BOOST_TEST(!f.encode(c, none));
@@ -807,8 +809,8 @@ BOOST_AUTO_TEST_CASE(alpha_test_pipeline_only_where_it_can_discard)
 	const auto clear_img{image_of({2, 2}, two_by_two, render::filter::nearest, false,
 	                              render::texture_format::rgba8, true)};
 	const auto solid_img{image_of({2, 2}, two_by_two)};
-	f.texture({1}, &clear_img);
-	f.texture({2}, &solid_img);
+	f.texture({1}, &clear_img, 1);
+	f.texture({2}, &solid_img, 1);
 	const auto with{[](const float ref, const render::texture_slot slot, const float alpha) {
 		auto q{std::make_unique<quad>(render::draw_state{.alpha_ref = ref})};
 		for (auto &v : q->vertices)
