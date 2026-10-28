@@ -236,7 +236,7 @@ fails). `SDL_HINT_MAC_BACKGROUND_APP` keeps the process from becoming frontmost 
 **Left to us.** Which mechanism per platform; where it is chosen.
 
 **Recommendation.** One request flag (`hidden`) into the platform module, adding only
-`SDL_WINDOW_HIDDEN` as `DXX_DBG_HIDDEN` does today (`similar/arch/ogl/gr.cpp:864-876`). The rest
+`SDL_WINDOW_HIDDEN` as `DXX_DBG_HIDDEN` does in the SDL2 build (`gr_init`, `similar/arch/ogl/gr.cpp`). The rest
 comes from the environment: macOS uses cocoa with `SDL_MAC_BACKGROUND_APP=1` from
 `tools/dev/no-window.sh:22` (proven for GL hashes); Linux uses `SDL_VIDEO_DRIVER=offscreen` in
 the container for GL via EGL, the one Linux path that needs no compositor; SDL_GPU on
@@ -269,32 +269,40 @@ notes.
 
 ## Design
 
-The **platform module** is fork code (proposed home `common/platform/`, ADR 3's "window/surface
-module"). It is a deep module: window creation, renderer claim, fullscreen state, pixel size,
-visibility and pacing sit behind a small interface; upstream files call it from their
-`#elif SDL_MAJOR_VERSION == 3` arms (ADR 3), so SDL3 knowledge has locality in one directory.
+The **platform module** is fork code in `common/sdl/` (ADR 3's "window/surface module"): window
+creation, renderer claim, fullscreen state, visibility and pacing sit behind a small interface;
+upstream files call it from their `#elif SDL_MAJOR_VERSION == 3` arms (ADR 3), so SDL3 knowledge
+has locality in one directory.
 
 Interface (what a caller must know):
 
-- `open(display_request) -> display` — the request holds renderer preference (GL, or SDL_GPU
-  with a driver name), fullscreen flag, windowed size in window coordinates and `hidden`. It
-  creates the GPU device first, falls back to GL with a logged reason (#52), creates the window
-  with the matching flag, claims it or makes the GL context current, then sets the swap
-  interval. The result owns all three (RAII) and exposes the **render device** (ADR 2) the front
-  end already uses. The game never learns which renderer won, except through `caps`.
-- `display.pixel_size()`, `display.set_fullscreen(bool)` — fullscreen is a request; the new size
-  arrives as the game's existing `d_window_size_event`, translated from `PIXEL_SIZE_CHANGED`.
-- `display.handle(const SDL_Event &)` — the one place window events go; it updates the visibility
-  state and forwards size events.
-- `frame_pacer` — a pure kernel: given now, the target period, visibility and whether multiplayer
-  needs polling, it returns how long to sleep. Clock and sleep are injected; adapters are SDL
-  (`SDL_GetTicksNS`, `SDL_DelayNS`/`SDL_DelayPrecise`) and a fake for unit tests, the
-  conventions' "pure kernel in a small header" pattern.
+- `open_display(display_request, ops) -> display` (`common/sdl/display.h`) — the request holds
+  renderer preference (GL, or SDL_GPU with a driver name), fullscreen, borderless, windowed size
+  in window coordinates, `hidden` and vsync. It creates the GPU device first, falls back to GL
+  with a logged reason (#52), creates the window with the matching flag, claims it or makes the
+  GL context current, then sets the swap interval and syncs the window. The result owns device,
+  window, claim and context (RAII) and the window's `window_state`. `ops` is SDL
+  (`sdl_display_ops`) or a fake for unit tests.
+- `window_state` (`common/sdl/window_state.h`) — a pure kernel of the window's visibility and
+  fullscreen, fed translated events (`window_event_of`). Fullscreen is a request: it keeps the
+  last request, which toggles flip and SDL's ENTER/LEAVE_FULLSCREEN move, and starts from
+  `SDL_GetWindowFlags` after the sync, pending flags included.
+- `gr_toggle_fullscreen` and `gr_handle_window_event` (`similar/arch/ogl/gr.cpp`) — the game's
+  side. The toggle asks SDL for the opposite of the last request. `event_poll` hands every window
+  event to the handler, the one place they go: for the game's own window it updates
+  `window_state`, follows a confirmed fullscreen change into `CGameCfg.WindowMode`, and, when the
+  window's pixel size now (`SDL_GetWindowSizeInPixels`) differs from the canvas, sets the mode
+  and sends the game's existing `d_window_size_event` (`react_to_window_event` is its testable
+  part). `gr_window_visibility` gives the pacer the visibility.
+- `frame_pacer` (`common/sdl/frame_pacer.h`) — a pure kernel: given now, the target period,
+  visibility and whether multiplayer needs polling, it returns how long to sleep. Clock and sleep
+  are injected; adapters are SDL (`SDL_GetTicksNS`, `SDL_DelayNS`/`SDL_DelayPrecise`) and a fake
+  for unit tests, the conventions' "pure kernel in a small header" pattern.
 
 Seams:
 
 - **Renderer** — the render device seam already exists with two real adapters (GL, SDL_GPU), so
-  the claim belongs inside `open`, not in the game. Only the platform module knows that SDL_GPU
+  the claim belongs inside `open_display`, not in the game. Only the platform module knows that SDL_GPU
   converts the window in place and GL needs a context.
 - **Platform** — SDL itself is the adapter: differences arrive as hints set once before
   `SDL_Init` and as queries (pixel density, content scale, window flags). No `__APPLE__` or
