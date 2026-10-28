@@ -100,9 +100,12 @@ cannot sit inside a render pass (S4 `:2550-2575`, `:8869-8925`). D3D12 without o
    keep the high-water mark.
 3. Tight rows (`pixels_per_row = 0`) at 512-byte aligned offsets. Power-of-two widths from 64 up
    already have 256-byte rows; narrower ones cost D3D12 a realignment copy without options 13.
+   Every mip chain adds such levels: each one under 64 px wide is narrow (#34).
 4. A slot re-uploaded after a draw in the same frame used it ends the render pass; the next pass
    loads colour and depth (area 3). Rare; M3 counts it.
-5. **Movies (#36)**: one persistent texture, uploaded with `cycle=true` per movie frame.
+5. **Movies (#36)**: one persistent texture, uploaded with `cycle=true` per movie frame. With
+   MovieTexFilt on, a movie frame is trilinear and gets GL's whole mip chain every frame, as GL
+   builds it (#34).
 6. `read_pixels` downloads from the offscreen target, since "The swapchain texture is write-only"
    (S0 `:4337`), and waits on a fence.
 
@@ -179,7 +182,9 @@ querying feature support" (S0 `:145-148`) and offers queries where hardware diff
   there. SDL has no query, so the probe decides by driver name (`SDL_GetGPUDeviceDriver`: true
   for "metal" and "vulkan" only). Evidence: the WARP run's `CreateSampler2: Filter unrecognized`.
 - **Mipmaps**: `SDL_GenerateMipmapsForGPUTexture` needs SAMPLER and COLOR_TARGET usage and runs
-  outside a pass (S1 `:3097-3106`).
+  outside a pass (S1 `:3097-3106`). The adapter does not use it: it builds GLU's chain on the
+  CPU (`common/render/mipmaps.h`) and uploads every level, since SDL's blit is each backend's
+  own filter (ADR 2, #34).
 - **Present modes**: VSYNC always; Metal adds IMMEDIATE on macOS only, no MAILBOX
   (S3 `:3734-3748`); D3D12 all three (S5 `:6682-6705`); Vulkan what the surface reports.
 - **GPU-side HiDPI**: the acquire call fills in the swapchain's width and height

@@ -8,6 +8,7 @@ Amended 2026-10-27 (#28): the depth pairing rule.
 Amended 2026-10-28 (#32): the pixel-centre rule for lines and points.
 Amended 2026-10-28 (owner, #29): the depth band keeps `discard` on every depth-tested draw.
 Amended 2026-10-29 (#33): the font formats are not quantized; the adapter uploads the texel GL samples.
+Amended 2026-10-29 (#34): SDL_GPU builds GL's mipmaps; the FLIP bound of each texture filter.
 
 ## Context
 
@@ -145,6 +146,34 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   game's intensity4 and luminance4_alpha4 texels are 0 and 255, exact at any UNORM depth. Only
   `GL_RGBA2` could differ, with palette colours, used only under `-gl_intensity4_ok 0
   -gl_luminance4_alpha4_ok 0`.
+- **Mipmaps and filters** (#34): GL builds a trilinear or anisotropic texture's mipmaps with
+  `gluBuild2DMipmaps`, on the CPU. SDL_GPU builds the same chain (`common/render/mipmaps.h`:
+  a 2x2 mean rounded half up, a mean of two truncated once a side is 1) and uploads every
+  level. Measured on Apple's GL (M1 Max, macOS 26.7): `glGetTexImage` of every level equals
+  the chain (test-rtrace's `gl_mipmaps_are_glus_box_filter`); SDL's
+  `SDL_GenerateMipmapsForGPUTexture` is the backend's own filter (a blit), so it is not used.
+  A sampler without linear mipmaps reads the base level alone, as `GL_NEAREST` does; D3D12's
+  nearest sampler drops anisotropy (`device_caps::anisotropy_with_nearest`), so the classic
+  filter with anisotropy looks there as classic without it.
+  - **FLIP per filter** (LDR-FLIP mean of a frame against GL's, the filters trace,
+    `filters.rtr`): Metal measures classic 0.0079 (5 of 3072 px, each taking another
+    minified nearest texel, up to 225 levels off), classic with anisotropy 0.00008, upscale and trilinear 0.0005, each with
+    anisotropy 0.0008 (at most one level off in a channel, on 2 to 38 px); without mipmaps
+    the filtered frames measured 0.12 to 0.23. Metal's frames are pinned as its own
+    (`expected_filters_metal`), as the lines trace's are, and `rtrace-tests.sh` holds them to
+    GL's frames by those pixel counts and levels (`filters_gl_tolerance`). The bound #37 holds Vulkan and
+    D3D12 to on this trace, per frame: classic 0.02, every other filter 0.01, both inside
+    R4's worst-frame 0.03. D3D12's classic frame with anisotropy is held to the classic bound
+    against GL's classic frame: GL's classic frame against GL's anisotropic one measures
+    0.24, the look the decided D3D12 sampler gives up. The bounds are first values: #37
+    calibrates them from the Vulkan and D3D12 runs.
+  - **Minified nearest is not bit-exact on Metal.** Classic is the game's default filter,
+    and in-game scenes are full of distant minified textures, so R4's "Metal bit-exact"
+    will likely fail on scenes for this reason, as on #18's opaque texel ties. The cause is
+    not measured: the classic frame's 3x magnified quad matches GL exactly, so the texel
+    centre is right; sample-coordinate precision under strong minification is more likely
+    than exact ties. R4's Metal rule for minified nearest is the owner's decision in #37
+    ([comment](https://github.com/neostar/dxx-rebirth/issues/37#issuecomment-6484114572)).
 - GL-only features (quad-buffer stereo, `copy_region`) stay behind `caps`.
 - No command list in the interface; SDL_GPU collects a frame internally and submits at `present`.
 

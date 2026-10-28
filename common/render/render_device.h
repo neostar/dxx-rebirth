@@ -313,7 +313,11 @@ enum class texture_format : std::uint8_t
 };
 
 /* nearest: GL_NEAREST (with anisotropy, GL_NEAREST_MIPMAP_LINEAR and
- * mipmaps); trilinear: GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR and mipmaps.
+ * mipmaps, where the backend allows anisotropy on a nearest sampler:
+ * device_caps::anisotropy_with_nearest, false on D3D12, which draws it as
+ * plain GL_NEAREST); trilinear: GL_LINEAR, GL_LINEAR_MIPMAP_LINEAR and
+ * mipmaps.  The game's upscale filter is trilinear on a texture of four
+ * times the side.
  */
 enum class filter : std::uint8_t
 {
