@@ -68,7 +68,7 @@ test_generate_writes_one_header_per_source()
 	fake_dxc "$bin"
 	out=$(DXX_DXC="$bin/dxc" "$SHADERS/generate.sh" "$d" 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_eq "$(cd "$d/generated" && ls)" "$(printf 'pos_color_uv_vert.h\ntex_modulate_frag.h')"
+	assert_eq "$(cd "$d/generated" && ls)" "$(printf 'pos_color_uv_vert.h\ntex_modulate_frag.h\ntex_opaque_frag.h')"
 	assert_contains "$(cat "$bin/dxc.log")" "-T vs_6_0 -E main"
 	assert_contains "$(cat "$bin/dxc.log")" "-T ps_6_0 -E main"
 	assert_contains "$(cat "$d/generated/tex_modulate_frag.h")" "std::uint32_t samplers{1};"
@@ -220,7 +220,7 @@ test_build_keeps_headers_on_failure()
 		die "make_build_tree failed"
 	out=$(DXX_DXC=/nonexistent/dxc "$t/tools/shaders/build.sh" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "tex_modulate_frag.h"
+	assert_contains "$out" "tex_modulate"
 	assert_eq "$(cat "$t"/shaders/generated/*.h)" "$(printf 'committed\n%.0s' 1 2 3)"
 }
 
@@ -233,7 +233,7 @@ test_build_replaces_headers_from_container()
 		die "make_build_tree failed"
 	out=$(DXX_DXC=/nonexistent/dxc "$t/tools/shaders/build.sh" 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_eq "$(cd "$t/shaders/generated" && ls)" "$(printf 'pos_color_uv_vert.h\ntex_modulate_frag.h')"
+	assert_eq "$(cd "$t/shaders/generated" && ls)" "$(printf 'pos_color_uv_vert.h\ntex_modulate_frag.h\ntex_opaque_frag.h')"
 	cmp -s "$t/shaders/generated/tex_modulate_frag.h" "$REPO_ROOT/shaders/generated/tex_modulate_frag.h" ||
 		fail "tex_modulate_frag.h is not the container's"
 }

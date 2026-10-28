@@ -13,18 +13,23 @@
 
 #include "common/render/sdlgpu_frame.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <set>
 #include <span>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include "common/render/ambient.h"
 #include "common/render/device.h"
 #include "common/render/render_device.h"
+#include "shaders/generated/tex_modulate_frag.h"
+#include "shaders/generated/tex_opaque_frag.h"
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth sdlgpu frame
@@ -219,8 +224,8 @@ constexpr render::clear_targets none{.color = false, .depth = false};
 
 }
 
-/* Test that every pipeline key has its own place in the pipeline set and
- * that key_at gives the key back.
+/* Test that every pipeline key, with or without the alpha test, has its own
+ * place in the pipeline set and that key_at gives the key back.
  */
 BOOST_AUTO_TEST_CASE(pipeline_keys_fill_the_set_once)
 {
@@ -229,15 +234,17 @@ BOOST_AUTO_TEST_CASE(pipeline_keys_fill_the_set_once)
 	                     render::blend::additive_c, render::blend::palfx_neg, render::blend::none})
 		for (const auto z : {render::depth::off, render::depth::test_and_write})
 			for (const auto c : {render::cull::none, render::cull::front})
-			{
-				const sdlgpu::pipeline_key k{.blend = b, .depth = z, .cull = c};
-				const auto i{sdlgpu::index_of(k)};
-				BOOST_TEST(i < sdlgpu::pipeline_set_size);
-				BOOST_TEST((sdlgpu::key_at(i) == k));
-				seen.insert(i);
-			}
-	BOOST_TEST(seen.size() == 20u);
-	BOOST_CHECK_THROW((void)sdlgpu::key_at(20), std::out_of_range);
+				for (const bool t : {false, true})
+				{
+					const sdlgpu::pipeline_key k{
+					    .blend = b, .depth = z, .cull = c, .alpha_test = t};
+					const auto i{sdlgpu::index_of(k)};
+					BOOST_TEST(i < sdlgpu::pipeline_set_size);
+					BOOST_TEST((sdlgpu::key_at(i) == k));
+					seen.insert(i);
+				}
+	BOOST_TEST(seen.size() == 40u);
+	BOOST_CHECK_THROW((void)sdlgpu::key_at(40), std::out_of_range);
 }
 
 /* Test that every sampler key, a filter, a wrap and whether the texture
@@ -267,16 +274,18 @@ BOOST_AUTO_TEST_CASE(sampler_keys_fill_the_set_once)
 }
 
 /* Test that the pipeline cache is keyed by the draw state's blend, depth
- * and cull: states differing in alpha reference, wrap or line width share
- * a pipeline, and a state differing in blend does not.
+ * and cull and by whether the shader discards (frame::draw decides that):
+ * states differing in alpha reference, wrap or line width share a
+ * pipeline, and a state differing in blend does not.
  */
 BOOST_AUTO_TEST_CASE(pipeline_key_is_blend_depth_cull)
 {
 	const render::draw_state a{};
 	const render::draw_state b{.alpha_ref = 0.5f, .wrap = render::wrap::repeat, .line_width = 3};
 	const render::draw_state c{.blend = render::blend::additive_a};
-	BOOST_TEST((sdlgpu::key_of(a) == sdlgpu::key_of(b)));
-	BOOST_TEST(sdlgpu::index_of(sdlgpu::key_of(a)) != sdlgpu::index_of(sdlgpu::key_of(c)));
+	BOOST_TEST((sdlgpu::key_of(a, false) == sdlgpu::key_of(b, false)));
+	BOOST_TEST(sdlgpu::index_of(sdlgpu::key_of(a, false)) !=
+	           sdlgpu::index_of(sdlgpu::key_of(c, false)));
 }
 
 /* Test that three equal-state quads cost one upload, one pass and one bind
@@ -363,7 +372,8 @@ BOOST_AUTO_TEST_CASE(perspective_draw_runs_with_its_matrix)
 	BOOST_TEST(d.vertex.modelview == moved, boost::test_tools::per_element());
 	BOOST_TEST((d.key == sdlgpu::pipeline_key{.blend = render::blend::normal,
 	                                          .depth = render::depth::test_and_write,
-	                                          .cull = render::cull::front}));
+	                                          .cull = render::cull::front,
+	                                          .alpha_test = true}));
 }
 
 /* Test that the bind cache calls SDL only on change: a new blend binds a
@@ -514,13 +524,14 @@ namespace {
 render::texture_image image_of(const render::extent size, const std::span<const std::uint8_t> rgba,
                                const render::filter filter = render::filter::nearest,
                                const bool anisotropic = false,
-                               const render::texture_format format = render::texture_format::rgba8)
+                               const render::texture_format format = render::texture_format::rgba8,
+                               const bool has_transparency = false)
 {
 	return {{.size = size,
 	         .format = format,
 	         .filter = filter,
 	         .anisotropic = anisotropic,
-	         .has_transparency = false},
+	         .has_transparency = has_transparency},
 	        rgba};
 }
 
@@ -665,4 +676,80 @@ BOOST_AUTO_TEST_CASE(textured_draw_of_empty_slot_is_refused)
 	counting_commands c;
 	BOOST_TEST(!f.encode(c, none));
 	BOOST_TEST(c.uploads == 0u);
+}
+
+/* Test that the shader discards only where the alpha test can change a
+ * pixel (#29): a draw of a texture with transparent pixels runs the
+ * discarding pipeline at a reference above 0 (the front end's 0.02 and
+ * 0.8), a draw of an opaque texture or at reference 0 (alpha_test_off)
+ * does not, and an opaque draw whose vertex alpha is below the reference
+ * does, as GL discards it.  The reference reaches the shader either way.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_pipeline_only_where_it_can_discard)
+{
+	sdlgpu::frame f{target};
+	const auto clear_img{image_of({2, 2}, two_by_two, render::filter::nearest, false,
+	                              render::texture_format::rgba8, true)};
+	const auto solid_img{image_of({2, 2}, two_by_two)};
+	f.texture({1}, &clear_img);
+	f.texture({2}, &solid_img);
+	const auto with{[](const float ref, const render::texture_slot slot, const float alpha) {
+		auto q{std::make_unique<quad>(render::draw_state{.alpha_ref = ref})};
+		for (auto &v : q->vertices)
+			v.rgba[3] = alpha;
+		q->call.texture = slot;
+		return q;
+	}};
+	std::vector<std::unique_ptr<quad>> quads;
+	/* 0: transparent texture at 0.02; 1: at 0.8; 2: alpha test off. */
+	quads.push_back(with(0.02f, {1}, 1));
+	quads.push_back(with(0.8f, {1}, 1));
+	quads.push_back(with(render::alpha_test_off, {1}, 1));
+	/* 3: opaque texture; 4: opaque texture, vertex alpha under the reference;
+	 * 5: untextured, opaque; 6: untextured, alpha under the reference. */
+	quads.push_back(with(0.8f, {2}, 1));
+	quads.push_back(with(0.8f, {2}, 0.5f));
+	quads.push_back(with(0.8f, render::texture_slot::none, 1));
+	quads.push_back(with(0.02f, render::texture_slot::none, 0.01f));
+	/* 7: opaque texture, depth tested: the discarding shader, until the
+	 * depth band is decided (needs_alpha_test). */
+	quads.push_back(with(0.8f, {2}, 1));
+	quads.back()->call.state.depth = render::depth::test_and_write;
+	for (const auto &q : quads)
+		f.draw(q->call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == quads.size());
+	const std::array<bool, 8> expected{{true, true, false, false, true, false, true, true}};
+	for (std::size_t i{0}; i != expected.size(); ++i)
+		BOOST_TEST(c.draws[i].key.alpha_test == expected[i], "draw " << i);
+	BOOST_TEST(c.draws[1].fragment.alpha_ref == 0.8f);
+	BOOST_TEST(c.draws[3].fragment.alpha_ref == 0.8f);
+}
+
+namespace {
+
+/* Whether the MSL source in code names the MSL discard, which only a shader
+ * that can discard a fragment holds.
+ */
+[[nodiscard]]
+bool discards(const std::span<const std::uint8_t> msl)
+{
+	constexpr std::string_view discard{"discard_fragment"};
+	return std::search(msl.begin(), msl.end(), discard.begin(), discard.end(),
+	                   [](const std::uint8_t a, const char b) {
+		                   return a == static_cast<std::uint8_t>(b);
+	                   }) != msl.end();
+}
+
+}
+
+/* Test that the shader of a pipeline with the alpha test discards and the
+ * shader of one without it does not (#29): the committed MSL of
+ * tex_modulate and of tex_opaque.
+ */
+BOOST_AUTO_TEST_CASE(only_the_alpha_test_shader_discards)
+{
+	BOOST_TEST(discards(dcx::shaders::tex_modulate_frag::msl));
+	BOOST_TEST(!discards(dcx::shaders::tex_opaque_frag::msl));
 }

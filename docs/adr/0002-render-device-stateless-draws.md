@@ -47,14 +47,21 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   band does not tie: test-sdlgpu's `depth_band_keeps_the_nearer` draws a quad at 0.12 deep,
   then one at 0.18 behind it, and the frame has GL's hash (test-rtrace's
   `depth_band_keeps_the_nearer_on_gl`), 0 px off; at equal depth the later quad covers
-  432 px, so the test sees a tie. Why the device and the probe differ is not known. Vulkan
+  432 px, so the test sees a tie. The device's order in the band depends on the discarding
+  shader (measured, #29): without the depth-tested exemption in `needs_alpha_test`,
+  `depth_band_keeps_the_nearer` (192 blue px, wrong hash) and `depth_test_keeps_the_nearer`
+  (3072 px) go red. The mechanism is inferred, not documented: a shader with `discard` takes
+  Apple's late depth-test path, which evidently skips the viewport clamp (SDL sets
+  `MTLDepthClipModeClamp` per pipeline). This rests on undocumented Apple-GPU behaviour an OS
+  update could change; the exemption is that dependency. Vulkan
   (#25) and D3D12 (WARP) are not measured. Open for the owner: whether to change the model
   for the band; T9's screen of 48 combinations found no other bit-exact one.
 - The **front end** (`similar/arch/ogl`) keeps the game's current blend and alpha reference, as GL
   did, and builds each draw state from them. Game code calling `gr_settransblend` is unchanged.
   `render::ambient::fan(vertices, texture)` (`common/render/ambient.h`) builds the common case's
   self-contained draw call from that state.
-- Textures live in the front end's existing pool; `has_transparency` lets SDL_GPU skip `discard`.
+- Textures live in the front end's existing pool; `has_transparency` lets SDL_GPU skip `discard`, except that a vertex alpha below the
+  reference also needs it and every depth-tested draw keeps it (the depth band, above).
 - GL-only features (quad-buffer stereo, `copy_region`) stay behind `caps`.
 - No command list in the interface; SDL_GPU collects a frame internally and submits at `present`.
 

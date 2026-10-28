@@ -33,27 +33,66 @@
 namespace dcx::render::sdlgpu {
 
 /* What selects a pipeline of the closed set: the draw state's blend, depth
- * and cull.  Alpha reference, wrap and line width are uniform, sampler and
- * CPU state (research #71, area 3).
+ * and cull, and whether the fragment shader may discard (alpha_test, #29:
+ * on Apple GPUs a discarding shader makes opaque draws slower, so draws
+ * the alpha test cannot change use the shader without it).  Alpha
+ * reference, wrap and line width are uniform, sampler and CPU state
+ * (research #71, area 3).
  */
 struct pipeline_key
 {
 	render::blend blend{render::blend::normal};
 	render::depth depth{render::depth::off};
 	render::cull cull{render::cull::none};
+	bool alpha_test{false};
 	constexpr bool operator==(const pipeline_key &) const = default;
 };
 
 inline constexpr std::size_t blend_count{5};
 inline constexpr std::size_t depth_count{2};
 inline constexpr std::size_t cull_count{2};
-/* The closed pipeline set: one pipeline per key, built at creation. */
-inline constexpr std::size_t pipeline_set_size{blend_count * depth_count * cull_count};
+/* The closed pipeline set: one pipeline per key, built at creation.  The
+ * (test_and_write, alpha_test false) pipelines are reserved for when
+ * needs_alpha_test's depth-tested exemption goes; all 40 cost 476 ms to build
+ * with a cold OS shader cache, 7.8-13 ms after.
+ */
+inline constexpr std::size_t pipeline_set_size{blend_count * depth_count * cull_count * 2};
+
+/* Whether a draw runs the discarding shader.  Where the alpha test can
+ * change a pixel: the reference is above 0 (alpha_test_off discards
+ * nothing) and either the draw's texture has transparent pixels or a
+ * vertex alpha, clamped to [0, 1] as GL clamps it, is below the reference
+ * (an interpolated alpha is never below the least vertex alpha); an opaque
+ * texture under opaque vertices has alpha 1 throughout.
+ *
+ * Every depth-tested draw takes the discarding shader as well, for now: on
+ * Metal the shader without discard depth-tests early, and there the depth
+ * clamp ties every fragment with z_ndc below 0 at the viewport's minimum
+ * (the band ADR 2's depth pairing rule records), where the discarding one
+ * keeps GL's order; test-sdlgpu's depth_test_keeps_the_nearer and
+ * depth_band_keeps_the_nearer go red without this line.  Whether to change
+ * the depth model, and so drop it, is the owner's call (#28).
+ */
+[[nodiscard]]
+constexpr bool needs_alpha_test(const draw_state &s, const bool transparent_texture,
+                                const std::span<const vertex> vertices)
+{
+	if (s.depth == render::depth::test_and_write)
+		return true;
+	if (!(s.alpha_ref > 0))
+		return false;
+	if (transparent_texture)
+		return true;
+	for (const auto &v : vertices)
+		if (!(v.rgba[3] >= s.alpha_ref))
+			return true;
+	return false;
+}
 
 [[nodiscard]]
-constexpr pipeline_key key_of(const draw_state &s)
+constexpr pipeline_key key_of(const draw_state &s, const bool alpha_test)
 {
-	return {.blend = s.blend, .depth = s.depth, .cull = s.cull};
+	return {.blend = s.blend, .depth = s.depth, .cull = s.cull, .alpha_test = alpha_test};
 }
 
 /* The key's place in the pipeline set, below pipeline_set_size.  Throws
@@ -67,7 +106,7 @@ constexpr std::size_t index_of(const pipeline_key &k)
 	const std::size_t c{std::to_underlying(k.cull)};
 	if (b >= blend_count || z >= depth_count || c >= cull_count)
 		throw std::out_of_range("sdlgpu: a draw state outside the pipeline set");
-	return (b * depth_count + z) * cull_count + c;
+	return ((b * depth_count + z) * cull_count + c) * 2 + (k.alpha_test ? 1 : 0);
 }
 
 /* The key at index i of the pipeline set: index_of's inverse. */
@@ -76,9 +115,10 @@ constexpr pipeline_key key_at(const std::size_t i)
 {
 	if (i >= pipeline_set_size)
 		throw std::out_of_range("sdlgpu: past the pipeline set");
-	return {.blend = static_cast<render::blend>(i / (depth_count * cull_count)),
-	        .depth = static_cast<render::depth>(i / cull_count % depth_count),
-	        .cull = static_cast<render::cull>(i % cull_count)};
+	return {.blend = static_cast<render::blend>(i / (depth_count * cull_count * 2)),
+	        .depth = static_cast<render::depth>(i / (cull_count * 2) % depth_count),
+	        .cull = static_cast<render::cull>(i / 2 % cull_count),
+	        .alpha_test = i % 2 != 0};
 }
 
 /* What selects a sampler of the closed sampler set: the texture's filter

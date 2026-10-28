@@ -33,6 +33,7 @@
 #include "common/sdl/sdl_wrap_gpu.h"
 #include "shaders/generated/pos_color_uv_vert.h"
 #include "shaders/generated/tex_modulate_frag.h"
+#include "shaders/generated/tex_opaque_frag.h"
 
 namespace dcx::render::sdlgpu {
 
@@ -380,6 +381,9 @@ struct vertex_blobs
 	static constexpr auto dxil_entry_point{shaders::pos_color_uv_vert::dxil_entry_point};
 };
 
+/* The fragment shader with the alpha test (discard below alpha_ref), and
+ * the one without it, which draws that the test cannot change use (#29).
+ */
 struct fragment_blobs
 {
 	static constexpr auto &msl{shaders::tex_modulate_frag::msl};
@@ -388,6 +392,16 @@ struct fragment_blobs
 	static constexpr auto msl_entry_point{shaders::tex_modulate_frag::msl_entry_point};
 	static constexpr auto spirv_entry_point{shaders::tex_modulate_frag::spirv_entry_point};
 	static constexpr auto dxil_entry_point{shaders::tex_modulate_frag::dxil_entry_point};
+};
+
+struct opaque_fragment_blobs
+{
+	static constexpr auto &msl{shaders::tex_opaque_frag::msl};
+	static constexpr auto &spirv{shaders::tex_opaque_frag::spirv};
+	static constexpr auto &dxil{shaders::tex_opaque_frag::dxil};
+	static constexpr auto msl_entry_point{shaders::tex_opaque_frag::msl_entry_point};
+	static constexpr auto spirv_entry_point{shaders::tex_opaque_frag::spirv_entry_point};
+	static constexpr auto dxil_entry_point{shaders::tex_opaque_frag::dxil_entry_point};
 };
 
 [[nodiscard]]
@@ -441,7 +455,7 @@ SDL_GPUColorTargetBlendState blend_state(const render::blend b)
 	return s;
 }
 
-/* The closed pipeline set, indexed by (blend, depth, cull), clipping depth
+/* The closed pipeline set, indexed by (blend, depth, cull, alpha test), clipping depth
  * as asked; returns how long it took, shaders included (M6).
  */
 std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger &l,
@@ -456,6 +470,9 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 	const auto fragment{create_shader(
 	    d, l, pick_code<fragment_blobs>(formats), SDL_GPU_SHADERSTAGE_FRAGMENT,
 	    shaders::tex_modulate_frag::samplers, shaders::tex_modulate_frag::uniform_buffers)};
+	const auto opaque_fragment{create_shader(
+	    d, l, pick_code<opaque_fragment_blobs>(formats), SDL_GPU_SHADERSTAGE_FRAGMENT,
+	    shaders::tex_opaque_frag::samplers, shaders::tex_opaque_frag::uniform_buffers)};
 	SDL_GPUVertexBufferDescription buffer{};
 	buffer.slot = 0;
 	buffer.pitch = sizeof(render::vertex);
@@ -478,13 +495,13 @@ std::chrono::nanoseconds build_pipelines(SDL_GPUDevice *const d, resource_ledger
 	/* In the set's order, so that index_of finds each key's pipeline. */
 	for (std::size_t i{0}; i != pipeline_set_size; ++i)
 	{
-		const auto [b, z, c]{key_at(i)};
+		const auto [b, z, c, alpha_test]{key_at(i)};
 		SDL_GPUColorTargetDescription target{};
 		target.format = color_format;
 		target.blend_state = blend_state(b);
 		SDL_GPUGraphicsPipelineCreateInfo info{};
 		info.vertex_shader = vertex.get();
-		info.fragment_shader = fragment.get();
+		info.fragment_shader = alpha_test ? fragment.get() : opaque_fragment.get();
 		info.vertex_input_state.vertex_buffer_descriptions = &buffer;
 		info.vertex_input_state.num_vertex_buffers = 1;
 		info.vertex_input_state.vertex_attributes = attributes.data();

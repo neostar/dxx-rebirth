@@ -43,8 +43,8 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   copied to the GPU before the frame's first render pass; it grows and keeps its size.
 - **Bind cache**: what the frame record's encoder has bound (pipeline, viewport, vertex buffer
   and texture per pass; uniform blocks per command buffer), so it calls SDL only on a change.
-- **Pipeline set**: the SDL_GPU adapter's closed set of 20 graphics pipelines, one per (blend,
-  depth, cull) of a draw state, built at device creation; `pipeline_key` selects one.
+- **Pipeline set**: the SDL_GPU adapter's closed set of 40 graphics pipelines, one per (blend,
+  depth, cull, alpha test) of a draw state, built at device creation; `pipeline_key` selects one.
 - **Sampler set**: the SDL_GPU adapter's closed set of 8 samplers, one per (filter, wrap,
   anisotropy) of a textured draw, built at device creation; `sampler_key` selects one.
 - **Trace**: a recorded sequence of render-device calls (`.rtr`), replayed by `rtrace`: the render

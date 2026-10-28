@@ -5,3 +5,4 @@ tools/dev/requirements.lock
 tools/dev/style/clang-tidy-checks
 shaders/generated/pos_color_uv_vert.h
 shaders/generated/tex_modulate_frag.h
+shaders/generated/tex_opaque_frag.h
