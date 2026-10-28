@@ -266,3 +266,59 @@ BOOST_AUTO_TEST_CASE(sdl_window_events_translate)
 	e.type = SDL_EVENT_WINDOW_MOVED;
 	BOOST_TEST(!dcx::sdl::window_event_of(e).has_value());
 }
+
+namespace {
+
+using dcx::sdl::pixel_size;
+
+constexpr SDL_WindowID main_window{7};
+constexpr pixel_size canvas{640, 480};
+
+SDL_Event window_event(const SDL_EventType type, const SDL_WindowID id, const pixel_size data = {})
+{
+	SDL_Event e{};
+	e.type = type;
+	e.window.windowID = id;
+	e.window.data1 = data.width;
+	e.window.data2 = data.height;
+	return e;
+}
+
+}
+
+/* Test that another window's events change nothing: the game reacts only
+ * to its own window.
+ */
+BOOST_AUTO_TEST_CASE(another_windows_events_are_ignored)
+{
+	dcx::sdl::window_state s{false};
+	const auto r{dcx::sdl::react_to_window_event(
+	    s, window_event(SDL_EVENT_WINDOW_OCCLUDED, main_window + 1), main_window,
+	    [] { return canvas; }, canvas)};
+	BOOST_TEST(!r.has_value());
+	BOOST_TEST((s.vis() == dcx::visibility::visible));
+	BOOST_TEST(dcx::sdl::react_to_window_event(
+	               s, window_event(SDL_EVENT_WINDOW_OCCLUDED, main_window), main_window,
+	               [] { return canvas; }, canvas)
+	               .has_value());
+	BOOST_TEST((s.vis() == dcx::visibility::hidden));
+}
+
+/* Test that a size event resizes to the window's size now, not to the
+ * size it carries, which a burst of events makes stale: the first event
+ * of a burst sets the final size, and the rest find the canvas there.
+ */
+BOOST_AUTO_TEST_CASE(a_size_event_resizes_to_the_current_size)
+{
+	dcx::sdl::window_state s{false};
+	static constexpr pixel_size now{1920, 1080};
+	const auto stale{window_event(SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED, main_window, {800, 600})};
+	const auto first{
+	    dcx::sdl::react_to_window_event(s, stale, main_window, [] { return now; }, canvas)};
+	BOOST_REQUIRE(first.has_value());
+	BOOST_TEST((first.value().resize == std::optional{now}));
+	const auto second{
+	    dcx::sdl::react_to_window_event(s, stale, main_window, [] { return now; }, now)};
+	BOOST_REQUIRE(second.has_value());
+	BOOST_TEST(!second.value().resize.has_value());
+}

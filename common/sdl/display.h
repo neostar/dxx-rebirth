@@ -264,6 +264,26 @@ constexpr std::optional<window_event> window_event_of(const SDL_Event &e)
 	}
 }
 
+/* What the game does about one SDL event: nothing (nullopt) unless it is
+ * a window event the game acts on, for its own window `main`.  A new pixel
+ * size is the window's size now, from `current_size()`, not the event's,
+ * which a burst of events makes stale (docs/agents/sdl-window.md section 4):
+ * the first event of a burst sets the final size, the rest find the canvas
+ * there.
+ */
+template <typename CurrentSize>
+[[nodiscard]]
+std::optional<window_reaction>
+react_to_window_event(window_state &s, const SDL_Event &e, const SDL_WindowID main,
+                      CurrentSize &&current_size, const pixel_size canvas)
+{
+	const auto kind{window_event_of(e)};
+	if (!kind || e.window.windowID != main)
+		return std::nullopt;
+	return s.handle(
+	    *kind, *kind == window_event::pixel_size_changed ? current_size() : pixel_size{}, canvas);
+}
+
 }
 
 namespace dcx {

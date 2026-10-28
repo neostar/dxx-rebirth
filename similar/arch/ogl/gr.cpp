@@ -1214,14 +1214,20 @@ namespace dcx {
 
 void gr_handle_window_event(const SDL_Event &event)
 {
-	const auto kind{sdl::window_event_of(event)};
-	if (!kind || !main_display || event.window.windowID != SDL_GetWindowID(g_pRebirthSDLMainWindow))
+	if (!main_display)
 		return;
+	const auto window{g_pRebirthSDLMainWindow};
 	const sdl::pixel_size canvas{grd_curscreen ? sdl::pixel_size{grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height()} : sdl::pixel_size{}};
-	const auto reaction{main_display->state.handle(*kind, {event.window.data1, event.window.data2}, canvas)};
-	if (reaction.fullscreen)
-		CGameCfg.WindowMode = !*reaction.fullscreen;
-	if (const auto size{reaction.resize})
+	const auto reaction{sdl::react_to_window_event(main_display->state, event, SDL_GetWindowID(window), [window] {
+		sdl::pixel_size p;
+		SDL_GetWindowSizeInPixels(window, &p.width, &p.height);
+		return p;
+	}, canvas)};
+	if (!reaction)
+		return;
+	if (reaction->fullscreen)
+		CGameCfg.WindowMode = !*reaction->fullscreen;
+	if (const auto size{reaction->resize})
 	{
 		dsx::gr_set_mode(screen_mode(size->width, size->height));
 		event_send(d_window_size_event{size->width, size->height});
