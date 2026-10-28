@@ -656,6 +656,43 @@ BOOST_AUTO_TEST_CASE(one_plan_covers_vertices_and_texture_rows)
 	BOOST_TEST(c.upload_size == 1024u + 16u);
 }
 
+/* Test that each font format uploads the texel GL samples (#33): a
+ * luminance4_alpha4 texel as a grey of its red with its own alpha, an
+ * intensity4 texel as a grey of its red with that red as alpha, and an
+ * rgba2 texel unchanged, as Apple's GL keeps it at eight bits (test-rtrace's
+ * gl_keeps_the_font_formats_at_eight_bits), so nothing is quantized.
+ */
+BOOST_AUTO_TEST_CASE(font_formats_upload_the_texel_gl_samples)
+{
+	sdlgpu::frame f{target};
+	const std::array<std::uint8_t, 4> texel{{200, 10, 20, 77}};
+	std::array<std::uint8_t, 16> pixels{};
+	for (std::size_t i{0}; i != pixels.size(); ++i)
+		pixels[i] = texel[i % 4];
+	const std::array<render::texture_format, 3> formats{{render::texture_format::luminance4_alpha4,
+	                                                     render::texture_format::intensity4,
+	                                                     render::texture_format::rgba2}};
+	std::array<std::array<std::uint8_t, 4>, 3> expected{
+	    {{{200, 200, 200, 77}}, {{200, 200, 200, 200}}, texel}};
+	std::vector<render::texture_image> images;
+	for (const auto format : formats)
+		images.push_back(image_of({2, 2}, pixels, render::filter::nearest, false, format));
+	for (std::uint32_t i{0}; i != 3; ++i)
+		f.texture({i + 1}, &images[i]);
+	const quad q;
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.texture_rows.size() == 3u);
+	for (std::size_t i{0}; i != 3; ++i)
+		BOOST_TEST_CONTEXT("format " << i)
+		{
+			BOOST_TEST(c.texture_rows[i].rgba.size() == 16u);
+			for (std::size_t p{0}; p != 16; ++p)
+				BOOST_TEST(c.texture_rows[i].rgba[p] == expected[i][p % 4]);
+		}
+}
+
 /* Test that a frame of a texture alone uploads it with no pass, and that
  * the upload is not repeated by the next encode.
  */

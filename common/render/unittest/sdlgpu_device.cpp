@@ -692,6 +692,24 @@ BOOST_AUTO_TEST_CASE(alpha_trace_frames_match_gl)
 	           boost::test_tools::per_element());
 }
 
+/* Test R3 on the fonts trace (#33): the three font formats' colour and
+ * alpha ramps and text in them hash as GL draws them.  GL keeps RGBA2,
+ * LUMINANCE4_ALPHA4 and INTENSITY4 at eight bits (test-rtrace's
+ * gl_keeps_the_font_formats_at_eight_bits), so the adapter quantizes
+ * nothing; it samples a luminance texel as a grey of its red (frames 4
+ * and 6 are frame 1's picture) and an intensity texel's alpha as its red.
+ * Pinned as the sample's are.
+ */
+BOOST_AUTO_TEST_CASE(fonts_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{
+	    0x49e2bd63b6ae0b25u, 0xe3483f86e1fe7b25u, 0x49e2bd63b6ae0b25u, 0xe3483f86e1fe7b25u,
+	    0xe3483f86e1fe7b25u, 0xe3483f86e1fe7b25u, 0xe3483f86e1fe7b25u, 0x51a3b262cedf3725u,
+	    0xd4e0fa5984a7c7e5u, 0x9514bc61e4b568fdu, 0x9514bc61e4b568fdu};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::fonts_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
 namespace {
 
 using coverage = dcx::render::rtrace::coverage_rows;

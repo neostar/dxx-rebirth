@@ -161,9 +161,10 @@ class device final : public render::device
 	void draw(const draw_call &call) override;
 	/* Gives slot image, uploaded at the next flush; first flushes a
 	 * recorded draw that samples the slot's earlier image.  The image's
-	 * pixels upload as RGBA8, an RGB image with alpha 255; the other
-	 * internal formats are not quantized as GL does, and trilinear
-	 * textures have no mipmaps yet.  Throws std::invalid_argument on
+	 * pixels upload as RGBA8, as GL samples them: an RGB image with alpha
+	 * 255, a luminance image as a grey of its red, an intensity image as
+	 * its red in all four channels; no format is quantized (ADR 2), and
+	 * trilinear textures have no mipmaps yet.  Throws std::invalid_argument on
 	 * texture_slot::none.
 	 */
 	void texture(texture_slot slot, const texture_image *image) override;

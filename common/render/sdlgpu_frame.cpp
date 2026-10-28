@@ -183,10 +183,31 @@ void frame::texture(const texture_slot slot, const texture_image *const image)
 	const texture_desc &d{image->desc()};
 	pending_upload u{
 	    .slot = slot, .size = d.size, .rgba = {image->rgba().begin(), image->rgba().end()}};
-	/* GL_RGB8 keeps no alpha: GL samples it as 1. */
-	if (d.format == texture_format::rgb8)
-		for (std::size_t i{3}; i < u.rgba.size(); i += 4)
-			u.rgba[i] = 255;
+	/* The texel GL samples. GL_RGB8 keeps no alpha: 1. GL_LUMINANCE4_ALPHA4
+	 * keeps one grey, the red, and the alpha; GL_INTENSITY4 keeps the red
+	 * alone, and samples it as all four channels. Apple's GL keeps these
+	 * and GL_RGBA2 at eight bits (rtrace.cpp), so nothing is quantized.
+	 * RGBA8 and RGBA2 change no texel, so most uploads skip the pass.
+	 */
+	const texture_format format{d.format};
+	if (format != texture_format::rgba8 && format != texture_format::rgba2)
+		for (std::size_t i{0}; i + 3 < u.rgba.size(); i += 4)
+			switch (format)
+			{
+			case texture_format::rgb8:
+				u.rgba[i + 3] = 255;
+				break;
+			case texture_format::intensity4:
+				u.rgba[i + 3] = u.rgba[i];
+				[[fallthrough]];
+			case texture_format::luminance4_alpha4:
+				u.rgba[i + 1] = u.rgba[i];
+				u.rgba[i + 2] = u.rgba[i];
+				break;
+			case texture_format::rgba8:
+			case texture_format::rgba2:
+				break;
+			}
 	uploads_.reserve(uploads_.size() + 1);
 	textures_.insert_or_assign(slot.index, d);
 	std::erase_if(uploads_, pending);
