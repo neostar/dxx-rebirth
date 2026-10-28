@@ -5445,6 +5445,12 @@ class DXXArchive(DXXCommon):
 'common/arch/ogl/ogl_sync.cpp',
 'common/render/gl_device.cpp',
 ))
+	# The trace recorder (#18), linked into dbg_harness builds alone.
+	get_objects_arch_ogl_trace = DXXCommon.create_lazy_object_getter((
+'common/debug/trace_harness.cpp',
+'common/render/recording_device.cpp',
+'common/render/trace.cpp',
+))
 	get_objects_arch_sdlmixer = DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/digi_mixer_music.cpp',
 'common/arch/sdl/jukebox.cpp',
@@ -5979,6 +5985,8 @@ class DXXProgram(DXXCommon):
 			objects_similar_arch = self.get_objects_similar_arch_sdl
 		objects.extend(static_objects_arch())
 		objects.extend(objects_similar_arch())
+		if user_settings.dbg_harness and (user_settings.opengl or user_settings.opengles):
+			objects.extend(static_archive_construction.get_objects_arch_ogl_trace())
 		if user_settings.editor:
 			objects.extend(self.get_objects_editor())
 			objects.extend(static_archive_construction.get_objects_editor())

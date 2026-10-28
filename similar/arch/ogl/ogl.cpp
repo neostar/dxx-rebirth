@@ -59,6 +59,7 @@
 #include "byteutil.h"
 #include "internal.h"
 #include "common/render/blit.h"
+#include "common/render/device_front.h"
 #include "common/render/frame_setup.h"
 #include "common/render/gl_device.h"
 #include "common/render/overlay_uv.h"
@@ -146,6 +147,10 @@ static int r_polyc,r_tpolyc,r_bitmapc,r_ubitbltc;
 static std::array<ogl_texture, 20000> ogl_texture_list;
 static int ogl_texture_list_cur;
 static std::unique_ptr<render::gl_device> ogl_device_instance;
+/* The device the front end draws through (device_front.h); declared after
+ * ogl_device_instance, so destroyed first at exit.
+ */
+static render::device_front ogl_device_front;
 /* The movie frame ogl_ubitblt_i is drawing, kept outside the list. */
 static ogl_texture *ogl_movie_frame;
 
@@ -194,8 +199,7 @@ static ogl_texture *ogl_texture_of(const render::texture_slot slot)
 /* Deletes the GL texture of t through the render device that made it. */
 static void ogl_release_texture(ogl_texture &t)
 {
-	if (ogl_device_instance)
-		ogl_device_instance->texture(ogl_texture_slot(t), nullptr);
+	ogl_device_front.release_texture(ogl_texture_slot(t));
 	t.handle = 0;
 }
 
@@ -1311,7 +1315,7 @@ render::ambient &ogl_ambient()
 
 render::device &ogl_device()
 {
-	return ogl_gl_device();
+	return ogl_device_front.get();
 }
 
 void ogl_create_device()
@@ -1342,6 +1346,7 @@ void ogl_create_device()
 	if (ogl_device_instance)
 		device->take_textures(*ogl_device_instance);
 	ogl_device_instance = std::move(device);
+	ogl_device_front.bind(*ogl_device_instance, []() -> render::extent { return {SWIDTH, SHEIGHT}; });
 	/* A new GL context has the alpha test off and lines 1 pixel wide; one
 	 * kept across a mode change keeps what it had.  The code not yet
 	 * drawing through the device reads both, so record GL's own.
@@ -1646,9 +1651,10 @@ static int ogl_loadtexture(const palette_array_t &pal, const uint8_t *data, cons
 		.has_transparency = render::has_transparency(pixels),
 	}, pixels};
 	const auto slot{ogl_texture_slot(tex)};
-	auto &device{ogl_gl_device()};
+	/* Through the front device, so a recorder keeps the image too. */
+	auto &device{ogl_device_front.get()};
 	device.texture(slot, &image);
-	tex.handle = device.gl_name(slot);
+	tex.handle = ogl_gl_device().gl_name(slot);
 
 	tex_set_size(tex);
 	r_texcount++;
