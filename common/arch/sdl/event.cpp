@@ -90,6 +90,32 @@ static void event_notify_end_loop()
 }
 
 #if DXX_USE_DBG_HARNESS
+#if SDL_MAJOR_VERSION == 3
+/* The platform sends the text of a printable key after its key down while text input is
+ * open; send it too.  False if SDL refused the event.  Not in the anonymous namespace: the
+ * test calls it (common/sdl/unittest/event_poll.cpp).
+ */
+bool harness_push_text(const bool down, const SDL_Keycode key);
+bool harness_push_text(const bool down, const SDL_Keycode key)
+{
+	if (!down || !key_text_input_active() || key < 32 || key > 126)
+		return true;
+	/* SDL_PushEvent copies the event struct, not the text it points to: the text lives in
+	 * static storage.
+	 */
+	static constexpr auto printable{[] {
+		std::array<std::array<char, 2>, 95> table{};
+		for (std::size_t i{0}; i < table.size(); ++i)
+			table[i] = {static_cast<char>(32 + i), '\0'};
+		return table;
+	}()};
+	SDL_Event event{};
+	event.text.type = SDL_EVENT_TEXT_INPUT;
+	event.text.text = printable[key - 32].data();
+	return SDL_PushEvent(&event);
+}
+#endif
+
 namespace {
 
 /* Push the events of the input script DXX_DBG_INPUT_SCRIPT names
@@ -118,7 +144,7 @@ void harness_push_input()
 		event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
 		event.key.down = down;
 		event.key.key = input_key_entry(key_properties, e.key).sym;
-		if (!SDL_PushEvent(&event))
+		if (!SDL_PushEvent(&event) || !harness_push_text(down, event.key.key))
 #else
 		event.key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
 		event.key.state = down ? SDL_PRESSED : SDL_RELEASED;

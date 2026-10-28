@@ -402,3 +402,46 @@ BOOST_AUTO_TEST_CASE(a_key_queued_after_the_field_opened_gives_only_its_text)
 	const std::vector<press> expected{{KEY_A, 255}};
 	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
 }
+
+#if DXX_USE_DBG_HARNESS
+namespace dcx {
+
+/* event.cpp's harness_push_text, which the harness build defines. */
+bool harness_push_text(bool down, SDL_Keycode key);
+
+}
+
+namespace {
+
+/* Overwrite the stack below the caller, where a returned function's locals lay. */
+[[gnu::noinline]]
+void clobber_the_stack()
+{
+	std::array<volatile char, 16384> junk;
+	for (auto &c : junk)
+		c = 'Z';
+}
+
+}
+
+/* Test that the text the harness pushes for a printable key is still the key's text after the
+ * pushing function returned and the stack below it was reused: SDL_PushEvent copies the event
+ * struct, not the text it points to.
+ */
+BOOST_AUTO_TEST_CASE(harness_text_outlives_the_function_that_pushed_it)
+{
+	const sdl_events sdl;
+	dcx::key_text_input_open();
+	BOOST_REQUIRE(dcx::key_text_input_active());
+	push_key(SDLK_A, true);
+	BOOST_REQUIRE(dcx::harness_push_text(true, SDLK_A));
+	clobber_the_stack();
+	dcx::event_poll();
+	std::vector<unsigned> ascii;
+	for (const auto &e : seen_events)
+		if (e.type == event_type::key_command)
+			ascii.push_back(e.ascii);
+	const std::vector<unsigned> expected{'a'};
+	BOOST_TEST(ascii == expected, boost::test_tools::per_element());
+}
+#endif
