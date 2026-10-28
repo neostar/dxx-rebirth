@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "common/render/device.h"
+#include "common/render/line_quads.h"
 #include "common/render/render_device.h"
 #include "common/render/transform_matrix.h"
 
@@ -94,15 +95,27 @@ void frame::draw(const draw_call &call)
 		                static_cast<std::ptrdiff_t>(call.vertices.size() / 3 * 3));
 		break;
 	case topology::strip:
-		/* Only the reticle draws strips, with the lines (#32). */
-		throw std::logic_error("sdlgpu: strips come with #32");
+		list = strip_to_list(call.vertices);
+		break;
 	case topology::lines:
+		list = lines_to_list(expansion_view_of(call), call.vertices);
+		break;
 	case topology::line_loop:
+		list = line_loop_to_list(expansion_view_of(call), call.vertices);
+		break;
 	case topology::points:
-		throw std::logic_error("sdlgpu: lines and points come with #32");
+		list = points_to_list(expansion_view_of(call), call.vertices);
+		break;
 	}
 	if (list.empty())
 		return;
+	/* GL culls triangles only: the quads of a line or a point are drawn
+	 * whichever way they wind.
+	 */
+	draw_state state{call.state};
+	if (call.topology == topology::lines || call.topology == topology::line_loop ||
+	    call.topology == topology::points)
+		state.cull = render::cull::none;
 	if (vertices_.size() + list.size() > std::numeric_limits<std::uint32_t>::max())
 		throw std::length_error("sdlgpu: more vertices in a frame than a draw can start at");
 	const auto first{static_cast<std::uint32_t>(vertices_.size())};
@@ -110,18 +123,18 @@ void frame::draw(const draw_call &call)
 	vertices_.insert(vertices_.end(), list.begin(), list.end());
 	if (textured)
 		sampled_.insert(call.texture.index);
-	records_.emplace_back(recorded_draw{
-	    .key = key_of(call.state, needs_alpha_test(call.state, transparent, call.vertices)),
-	    .viewport = viewport_on(target_, call.viewport),
-	    .vertex = {.projection = matrix_of(call.transforms.projection),
-		           .modelview = matrix_of(call.transforms.modelview)},
-	    .fragment = {.alpha_ref = call.state.alpha_ref,
-		             .use_texture = textured ? 1u : 0u,
-		             .pad = {}},
-	    .texture = call.texture,
-	    .sampler = sampler,
-	    .first = first,
-	    .count = count});
+	records_.emplace_back(
+	    recorded_draw{.key = key_of(state, needs_alpha_test(state, transparent, call.vertices)),
+		              .viewport = viewport_on(target_, call.viewport),
+		              .vertex = {.projection = matrix_of(call.transforms.projection),
+		                         .modelview = matrix_of(call.transforms.modelview)},
+		              .fragment = {.alpha_ref = call.state.alpha_ref,
+		                           .use_texture = textured ? 1u : 0u,
+		                           .pad = {}},
+		              .texture = call.texture,
+		              .sampler = sampler,
+		              .first = first,
+		              .count = count});
 }
 
 void frame::texture(const texture_slot slot, const texture_image *const image)

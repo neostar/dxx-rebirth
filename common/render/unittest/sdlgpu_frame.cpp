@@ -479,11 +479,8 @@ BOOST_AUTO_TEST_CASE(encode_empties_the_frame)
 	BOOST_TEST(second.uploads == 0u);
 }
 
-/* Test that a fan of fewer than three vertices draws nothing and that what
- * later tickets bring is refused, not drawn wrong: lines, line loops,
- * points and strips.
- */
-BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
+/* Test that a fan of fewer than three vertices draws nothing. */
+BOOST_AUTO_TEST_CASE(a_fan_of_two_vertices_draws_nothing)
 {
 	sdlgpu::frame f{target};
 	quad q;
@@ -491,12 +488,51 @@ BOOST_AUTO_TEST_CASE(unsupported_draws_are_refused)
 	f.draw(q.call);
 	counting_commands c;
 	BOOST_TEST(!f.encode(c, none));
-	for (const auto t : {render::topology::lines, render::topology::line_loop,
-	                     render::topology::points, render::topology::strip})
+}
+
+/* Test that lines, line loops, points and strips reach the GPU as triangle
+ * lists, drawn without culling whatever the state says (GL culls triangles
+ * only): a line is two triangles, a loop of three vertices three lines, a
+ * point two, a strip of four vertices two triangles; an odd last vertex of
+ * GL_LINES and a one-vertex loop draw nothing.
+ */
+BOOST_AUTO_TEST_CASE(lines_and_points_are_drawn_as_triangle_lists)
+{
+	struct shape
 	{
-		quad other;
-		other.call.topology = t;
-		BOOST_CHECK_THROW(f.draw(other.call), std::logic_error);
+		render::topology topology;
+		std::size_t vertices;
+		std::uint32_t count;
+	};
+	for (const auto &t :
+	     {shape{render::topology::lines, 3, 6}, shape{render::topology::line_loop, 3, 18},
+	      shape{render::topology::points, 3, 18}, shape{render::topology::strip, 4, 6},
+	      shape{render::topology::line_loop, 1, 0}})
+	{
+		sdlgpu::frame f{target};
+		std::array<render::vertex, 4> v{};
+		for (std::size_t i{0}; i != v.size(); ++i)
+			v[i] = {.pos = {{0.1f + 0.2f * static_cast<float>(i), 0.2f * static_cast<float>(i), 0}},
+			        .rgba = {{1, 0, 0, 1}},
+			        .uv = no_uv};
+		quad q{{.cull = render::cull::front}};
+		q.call.topology = t.topology;
+		q.call.vertices = std::span{v}.first(t.vertices);
+		f.draw(q.call);
+		counting_commands c;
+		BOOST_TEST_CONTEXT("topology " << static_cast<int>(t.topology) << ", " << t.vertices
+		                               << " vertices")
+		{
+			BOOST_TEST(f.encode(c, none) == (t.count != 0));
+			if (t.count == 0)
+				continue;
+			BOOST_REQUIRE(c.draws.size() == 1u);
+			BOOST_TEST(c.draws.front().count == t.count);
+			BOOST_TEST(c.draws.front().count % 3 == 0u);
+			const bool triangles{t.topology == render::topology::strip};
+			BOOST_TEST((c.draws.front().key.cull ==
+			            (triangles ? render::cull::front : render::cull::none)));
+		}
 	}
 }
 
