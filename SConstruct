@@ -5284,6 +5284,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-pacer-sdl', (
 			'common/sdl/unittest/frame_pacer_sdl.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-display', (
+			'common/sdl/unittest/display.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-sdl-init', (
 			'common/sdl/unittest/sdl_init.cpp',
 			) + (('common/sdl/macos_defaults.mm',) if sys.platform == 'darwin' else ()), use_default_libs=True),
