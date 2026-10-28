@@ -368,6 +368,10 @@ window_event_result standard_handler(const d_event &event)
 						init_cockpit();
 						Screen_mode = sm;
 					}
+#elif SDL_MAJOR_VERSION == 3
+					/* The toggle is a request: the canvas follows when
+					 * SDL confirms the new size (window_resize below).
+					 */
 #endif
 					return window_event_result::handled;
 
@@ -376,6 +380,21 @@ window_event_result standard_handler(const d_event &event)
 					return window_event_result::handled;
 			}
 			break;
+
+#if SDL_MAJOR_VERSION == 3
+		case event_type::window_resize:
+			{
+				/* gr_handle_window_event set the mode for the window's
+				 * new pixel size: the SDL2 toggle's hack above, run when
+				 * the size arrives.
+				 */
+				auto sm = Screen_mode;
+				Screen_mode = SCREEN_GAME;
+				init_cockpit();
+				Screen_mode = sm;
+			}
+			return window_event_result::handled;
+#endif
 
 		case event_type::window_draw:
 		case event_type::idle:

@@ -12,7 +12,7 @@
 #include "fwd-event.h"
 #include "maths.h"
 
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 #include <SDL_video.h>
 #endif
 
@@ -40,7 +40,7 @@ enum class event_type : uint8_t
 	key_release,
 
 	window_created,
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 	window_resize,
 #endif
 	window_activated,
@@ -116,7 +116,7 @@ struct d_select_event : d_event
 	}
 };
 
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 struct d_window_size_event : d_event
 {
 	Sint32 width;

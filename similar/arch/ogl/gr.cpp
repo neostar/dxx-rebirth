@@ -70,7 +70,8 @@
 #include "common/debug/hidden_window.h"
 #endif
 #if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
+#include "common/sdl/display.h"
+#include "event.h"
 #endif
 
 using std::min;
@@ -89,15 +90,19 @@ static DISPMANX_ELEMENT_HANDLE_T dispman_element=DISPMANX_NO_HANDLE;
 static DISPMANX_DISPLAY_HANDLE_T dispman_display=DISPMANX_NO_HANDLE;
 #endif
 
-#else
+#elif !DXX_USE_OGLES || SDL_MAJOR_VERSION >= 2
 #if SDL_MAJOR_VERSION == 1
 static int sdl_video_flags = SDL_OPENGL;
 #elif SDL_MAJOR_VERSION == 2
 SDL_Window *g_pRebirthSDLMainWindow;
 static int g_iRebirthWindowX, g_iRebirthWindowY;
 #elif SDL_MAJOR_VERSION == 3
-/* Stays null until #41 creates the SDL3 window. */
+/* The window of main_display, for the code that takes it from here. */
 SDL_Window *g_pRebirthSDLMainWindow;
+namespace {
+/* The game's window and GL context, from gr_init to gr_close. */
+std::optional<sdl::display<sdl::sdl_display_ops>> main_display;
+}
 #endif
 #endif
 static ogl_sync sync_helper;
@@ -147,10 +152,14 @@ void gr_set_mode_from_window_size()
 #elif SDL_MAJOR_VERSION == 3
 void gr_set_mode_from_window_size()
 {
-	/* There is no SDL3 window to size the mode from until #41. */
-	static dcx::sdl::link_stub stub{"the mode from the window size", "#41"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	int w, h;
+	if (!SDL_GetWindowSizeInPixels(g_pRebirthSDLMainWindow, &w, &h))
+	{
+		con_printf(CON_URGENT, "SDL3: no window size (%s), using the configured mode", SDL_GetError());
+		gr_set_mode(Game_screen_mode);
+		return;
+	}
+	gr_set_mode(screen_mode(w, h));
 }
 #endif
 
@@ -186,10 +195,10 @@ void ogl_swap_buffers_internal(void)
 	sync_helper.before_swap();
 #if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
 	eglSwapBuffers(eglDisplay, eglSurface);
-#else
+#elif !DXX_USE_OGLES || SDL_MAJOR_VERSION >= 2
 #if SDL_MAJOR_VERSION == 1
 	SDL_GL_SwapBuffers();
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	SDL_GL_SwapWindow(g_pRebirthSDLMainWindow);
 #endif
 #endif
@@ -408,7 +417,7 @@ static int ogl_init_window(int w, int h)
 		Error("Could not set %dx%dx%d opengl video mode: %s\n", w, h, CGameArg.DbgBpp, SDL_GetError());
 #endif
 	}
-#elif SDL_MAJOR_VERSION == 2
+#elif SDL_MAJOR_VERSION >= 2
 	const auto SDLWindow{g_pRebirthSDLMainWindow};
 	if (!(SDL_GetWindowFlags(SDLWindow) & SDL_WINDOW_FULLSCREEN))
 		SDL_SetWindowSize(SDLWindow, w, h);
@@ -533,7 +542,8 @@ int gr_check_fullscreen(void)
 #elif SDL_MAJOR_VERSION == 2
 	return !!(SDL_GetWindowFlags(g_pRebirthSDLMainWindow) & SDL_WINDOW_FULLSCREEN);
 #elif SDL_MAJOR_VERSION == 3
-	return 0;	// no window until #41
+	/* As SDL confirmed it: a toggle is a request (gr_toggle_fullscreen). */
+	return main_display && main_display->state.fullscreen();
 #endif
 }
 
@@ -588,6 +598,14 @@ void gr_toggle_fullscreen()
 		SDL_SetWindowSize(SDLWindow, SM_W(mode), SM_H(mode));
 	}
 	gr_set_mode_from_window_size(SDLWindow);
+#elif SDL_MAJOR_VERSION == 3
+	/* Borderless desktop fullscreen, asynchronous: SDL confirms the change
+	 * with ENTER/LEAVE_FULLSCREEN and the new pixel size, on which
+	 * gr_handle_window_event sets CGameCfg.WindowMode and the mode
+	 * (docs/agents/sdl-window.md section 3).
+	 */
+	if (!SDL_SetWindowFullscreen(g_pRebirthSDLMainWindow, !gr_check_fullscreen()))
+		con_printf(CON_URGENT, "SDL3: cannot change fullscreen: %s", SDL_GetError());
 #endif
 }
 
@@ -788,6 +806,14 @@ void gr_set_attributes(void)
 	SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, CGameCfg.VSync);
 #elif SDL_MAJOR_VERSION == 2
 	SDL_GL_SetSwapInterval(CGameCfg.VSync ? 1 : 0);
+#elif SDL_MAJOR_VERSION == 3
+	/* SDL_GL_SetSwapInterval needs a current context.  Before gr_init
+	 * made one, open_display sets the interval after it does
+	 * (docs/agents/sdl-window.md section 2); the graphics menu comes here
+	 * with one.
+	 */
+	if (main_display && main_display->gl && !SDL_GL_SetSwapInterval(CGameCfg.VSync ? 1 : 0))
+		con_printf(CON_URGENT, "SDL3: cannot set the swap interval: %s", SDL_GetError());
 #endif
 	int buffers, samples;
 	if (CGameCfg.Multisample)
@@ -802,7 +828,7 @@ void gr_set_attributes(void)
 	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, buffers);
 	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, samples);
 #else
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -884,15 +910,43 @@ int gr_init()
 	if (const auto window_icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
 		SDL_SetWindowIcon(SDLWindow, window_icon);
 #elif SDL_MAJOR_VERSION == 3
-	/* No window and no GL context until #41.  Returning -1 would reach
-	 * arch_init's Error(TXT_CANT_INIT_GFX), whose msgbox_error opens a modal
-	 * alert and then aborts, so end the run here instead.  #41 removes this.
-	 */
-	static dcx::sdl::link_stub stub{"the window and GL context", "#41"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
-	con_puts(CON_URGENT, "SDL3 link stub: no window to open, exiting");
-	exit(EXIT_FAILURE);
+	assert(!g_pRebirthSDLMainWindow);
+	const auto mode{Game_screen_mode};
+	/* GL until #50 gives the game its SDL_GPU device. */
+	sdl::display_request request{
+		.title = DESCENT_VERSION,
+		.size = {SM_W(mode), SM_H(mode)},
+		.fullscreen = !CGameCfg.WindowMode && !CGameArg.SysWindow,
+		.borderless = CGameArg.SysNoBorders,
+		.vsync = CGameCfg.VSync,
+	};
+#if DXX_USE_DBG_HARNESS
+	if (const auto [value, window]{read_harness_hidden()}; !window)
+		UserError("DXX_DBG_HIDDEN=\"%s\": expected 1", value);
+	else if (window.value() == harness_window::hidden)
+	{
+		request.hidden = true;
+		con_puts(CON_NORMAL, "DXX_DBG_HIDDEN: the window stays hidden");
+	}
+#endif
+	auto opened{sdl::open_display(request, sdl::sdl_display_ops{})};
+	if (opened.fallback_reason)
+		con_printf(CON_NORMAL, "SDL3: %s", opened.fallback_reason->c_str());
+	if (!opened)
+	{
+		/* arch_init reports the failure; this says why. */
+		con_printf(CON_URGENT, "SDL3: %s", opened.error->c_str());
+		return -1;
+	}
+	if (opened.swap_interval_error)
+		con_printf(CON_URGENT, "SDL3: cannot set the swap interval: %s", opened.swap_interval_error->c_str());
+	g_pRebirthSDLMainWindow = opened.window.get();
+	main_display = std::move(opened);
+	if (const auto window_icon = SDL_LoadBMP(DXX_SDL_WINDOW_ICON_BITMAP))
+	{
+		SDL_SetWindowIcon(g_pRebirthSDLMainWindow, window_icon);
+		SDL_DestroySurface(window_icon);
+	}
 #endif
 
 	ogl_init_texture_list_internal();
@@ -955,6 +1009,10 @@ void gr_close()
 		OpenGL_LoadLibrary(false, OglLibPath);
 #endif
 
+#if SDL_MAJOR_VERSION == 3
+	g_pRebirthSDLMainWindow = nullptr;
+	main_display.reset();
+#endif
 #if DXX_USE_OGLES && SDL_MAJOR_VERSION == 1
 	ogles_destroy();
 #ifdef RPI
@@ -1148,3 +1206,30 @@ void write_bmp(PHYSFS_File *const TGAFile, const unsigned w, const unsigned h)
 #endif
 
 }
+
+#if SDL_MAJOR_VERSION == 3
+namespace dcx {
+
+void gr_handle_window_event(const SDL_Event &event)
+{
+	const auto kind{sdl::window_event_of(event)};
+	if (!kind || !main_display || event.window.windowID != SDL_GetWindowID(g_pRebirthSDLMainWindow))
+		return;
+	const sdl::pixel_size canvas{grd_curscreen ? sdl::pixel_size{grd_curscreen->get_screen_width(), grd_curscreen->get_screen_height()} : sdl::pixel_size{}};
+	const auto reaction{main_display->state.handle(*kind, {event.window.data1, event.window.data2}, canvas)};
+	if (reaction.fullscreen)
+		CGameCfg.WindowMode = !*reaction.fullscreen;
+	if (const auto size{reaction.resize})
+	{
+		dsx::gr_set_mode(screen_mode(size->width, size->height));
+		event_send(d_window_size_event{size->width, size->height});
+	}
+}
+
+visibility gr_window_visibility()
+{
+	return main_display ? main_display->state.vis() : visibility::visible;
+}
+
+}
+#endif

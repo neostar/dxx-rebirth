@@ -245,4 +245,21 @@ constexpr std::optional<window_event> window_event_of(const SDL_Event &e)
 
 }
 
+namespace dcx {
+
+/* The game's side, in similar/arch/ogl/gr.cpp.  event_poll hands it every
+ * SDL window event; it keeps main_display's window_state, follows a
+ * confirmed fullscreen change into CGameCfg.WindowMode and a new pixel
+ * size into the mode, then sends d_window_size_event.
+ */
+void gr_handle_window_event(const SDL_Event &event);
+
+/* The window's visibility for the frame pacer: visible before the window
+ * exists.
+ */
+[[nodiscard]]
+visibility gr_window_visibility();
+
+}
+
 #endif

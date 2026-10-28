@@ -28,7 +28,7 @@
 #include "args.h"
 #include "partial_range.h"
 #if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
+#include "common/sdl/display.h"
 #endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script_harness.h"
@@ -67,6 +67,10 @@ static void windowevent_handler(const SDL_WindowEvent &windowevent)
 			}
 	}
 }
+#elif SDL_MAJOR_VERSION == 3
+/* SDL3 sends each window event on its own; process_event_batch hands
+ * them to gr_handle_window_event (common/sdl/display.h).
+ */
 #endif
 
 namespace {
@@ -180,14 +184,17 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 				windowevent_handler(event.window);
 				continue;
 #elif SDL_MAJOR_VERSION == 3
+			case SDL_EVENT_WINDOW_SHOWN:
+			case SDL_EVENT_WINDOW_HIDDEN:
+			case SDL_EVENT_WINDOW_EXPOSED:
+			case SDL_EVENT_WINDOW_OCCLUDED:
+			case SDL_EVENT_WINDOW_MINIMIZED:
+			case SDL_EVENT_WINDOW_RESTORED:
+			case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+			case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
 			case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-			{
-				/* Dropped until #41 sends d_window_size_event from SDL3's window events. */
-				static dcx::sdl::link_stub stub{"the window resize event", "#41"};
-				if (stub.first_use())
-					con_printf(CON_NORMAL, "%s", stub.message().c_str());
+				gr_handle_window_event(event);
 				continue;
-			}
 #endif
 			case SDL_KEYDOWN:
 			case SDL_KEYUP:
