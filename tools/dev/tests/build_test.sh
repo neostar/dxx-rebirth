@@ -393,6 +393,44 @@ for source in ("tools/y.cpp", "common/main/x.cpp"):
 common/main/x.cpp: "
 }
 
+# Test that the pinned dependencies are system includes of a fork compile
+# wherever they lie, so a clone's own third_party/ (the main clone's deps
+# prefix, where the worktrees' builds find it) and a DXX_DEPS_PREFIX inside
+# the repository make no difference: bugprone-signed-bitwise fired on SDL's
+# macros through the in-repository -I of the same headers (#97).  Project
+# directories stay user ones, also tools/dev/third_party-like names.
+test_pinned_dependencies_are_system_includes_wherever_they_lie()
+{
+	local out
+	out=$(cd "$REPO_ROOT" && DXX_DEPS_PREFIX="$REPO_ROOT/build/deps" python3 -I -c "$read_sites"'
+import SCons.Defaults
+flags_for = SCons.Defaults.ConstructionEnvironment["_DXX_FORK_WARNINGS"]
+env = {"CPPPATH": ["common/include", "third_party/darwin-arm64/include/SDL3",
+	"#third_party/darwin-arm64/include", os.getcwd() + "/third_party/x", "build/deps/include/SDL3_image",
+	"third_party_notes", "tools/dev/third_party"]}
+print(" ".join(flags_for(target=[], source=["tools/y.cpp"], env=env, for_signature=False)))
+' "$(fake_scons)" "$DEV_DIR/site-dev.py" 2>&1)
+	assert_eq "$out" "-Wconversion -Wsign-conversion -Wshadow -Werror \
+-isystem third_party/darwin-arm64/include/SDL3 -isystem $REPO_ROOT/third_party/darwin-arm64/include \
+-isystem $REPO_ROOT/third_party/x -isystem build/deps/include/SDL3_image"
+}
+
+# Test that a DXX_DEPS_PREFIX that is or holds the repository is ignored:
+# else every fork directory would be a system include and the strict
+# warnings would go silent on fork code.
+test_deps_prefix_holding_the_repository_is_ignored()
+{
+	local out prefix
+	for prefix in "$REPO_ROOT" "$(dirname "$REPO_ROOT")"; do
+		out=$(cd "$REPO_ROOT" && DXX_DEPS_PREFIX="$prefix" python3 -I -c "$read_sites"'
+import SCons.Defaults
+flags_for = SCons.Defaults.ConstructionEnvironment["_DXX_FORK_WARNINGS"]
+print(" ".join(flags_for(target=[], source=["tools/y.cpp"], env={"CPPPATH": ["common/include"]}, for_signature=False)))
+' "$(fake_scons)" "$DEV_DIR/site-dev.py" 2>&1)
+		assert_eq "$out" "-Wconversion -Wsign-conversion -Wshadow -Werror" "prefix $prefix"
+	done
+}
+
 # Exec site-asan.py twice in one python3, as SCons may read a site file
 # more than once, with PATH $1, and print CLANG_UBSAN_MISSING; stderr too.
 site_asan_twice()

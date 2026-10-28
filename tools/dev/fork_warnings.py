@@ -55,8 +55,26 @@ def _path(node):
 	return os.path.realpath(srcnode().get_abspath() if srcnode else str(node))
 
 
+def _is_third_party(real):
+	"""Whether the real path lies in the repository's third_party/ or in the
+	dependency prefix DXX_DEPS_PREFIX names (env.sh's default lies in
+	third_party/): the pinned dependencies, wherever the checkout is."""
+	roots = [os.path.join(_root, 'third_party')]
+	prefix = os.environ.get('DXX_DEPS_PREFIX')
+	if prefix:
+		prefix = os.path.realpath(prefix)
+		# A prefix that is or holds the repository would make every fork
+		# directory a system include, and the strict warnings would go
+		# silent on fork code: ignore it, the repository's third_party/
+		# stays.
+		if not (_root == prefix or _root.startswith(prefix + os.sep)):
+			roots.append(prefix)
+	return any(real == r or real.startswith(r + os.sep) for r in roots)
+
+
 def system_includes(env):
-	"""-isystem for each directory on env's CPPPATH outside the repository:
+	"""-isystem for each directory on env's CPPPATH outside the repository,
+	or in its third_party/ or the dependency prefix (_is_third_party): the
 	third-party headers (Boost and the other Homebrew ones come in with -I).
 	Named again with -isystem, GCC and clang drop the -I and treat the
 	directory as a system one, so the strict warnings stay off them.
@@ -73,7 +91,7 @@ def system_includes(env):
 			# SCons' top-relative spelling, '#dir' or '#/dir'.
 			p = os.path.join(_root, p[1:].lstrip('/')) if p.startswith('#') else p
 		real = os.path.realpath(p)
-		if real == _root or real.startswith(_root + os.sep):
+		if (real == _root or real.startswith(_root + os.sep)) and not _is_third_party(real):
 			continue
 		result += ['-isystem', p]
 	return result
