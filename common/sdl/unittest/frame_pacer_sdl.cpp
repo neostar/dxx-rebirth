@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE(sleep_toward_sleeps_a_fresh_period)
 {
 	const auto cpu_before{std::clock()};
 	const auto start{dcx::sdl::ticks_ns()};
-	dcx::sdl::sleep_toward(0, 2000, false);
+	dcx::sdl::sleep_toward(0, 2000, false, dcx::visibility::visible);
 	const auto cpu_ms{(std::clock() - cpu_before) * 1000 / CLOCKS_PER_SEC};
 	BOOST_TEST(dcx::sdl::ticks_ns() - start >= 30 * dcx::ns_per_ms);
 	BOOST_TEST(cpu_ms < 10);
@@ -48,7 +48,18 @@ BOOST_AUTO_TEST_CASE(sleep_toward_sleeps_a_fresh_period)
 BOOST_AUTO_TEST_CASE(sleep_toward_returns_at_once_when_elapsed)
 {
 	const auto start{dcx::sdl::ticks_ns()};
-	dcx::sdl::sleep_toward(2000, 2000, false);
-	dcx::sdl::sleep_toward(5000, 2000, true);
+	dcx::sdl::sleep_toward(2000, 2000, false, dcx::visibility::visible);
+	dcx::sdl::sleep_toward(5000, 2000, true, dcx::visibility::visible);
 	BOOST_TEST(dcx::sdl::ticks_ns() - start < 5 * dcx::ns_per_ms);
+}
+
+/* Test that sleep_toward caps a hidden window (occluded or minimised) at 30
+ * frames a second: a 5 ms period (328 fix) sleeps about 33 ms
+ * (docs/agents/sdl-window.md section 5).
+ */
+BOOST_AUTO_TEST_CASE(sleep_toward_caps_a_hidden_window_at_30_fps)
+{
+	const auto start{dcx::sdl::ticks_ns()};
+	dcx::sdl::sleep_toward(0, 328, false, dcx::visibility::hidden);
+	BOOST_TEST(dcx::sdl::ticks_ns() - start >= 33 * dcx::ns_per_ms);
 }

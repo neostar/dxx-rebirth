@@ -19,6 +19,7 @@
 #include "game.h"
 #include "multi.h"
 #if SDL_MAJOR_VERSION == 3
+#include "common/sdl/display.h"
 #include "common/sdl/frame_pacer_sdl.h"
 static_assert(dcx::fix_one == F1_0);
 #endif
@@ -83,7 +84,7 @@ void timer_delay_bound(const unsigned caller_bound)
 	 * the menus sleep with vsync on as well.
 	 */
 	const auto bound{vsync ? 1000u / MAXIMUM_FPS : caller_bound};
-	const pacing p{.period_ns = std::uint64_t{bound} * 1000000, .multiplayer = !!multiplayer};
+	const pacing p{.period_ns = std::uint64_t{bound} * 1000000, .multiplayer = !!multiplayer, .vis = gr_window_visibility()};
 	auto pacer{sdl::make_pacer()};
 	pacer.wait(FrameStart, p, [multiplayer] {
 		if (multiplayer)

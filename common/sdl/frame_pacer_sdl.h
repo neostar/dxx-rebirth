@@ -42,11 +42,12 @@ inline auto make_pacer()
 
 /* One sleep toward the end of a period, for a limiter that keeps its own
  * clock in fix seconds (calc_frame_time, the automap) and loops itself.
+ * While the window is hidden the period is at least 1/30 s.
  */
 inline void sleep_toward(const std::int64_t elapsed_fix, const std::int64_t period_fix,
-                         const bool multiplayer)
+                         const bool multiplayer, const visibility vis)
 {
-	const pacing p{.period_ns = ns_from_fix(period_fix), .multiplayer = multiplayer};
+	const pacing p{.period_ns = ns_from_fix(period_fix), .multiplayer = multiplayer, .vis = vis};
 	if (const auto s{next_step(ns_from_fix(elapsed_fix), p)}; s.sleep_ns)
 		sleep_ns(s.sleep_ns, s.precise);
 }

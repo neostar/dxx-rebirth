@@ -120,6 +120,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "partial_range.h"
 #include "segiter.h"
 #if SDL_MAJOR_VERSION == 3
+#include "common/sdl/display.h"
 #include "common/sdl/frame_pacer_sdl.h"
 #endif
 #if DXX_USE_DBG_HARNESS
@@ -712,7 +713,7 @@ void calc_frame_time()
 			multi_do_frame(); // during long wait, keep packets flowing
 		if (may_sleep)
 #if SDL_MAJOR_VERSION == 3
-			dcx::sdl::sleep_toward(timer_value - sync_timer_value, bound, multiplayer);
+			dcx::sdl::sleep_toward(timer_value - sync_timer_value, bound, multiplayer, gr_window_visibility());
 #else
 			timer_delay_ms(1);
 #endif

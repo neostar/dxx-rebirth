@@ -82,6 +82,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "d_zip.h"
 #include <memory>
 #if SDL_MAJOR_VERSION == 3
+#include "common/sdl/display.h"
 #include "common/sdl/frame_pacer_sdl.h"
 #endif
 
@@ -1071,7 +1072,7 @@ static void draw_automap(fvcobjptr &vcobjptr, automap &am, fix eye = 0)
 			multi_do_frame(); // during long wait, keep packets flowing
 		if (may_sleep)
 #if SDL_MAJOR_VERSION == 3
-			dcx::sdl::sleep_toward(am.t2 - am.t1, bound, multiplayer);
+			dcx::sdl::sleep_toward(am.t2 - am.t1, bound, multiplayer, gr_window_visibility());
 #else
 			timer_delay(F1_0>>8);
 #endif
