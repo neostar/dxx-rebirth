@@ -35,6 +35,7 @@
 #include "common/render/ambient.h"
 #include "common/render/blit.h"
 #include "common/render/frame_setup.h"
+#include "common/render/mipmaps.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
@@ -618,6 +619,58 @@ BOOST_AUTO_TEST_CASE(gl_keeps_the_font_formats_at_eight_bits)
 	 * is its red, 255 in a white texel, so the frame is the white texture. */
 	BOOST_TEST((o.frames[5].rgb == rgba8_alpha));
 	BOOST_TEST(every_pixel_is(o.frames[7].rgb, {{255, 255, 255}}));
+}
+
+/* Test that GL's mipmaps are mipmaps.h's chain (#34), texel for texel,
+ * measured on Apple's GL on Metal: gluBuild2DMipmaps halves each level on
+ * the CPU with GLU's box filter, rounding a 2x2 mean half up and a mean of
+ * two (a side of 1) down.  Scrambled texels, so every rounding case shows,
+ * in the shapes the game uploads: square, wide, tall to a 1 by n tail, and
+ * the 256x256 of a 64x64 texture the upscale filter quadruples.  The
+ * SDL_GPU adapter uploads this chain, so it minifies as GL does.
+ */
+BOOST_AUTO_TEST_CASE(gl_mipmaps_are_glus_box_filter)
+{
+	render::rtrace::gl_host host{target};
+	auto &d{host.device()};
+	std::uint32_t seed{12345};
+	for (const render::extent size :
+	     {render::extent{.width = 64, .height = 64}, render::extent{.width = 64, .height = 16},
+	      render::extent{.width = 4, .height = 32}, render::extent{.width = 256, .height = 256}})
+	{
+		std::vector<std::uint8_t> level(std::size_t{size.width} * size.height * 4);
+		for (auto &b : level)
+		{
+			seed = seed * 1664525u + 1013904223u;
+			b = static_cast<std::uint8_t>(seed >> 24u);
+		}
+		const render::texture_image image{{.size = size,
+		                                   .format = render::texture_format::rgba8,
+		                                   .filter = render::filter::trilinear,
+		                                   .anisotropic = false,
+		                                   .has_transparency = true},
+		                                  level};
+		d.texture({1}, &image);
+		glBindTexture(GL_TEXTURE_2D, d.gl_name({1}));
+		render::extent s{size};
+		const std::uint32_t levels{render::mip_level_count(size)};
+		for (std::uint32_t l{1}; l != levels; ++l)
+		{
+			level = render::next_mip_level(s, level);
+			s = render::next_mip_extent(s);
+			std::vector<std::uint8_t> gl(level.size());
+			glGetTexImage(GL_TEXTURE_2D, static_cast<GLint>(l), GL_RGBA, GL_UNSIGNED_BYTE,
+			              gl.data());
+			BOOST_TEST_CONTEXT(size.width << "x" << size.height << " level " << l)
+			{
+				BOOST_TEST((gl == level));
+			}
+		}
+		GLint past{0};
+		glGetTexLevelParameteriv(GL_TEXTURE_2D, static_cast<GLint>(levels), GL_TEXTURE_WIDTH,
+		                         &past);
+		BOOST_TEST(past == 0);
+	}
 }
 
 /* Test the depth band trace on GL (#28): between the near plane and twice

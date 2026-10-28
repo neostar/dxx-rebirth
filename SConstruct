@@ -5212,6 +5212,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-palette-expand', (
 			'common/render/unittest/palette_expand.cpp',
 			)),
+		RuntimeTest('test-mipmaps', (
+			'common/render/unittest/mipmaps.cpp',
+			)),
 		RuntimeTest('test-overlay-uv', (
 			'common/render/unittest/overlay_uv.cpp',
 			)),
