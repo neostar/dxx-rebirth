@@ -33,9 +33,12 @@
 #include "common/render/ambient.h"
 #include "common/render/device.h"
 #include "common/render/frame_setup.h"
+#include "common/render/line_quads.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
+#include "common/render/rtrace/lines_colours.h"
+#include "common/render/rtrace/lines_coverage.h"
 #include "common/render/rtrace/sample_trace.h"
 #include "common/render/sdlgpu_clears.h"
 #include "common/render/trace.h"
@@ -687,6 +690,291 @@ BOOST_AUTO_TEST_CASE(alpha_trace_frames_match_gl)
 	                                    0xe2bd10483a9fad25u, 0xaf7964e69a3f7925u};
 	BOOST_TEST(replayed_hashes(dcx::render::rtrace::alpha_trace()) == gl,
 	           boost::test_tools::per_element());
+}
+
+namespace {
+
+using coverage = dcx::render::rtrace::coverage_rows;
+
+/* The pixels a frame covers, as lines_coverage.h has them: a row from the
+ * top per entry, bit x set where pixel x is not black.
+ */
+[[nodiscard]]
+coverage coverage_of(const render::replayed_frame &f)
+{
+	coverage rows{};
+	for (std::size_t y{0}; y != rows.size(); ++y)
+		for (std::size_t x{0}; x != 64; ++x)
+		{
+			const auto i{(y * 64 + x) * 3};
+			if (f.rgb[i] != 0 || f.rgb[i + 1] != 0 || f.rgb[i + 2] != 0)
+				rows[y] |= std::uint64_t{1} << x;
+		}
+	return rows;
+}
+
+[[nodiscard]]
+bool covers(const coverage &c, const int x, const int y)
+{
+	return x >= 0 && x < 64 && y >= 0 && y < 48 &&
+	       ((c[static_cast<std::size_t>(y)] >> static_cast<unsigned>(x)) & 1u) != 0;
+}
+
+/* How far a frame's coverage is from GL's: the pixels only one covers, and
+ * whether each of them lies next to a pixel both cover, so that the
+ * difference is at the end or the edge of a line and not a line elsewhere
+ * (a mirrored endpoint).
+ */
+struct coverage_difference
+{
+	std::size_t pixels{0};
+	bool only_at_edges{true};
+};
+
+[[nodiscard]]
+coverage_difference compare_coverage(const coverage &gl, const coverage &gpu)
+{
+	coverage_difference d;
+	for (int y{0}; y != 48; ++y)
+		for (int x{0}; x != 64; ++x)
+		{
+			if (covers(gl, x, y) == covers(gpu, x, y))
+				continue;
+			++d.pixels;
+			bool next_to_both{false};
+			for (int dy{-1}; dy <= 1; ++dy)
+				for (int dx{-1}; dx <= 1; ++dx)
+					next_to_both =
+					    next_to_both || (covers(gl, x + dx, y + dy) && covers(gpu, x + dx, y + dy));
+			d.only_at_edges = d.only_at_edges && next_to_both;
+		}
+	return d;
+}
+
+}
+
+/* The largest channel difference between a frame and GL's colours
+ * (lines_colours.h), and how many pixels differ by more than 2 levels, over
+ * the pixels both cover.
+ */
+struct colour_difference
+{
+	int largest{0};
+	std::size_t over_two{0};
+};
+
+[[nodiscard]]
+colour_difference compare_colours(const std::span<const std::uint32_t> gl, const coverage &gl_mask,
+                                  const render::replayed_frame &gpu)
+{
+	colour_difference d;
+	std::size_t next{0};
+	for (std::size_t y{0}; y != 48; ++y)
+		for (std::size_t x{0}; x != 64; ++x)
+		{
+			if (((gl_mask[y] >> x) & 1u) == 0)
+				continue;
+			const auto g{gl[next++]};
+			const auto i{(y * 64 + x) * 3};
+			if (gpu.rgb[i] == 0 && gpu.rgb[i + 1] == 0 && gpu.rgb[i + 2] == 0)
+				continue;
+			int largest{0};
+			for (std::size_t c{0}; c != 3; ++c)
+				largest =
+				    std::max(largest, std::abs(static_cast<int>((g >> (16u - 8u * c)) & 0xffu) -
+					                           gpu.rgb[i + c]));
+			d.largest = std::max(d.largest, largest);
+			d.over_two += largest > 2 ? 1u : 0u;
+		}
+	return d;
+}
+
+/* Test R3 on the lines trace on Metal (#32): the loop, strip and points of
+ * frame 2 have GL's hash, and the other frames cover GL's pixels but at
+ * the ends of lines and ties of the diamond-exit rule, which quads cannot
+ * match.  The tolerance, in ADR 2's pixel-centre rule: at most the pixels
+ * measured on the committed tree differ in a frame (13, 10, 0, 2, 1 of
+ * 3072), each next to a pixel both cover.  A mirrored endpoint or a
+ * misplaced line leaves many more.  On the pixels both cover, the colours
+ * are GL's to a bound: frames 3 and 4 exactly; frames 0 and 1 within 20
+ * and 38 levels, at most 17 and 34 pixels more than 2 levels off, all on
+ * pixels one line covers (no pixel two lines cover differs): the quad
+ * interpolates along the major axis where GL projects the pixel centre
+ * onto the line, a difference of at most 0.5 * width * |dy| / L^2 of the
+ * colour range along an x-major line, wider by a pixel's length at the
+ * ends.
+ */
+BOOST_AUTO_TEST_CASE(lines_trace_frames_match_gl_within_the_tolerance)
+{
+	const std::array<std::size_t, 5> limit{{13, 10, 0, 2, 1}};
+	const std::array<int, 5> colour_limit{{20, 38, 0, 0, 0}};
+	const std::array<std::size_t, 5> colour_count_limit{{17, 34, 0, 0, 0}};
+	BOOST_REQUIRE(sdlgpu::device::create(test_config(target))->driver() == "metal");
+	const auto frames{replayed_frames(dcx::render::rtrace::lines_trace())};
+	BOOST_REQUIRE(frames.size() == limit.size());
+	for (std::size_t f{0}; f != frames.size(); ++f)
+	{
+		const auto d{
+		    compare_coverage(dcx::render::rtrace::lines_gl_coverage[f], coverage_of(frames[f]))};
+		BOOST_TEST_CONTEXT("frame " << f)
+		{
+			BOOST_TEST(d.pixels <= limit[f]);
+			BOOST_TEST(d.only_at_edges);
+		}
+		std::cout << "lines frame " << f << ": " << d.pixels << " px off GL, hash " << std::hex
+		          << frames[f].hash << std::dec << "\n";
+		if (f == 2)
+			continue;
+		const auto c{compare_colours(dcx::render::rtrace::lines_gl_colours[f],
+		                             dcx::render::rtrace::lines_gl_coverage[f], frames[f])};
+		BOOST_TEST_CONTEXT("frame " << f)
+		{
+			BOOST_TEST(c.largest <= colour_limit[f]);
+			BOOST_TEST(c.over_two <= colour_count_limit[f]);
+		}
+		std::cout << "lines frame " << f << ": colours up to " << c.largest << " levels off, "
+		          << c.over_two << " px over 2\n";
+	}
+	BOOST_TEST(frames[2].hash == 0x9000b78311b0898eu);
+}
+
+/* Test that lines and points draw whatever cull mode the draw asks for:
+ * GL culls triangles only, and ogl_ulinec inherits the ambient mode
+ * (similar/arch/ogl/gr.cpp), so the quads of a line, in either direction,
+ * must not be culled.  The lines trace's spokes, drawn forward and with
+ * every pair reversed, make the same frame with cull front as with none.
+ */
+BOOST_AUTO_TEST_CASE(lines_draw_whatever_the_cull_mode)
+{
+	namespace rt = dcx::render::rtrace;
+	auto spokes{rt::sample_spokes(32.37f, 24.81f)};
+	auto reversed{spokes};
+	for (std::size_t i{0}; i + 1 < reversed.size(); i += 2)
+		std::swap(reversed[i], reversed[i + 1]);
+	render::trace::writer w{rt::sample_target};
+	std::uint32_t frame{0};
+	for (const auto *v : {&spokes, &reversed})
+		for (const auto mode : {render::cull::none, render::cull::front})
+		{
+			w.clear({.color = true, .depth = true});
+			auto c{rt::line_draw(render::topology::lines, *v, 2)};
+			c.state.cull = mode;
+			w.draw(c);
+			w.present({.frame = frame++});
+		}
+	const auto frames{replayed_frames(w.take())};
+	BOOST_REQUIRE(frames.size() == 4u);
+	BOOST_TEST((coverage_of(frames[0]) != coverage{}));
+	BOOST_TEST((coverage_of(frames[2]) != coverage{}));
+	BOOST_TEST(frames[1].hash == frames[0].hash);
+	BOOST_TEST(frames[3].hash == frames[2].hash);
+}
+
+namespace {
+
+/* A device that expands lines on the CPU after the divide, as the spike's
+ * push_wide_line does (replay_capture.c:352-385): each endpoint goes
+ * through P * MV and is divided by w, the parallelogram is built in window
+ * pixels, and the triangles are drawn in NDC.  There is no clip first, so
+ * an endpoint behind the eye (w < 0) lands mirrored through the centre of
+ * the screen.  A reference for the trace to catch, not an adapter.
+ */
+class divide_first_device final : public render::device
+{
+	render::device &inner_;
+
+  public:
+	explicit divide_first_device(render::device &inner)
+	    : render::device{inner.caps()}, inner_{inner}
+	{}
+	void draw(const render::draw_call &call) override
+	{
+		if (call.topology != render::topology::lines)
+			return inner_.draw(call);
+		const auto view{render::expansion_view_of(call)};
+		const double vw{static_cast<double>(call.viewport.size.width)};
+		const double vh{static_cast<double>(call.viewport.size.height)};
+		std::vector<render::vertex> list;
+		for (std::size_t i{0}; i + 1 < call.vertices.size(); i += 2)
+		{
+			std::array<std::array<double, 3>, 2> w{};
+			for (std::size_t k{0}; k != 2; ++k)
+			{
+				const auto c{render::detail::clip_of(view, call.vertices[i + k].pos)};
+				w[k] = {
+				    {(c[0] / c[3] * 0.5 + 0.5) * vw, (c[1] / c[3] * 0.5 + 0.5) * vh, c[2] / c[3]}};
+			}
+			const bool x_major{std::abs(w[1][0] - w[0][0]) >= std::abs(w[1][1] - w[0][1])};
+			const double h{call.state.line_width / 2};
+			const double ox{x_major ? 0 : h}, oy{x_major ? h : 0};
+			const auto corner{[&](const std::size_t k, const double sign) {
+				render::vertex v{call.vertices[i + k]};
+				v.pos = {{static_cast<float>((w[k][0] + sign * ox) / vw * 2 - 1),
+				          static_cast<float>((w[k][1] + sign * oy) / vh * 2 - 1),
+				          static_cast<float>(w[k][2])}};
+				return v;
+			}};
+			list.insert(list.end(), {corner(0, -1), corner(0, 1), corner(1, -1), corner(1, -1),
+			                         corner(0, 1), corner(1, 1)});
+		}
+		render::draw_call out{call};
+		out.topology = render::topology::triangles;
+		out.vertices = list;
+		out.state.cull = render::cull::none;
+		out.transforms = {
+		    .projection =
+		        render::ortho{
+		            .left = -1, .right = 1, .bottom = -1, .top = 1, .z_near = 1, .z_far = -1},
+		    .modelview = render::identity{}};
+		inner_.draw(out);
+	}
+	void texture(const render::texture_slot slot, const render::texture_image *const image) override
+	{
+		inner_.texture(slot, image);
+	}
+	void clear(const render::clear_targets targets) override
+	{
+		inner_.clear(targets);
+	}
+	void present() override
+	{
+		inner_.present();
+	}
+	void read_pixels(const render::read_source source, const render::read_rect &rect,
+	                 const render::pixel_format format,
+	                 const std::span<std::uint8_t> pixels) override
+	{
+		inner_.read_pixels(source, rect, format, pixels);
+	}
+};
+
+}
+
+/* Test that the lines trace catches a divide before the clip (#32): the
+ * spike's expansion, on the CPU after the divide, mirrors the endpoint
+ * behind the eye in frame 4 to the other side of the screen, so its frame
+ * leaves far more than the tolerance's single pixel off GL's, while the
+ * adapter's clip-space expansion stays within it.  The mirroring is derived
+ * from the code (c[0] / c[3] with c[3] < 0), and this test is its
+ * observation.
+ */
+BOOST_AUTO_TEST_CASE(dividing_before_the_clip_mirrors_an_endpoint_behind_the_eye)
+{
+	auto d{sdlgpu::device::create(
+	    {.target = target, .debug_mode = true, .driver = {}, .clear_rgba = {}})};
+	divide_first_device naive{*d};
+	const auto trace{dcx::render::rtrace::lines_trace()};
+	render::trace::reader r{trace};
+	BOOST_REQUIRE(r.header().has_value());
+	std::vector<render::replayed_frame> frames;
+	const auto done{render::replay(
+	    r, naive, [&frames](const render::replayed_frame &f) { frames.push_back(f); })};
+	BOOST_TEST(done.has_value());
+	BOOST_REQUIRE(frames.size() == 5u);
+	const auto mirrored{
+	    compare_coverage(dcx::render::rtrace::lines_gl_coverage[4], coverage_of(frames[4]))};
+	std::cout << "lines frame 4 divided first: " << mirrored.pixels << " px off GL\n";
+	BOOST_TEST(mirrored.pixels > 20u);
 }
 
 /* Test the alpha test by pixels, on any driver (#29): the 4x4 texture's
