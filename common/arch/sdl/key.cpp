@@ -32,6 +32,9 @@
 #include "args.h"
 
 #include "dsx-ns.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/text_input.h"
+#endif
 #include "compiler-range_for.h"
 #include <array>
 
@@ -518,7 +521,12 @@ window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 #endif
 
 	// fill the unicode frame-related unicode buffer 
+#if SDL_MAJOR_VERSION == 3
+	/* With text input open, the text events fill it. */
+	if (key_state && !key_text_input_active())
+#else
 	if (key_state)
+#endif
 	{
 #if SDL_MAJOR_VERSION == 1
 		const auto sym = kevent->keysym.unicode;
@@ -576,6 +584,68 @@ window_event_result key_handler(const SDL_KeyboardEvent *const kevent)
 	}
 	return window_event_result::ignored;
 }
+
+#if SDL_MAJOR_VERSION == 3
+extern SDL_Window *g_pRebirthSDLMainWindow;
+
+namespace {
+
+struct main_window_text_input
+{
+	static bool start()
+	{
+		return g_pRebirthSDLMainWindow && SDL_StartTextInput(g_pRebirthSDLMainWindow);
+	}
+	static void stop()
+	{
+		if (g_pRebirthSDLMainWindow)
+			SDL_StopTextInput(g_pRebirthSDLMainWindow);
+	}
+};
+
+sdl::text_input_gate<main_window_text_input> text_input{main_window_text_input{}};
+
+}
+
+void key_text_input_open()
+{
+	text_input.open();
+}
+
+void key_text_input_close()
+{
+	text_input.close();
+}
+
+bool key_text_input_active()
+{
+	return text_input.active();
+}
+
+void key_text_input(const SDL_TextInputEvent &text)
+{
+	if (text.text && key_text_input_active())
+		sdl::append_game_text(unicode_frame_buffer, text.text);
+}
+
+unsigned key_take_text(const SDL_KeyboardEvent &key, const std::span<const SDL_Event> following)
+{
+	if (!key.down || !key_text_input_active())
+		return 0;
+	/* The game drops a repeat while repeats are off, and so drops its text. */
+	const bool wanted{!key.repeat || keyd_repeat};
+	unsigned taken{0};
+	for (const auto &e : following)
+	{
+		if (e.type != SDL_EVENT_TEXT_INPUT)
+			break;
+		if (wanted)
+			key_text_input(e.text);
+		++taken;
+	}
+	return taken;
+}
+#endif
 
 void key_init()
 {

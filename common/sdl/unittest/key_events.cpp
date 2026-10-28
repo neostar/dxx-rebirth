@@ -18,6 +18,8 @@
 #include <array>
 #include <vector>
 
+#include "common/sdl/sdl_deleter.h"
+
 // clang-format off
 #include "tools/dev/upstream_begin.h"
 #include "args.h"
@@ -39,6 +41,9 @@ std::array<bool, SDL_SCANCODE_COUNT> fake_keyboard{};
 namespace dcx {
 
 CArg CGameArg;
+
+// NOLINTNEXTLINE(readability-identifier-naming): the game's name for its window
+SDL_Window *g_pRebirthSDLMainWindow;
 
 fix64 timer_query()
 {
@@ -207,4 +212,128 @@ BOOST_AUTO_TEST_CASE(key_flush_restores_the_lock_keys_by_game_key_code)
 	fake_keyboard = {};
 	dcx::key_flush();
 	BOOST_TEST(!dcx::keyd_pressed[KEY_CAPSLOCK]);
+}
+
+namespace {
+
+/* A hidden window on SDL's dummy video driver, which text input needs. */
+struct dummy_window
+{
+	dcx::sdl::sdl_unique_ptr<SDL_Window, SDL_DestroyWindow> window;
+	dummy_window()
+	{
+		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+		BOOST_REQUIRE(SDL_Init(SDL_INIT_VIDEO));
+		window.reset(SDL_CreateWindow("key test", 64, 64, SDL_WINDOW_HIDDEN));
+		BOOST_REQUIRE(window);
+		dcx::g_pRebirthSDLMainWindow = window.get();
+	}
+	dummy_window(const dummy_window &) = delete;
+	dummy_window &operator=(const dummy_window &) = delete;
+	dummy_window(dummy_window &&) = delete;
+	dummy_window &operator=(dummy_window &&) = delete;
+	~dummy_window()
+	{
+		dcx::key_text_input_close();
+		dcx::g_pRebirthSDLMainWindow = nullptr;
+		window.reset();
+		SDL_Quit();
+	}
+};
+
+SDL_Event text_event(const char *const text)
+{
+	SDL_Event e{};
+	e.text.type = SDL_EVENT_TEXT_INPUT;
+	e.text.text = text;
+	return e;
+}
+
+/* Feed one key down and the events SDL sends after it, as event_poll does: the key's text first,
+ * then the key.  Returns the text events the key took.
+ */
+unsigned key_down_with_text(const SDL_Keycode key, const std::vector<SDL_Event> &after,
+                            const bool repeat = false)
+{
+	SDL_Event down{};
+	down.key = key_event(key, true);
+	down.key.repeat = repeat;
+	const auto taken{dcx::key_take_text(down.key, after)};
+	dcx::key_handler(&down.key);
+	const auto up{key_event(key, false)};
+	dcx::key_handler(&up);
+	return taken;
+}
+
+}
+
+/* Test that while text input is open the key's text, shifted, is what key_ascii returns, once, and
+ * that the key code is still sent.
+ */
+BOOST_AUTO_TEST_CASE(open_text_input_gives_shifted_text_from_the_text_event)
+{
+	const dummy_window window;
+	dcx::key_flush();
+	dcx::key_text_input_open();
+	BOOST_TEST(SDL_TextInputActive(dcx::g_pRebirthSDLMainWindow));
+	sent_keys.clear();
+	BOOST_TEST(key_down_with_text(SDLK_A, {text_event("A")}) == 1u);
+	BOOST_TEST(!sent_keys.empty());
+	BOOST_TEST(dcx::key_ascii() == 'A');
+	BOOST_TEST(dcx::key_ascii() == 255);
+	dcx::key_text_input_close();
+	BOOST_TEST(!SDL_TextInputActive(dcx::g_pRebirthSDLMainWindow));
+}
+
+/* Test that closed text input leaves key_ascii as on SDL2: the unshifted keycode, and a text event
+ * with nothing to follow is not taken.
+ */
+BOOST_AUTO_TEST_CASE(closed_text_input_gives_the_keycode_as_on_sdl2)
+{
+	const dummy_window window;
+	dcx::key_flush();
+	BOOST_TEST(key_down_with_text(SDLK_A, {text_event("A")}) == 0u);
+	BOOST_TEST(dcx::key_ascii() == 'a');
+	BOOST_TEST(dcx::key_ascii() == 255);
+}
+
+/* Test that the text of a repeat the game drops is dropped with it, so it does not come back
+ * as a ghost character with the next key.
+ */
+BOOST_AUTO_TEST_CASE(text_of_a_dropped_repeat_is_dropped)
+{
+	const dummy_window window;
+	dcx::key_flush();
+	dcx::key_toggle_repeat0();
+	dcx::key_text_input_open();
+	BOOST_TEST(key_down_with_text(SDLK_A, {text_event("a")}, true) == 1u);
+	BOOST_TEST(dcx::key_ascii() == 255);
+	dcx::key_toggle_repeat1();
+	BOOST_TEST(key_down_with_text(SDLK_A, {text_event("a")}, true) == 1u);
+	BOOST_TEST(dcx::key_ascii() == 'a');
+	dcx::key_text_input_close();
+}
+
+/* Test that a text event that arrives alone, at a batch boundary, still reaches the buffer. */
+BOOST_AUTO_TEST_CASE(a_lone_text_event_reaches_the_buffer)
+{
+	const dummy_window window;
+	dcx::key_flush();
+	dcx::key_text_input_open();
+	const auto e{text_event("Z")};
+	dcx::key_text_input(e.text);
+	BOOST_TEST(dcx::key_ascii() == 'Z');
+	dcx::key_text_input_close();
+}
+
+/* Test that text input stays closed, and key events keep filling the buffer, when there is no
+ * window to start it on.
+ */
+BOOST_AUTO_TEST_CASE(no_window_leaves_text_input_closed)
+{
+	dcx::key_flush();
+	dcx::key_text_input_open();
+	BOOST_TEST(!dcx::key_text_input_active());
+	BOOST_TEST(key_down_with_text(SDLK_B, {}) == 0u);
+	BOOST_TEST(dcx::key_ascii() == 'b');
 }

@@ -45,6 +45,11 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include <array>
 
 struct SDL_KeyboardEvent;
+#if SDL_MAJOR_VERSION == 3
+#include <span>
+union SDL_Event;
+struct SDL_TextInputEvent;
+#endif
 
 namespace dcx {
 
@@ -91,6 +96,25 @@ extern pressed_keys keyd_pressed;
 void key_toggle_repeat0();
 void key_toggle_repeat1();
 window_event_result key_handler(const SDL_KeyboardEvent *kevent);
+
+#if SDL_MAJOR_VERSION == 3
+/* SDL3 sends text only while text input is on, so a name, chat or savegame
+ * field opens it and closes it again; key_ascii then returns the text of the
+ * SDL_EVENT_TEXT_INPUT events, shifted, in place of the keycodes.
+ */
+void key_text_input_open();
+void key_text_input_close();
+bool key_text_input_active();
+/* Append the text of a text event to the buffer key_ascii reads. */
+void key_text_input(const SDL_TextInputEvent &);
+/* Take the text events that follow a key event, before its handler reads
+ * key_ascii; returns how many it took, which the caller skips.
+ */
+unsigned key_take_text(const SDL_KeyboardEvent &, std::span<const SDL_Event> following);
+#else
+inline void key_text_input_open() {}
+inline void key_text_input_close() {}
+#endif
 
 // for key_ismodlck
 #define KEY_ISMOD	1
