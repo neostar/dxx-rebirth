@@ -1647,12 +1647,15 @@ window_event_result newmenu::event_handler(const d_event &event)
 			game_flush_inputs(Controls);
 			event_toggle_focus(0);
 			key_toggle_repeat(1);
+			if (std::ranges::any_of(items, [](const newmenu_item &i) { return i.type == nm_type::input || i.type == nm_type::input_menu; }))
+				key_text_input_open();
 			break;
 
 		case event_type::window_deactivated:
 			//event_toggle_focus(1);	// No cursor recentering
 			key_toggle_repeat(1);
 			mouse_state = 0;
+			key_text_input_close();
 			break;
 
 		case event_type::mouse_button_down:

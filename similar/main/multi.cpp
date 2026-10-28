@@ -661,6 +661,7 @@ void multi_new_game()
 		vmplayerptr(i)->connected = player_connection_status::disconnected;
 	}
 	multi_sending_message.fill(msgsend_state::none);
+	key_text_input_close();
 
 	robot_controlled.fill(-1);
 	robot_agitation = {};
@@ -1228,6 +1229,7 @@ void multi_define_macro(const int key)
 	}
 	{
 		key_toggle_repeat(1);
+		key_text_input_open();
 		multi_message_index = 0;
 		Network_message = {};
 	}
@@ -1337,6 +1339,7 @@ void multi_send_message_start()
 		multi_message_index = 0;
 		Network_message = {};
 		key_toggle_repeat(1);
+		key_text_input_open();
 	}
 }
 
@@ -1358,6 +1361,8 @@ static void kick_player(const player &plr, netplayer_info &nplr)
 static void multi_send_message_end(const d_robot_info_array &Robot_info, fvmobjptr &vmobjptr, control_info &Controls)
 {
 	auto &LevelUniqueControlCenterState = LevelUniqueObjectState.ControlCenterState;
+	/* Before the early returns below, which leave the chat. */
+	key_text_input_close();
 #if DXX_BUILD_DESCENT == 1
 	multi_message_index = 0;
 	multi_sending_message[Player_num] = msgsend_state::none;
@@ -1557,6 +1562,7 @@ static void multi_define_macro_end(control_info &Controls)
 
 	multi_message_index = 0;
 	key_toggle_repeat(0);
+	key_text_input_close();
 	game_flush_inputs(Controls);
 }
 
@@ -1574,6 +1580,7 @@ window_event_result multi_message_input_sub(const d_robot_info_array &Robot_info
 			multi_send_msgsend_state(msgsend_state::none);
 			multi_defining_message = multi_macro_message_index::None;
 			key_toggle_repeat(0);
+			key_text_input_close();
 			game_flush_inputs(Controls);
 			return window_event_result::handled;
 		case KEY_LEFT:
@@ -3506,6 +3513,7 @@ void multi_prep_level_player(void)
 	multi_consistency_error(1);
 
 	multi_sending_message.fill(msgsend_state::none);
+	key_text_input_close();
 	if (imulti_new_game)
 		for (uint_fast32_t i = 0; i != Players.size(); i++)
 			init_player_stats_new_ship(i);
