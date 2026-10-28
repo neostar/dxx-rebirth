@@ -381,6 +381,12 @@ else
 fi
 exit "\${FAKE_R1_RC:-0}"
 R1
+	# format.sh prints $FAKE_FORMAT_OUT (a SKIP line, say) and exits 0.
+	printf '#!/bin/sh\necho "format.sh $*" >> "%s/calls"\n[ -z "${FAKE_FORMAT_OUT-}" ] || echo "$FAKE_FORMAT_OUT"\nexit 0\n' \
+		"$r" > "$r/tools/dev/format.sh"
+	# One SDL3-only source, which the gate's sdl3_games step tidies.
+	printf 'tools/s3.cpp\n' > "$r/tools/dev/sdl3-only"
+	echo 'int s3;' > "$r/tools/s3.cpp"
 	chmod +x "$r/tools/dev/"*.sh
 	(cd "$r" && tools/dev/setup.sh >/dev/null)
 	tgit -C "$r" add -A
@@ -535,6 +541,58 @@ test_gate_tidies_the_changed_fork_files()
 	assert_contains "$(cat "$r/calls")" "format.sh --check $(cd "$r" && pwd)/tools/x.cpp"
 	assert_contains "$(cat "$r/calls")" "format.sh --tidy $(cd "$r" && pwd)/tools/x.cpp"
 	assert_not_contains "$(cat "$r/calls")" "upstream.cpp"
+}
+
+# Test that the gate builds both games with sdl3=1 (their compile and link,
+# beside the SDL3 unit tests, and the compilation database), tidies every
+# file tools/dev/sdl3-only lists, whatever changed, and fails on a SKIP in
+# that tidy, on an empty list and on a listed file that is missing.
+test_gate_builds_the_sdl3_games_and_tidies_the_sdl3_only_files()
+{
+	local r out rc
+	[[ $dev_os == darwin ]] || skip "macOS only: sdl3_games is a SKIP elsewhere"
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" src/game.cpp
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "-- sdl3_games: "
+	assert_contains "$(cat "$r/calls")" "build.sh dev sdl3=1 d1x=1 d2x=1 build/dev-sdl3/compile_commands.json \
+build/dev-sdl3/d1x-rebirth/d1x-rebirth build/dev-sdl3/d2x-rebirth/d2x-rebirth"
+	assert_contains "$(cat "$r/calls")" "format.sh --tidy $(cd "$r" && pwd)/tools/s3.cpp"
+	out=$(FAKE_FORMAT_OUT="SKIP tidy tools/s3.cpp: SDL3-only, and no database" run_check "$r" --gate base) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "the gate may not skip it"
+	assert_contains "$out" "check.sh: failed: sdl3_games"
+	: > "$r/tools/dev/sdl3-only"
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/dev/sdl3-only lists no file"
+	printf 'tools/gone.cpp\n' > "$r/tools/dev/sdl3-only"
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tools/gone.cpp is in tools/dev/sdl3-only and missing"
+}
+
+# Test that an SDL3-only file changed in the commits is formatted by
+# changed_format but tidied once, by sdl3_games, not twice.
+test_gate_tidies_a_changed_sdl3_only_file_once()
+{
+	local r out rc
+	[[ $dev_os == darwin ]] || skip "macOS only: sdl3_games is a SKIP elsewhere"
+	r=$(make_check_repo) || die "make_check_repo failed"
+	change "$r" tools/s3.cpp
+	change "$r" tools/x.cpp
+	out=$(run_check "$r" --gate base) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$(grep -c 'format.sh --tidy .*tools/s3.cpp' "$r/calls")" 1 "$(cat "$r/calls")"
+	assert_contains "$(cat "$r/calls")" "format.sh --check $(cd "$r" && pwd)/tools/s3.cpp"
+	assert_contains "$(cat "$r/calls")" "format.sh --tidy $(cd "$r" && pwd)/tools/x.cpp"
+	rm "$r/calls"
+	change "$r" tools/s3.cpp
+	out=$(run_check "$r" --gate HEAD~1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$(grep -c 'format.sh --tidy' "$r/calls")" 1 "only sdl3_games tidies: $(cat "$r/calls")"
 }
 
 # Test that the gate times itself against its 5-minute budget (ADR 6) and

@@ -299,7 +299,7 @@ step_new_secrets()
 # picks them); none is a pass.
 step_changed_format()
 {
-	local d f e changed files=() dirs=()
+	local d f e changed files=() tidy_files=() dirs=()
 	while IFS= read -r d; do
 		[[ -z $d || $d == \#* ]] || dirs+=("$d")
 	done < "$dev_dir/fork-dirs"
@@ -317,13 +317,19 @@ step_changed_format()
 		echo "changed_format: no changed fork C or C++ file"
 		return 0
 	fi
+	# The SDL3-only files (tools/dev/sdl3-only) are tidied by step_sdl3_games,
+	# which tidies all of them, so not twice here; formatted here still.
+	# Where it only SKIPs (not macOS), format.sh SKIPs them here, naming each.
+	tidy_files=()
 	for f in "${files[@]}"; do
-		if grep -qxF -e "${f#"$root"/}" "$dev_dir/sdl3-only" 2>/dev/null; then
-			sdl3_database || return 1
-			break
+		if [[ $dev_os == darwin ]] && grep -qxF -e "${f#"$root"/}" "$dev_dir/sdl3-only" 2>/dev/null; then
+			continue
 		fi
+		tidy_files+=("$f")
 	done
-	"$dev_dir/format.sh" --check "${files[@]}" && "$dev_dir/format.sh" --tidy "${files[@]}"
+	"$dev_dir/format.sh" --check "${files[@]}" || return 1
+	# No file left to tidy: format.sh --tidy without files tidies the fork directories.
+	[[ ${#tidy_files[@]} -eq 0 ]] || "$dev_dir/format.sh" --tidy "${tidy_files[@]}"
 }
 
 # Write build/dev-sdl3's compilation database, with which format.sh tidies
@@ -332,8 +338,43 @@ step_changed_format()
 sdl3_database()
 {
 	[[ $dev_os == darwin ]] || return 0
-	"$dev_dir/build.sh" dev sdl3=1 build/dev-sdl3/compile_commands.json >/dev/null ||
-		{ echo "build.sh dev sdl3=1 build/dev-sdl3/compile_commands.json failed"; return 1; }
+	"$dev_dir/build.sh" dev sdl3=1 d1x=1 d2x=1 build/dev-sdl3/compile_commands.json >/dev/null ||
+		{ echo "build.sh dev sdl3=1 d1x=1 d2x=1 build/dev-sdl3/compile_commands.json failed"; return 1; }
+}
+
+# The merge gate (#95): build both games with sdl3=1 (compile and link,
+# build/dev-sdl3; the SDL3 unit tests alone leave an SDL3 arm in the games
+# unbuilt), which also writes build/dev-sdl3's compilation database, then
+# clang-tidy every file tools/dev/sdl3-only lists with it.  A SKIP line from
+# the tidy fails the step: the gate must not skip the files only this
+# database holds.  Elsewhere than macOS (no pinned SDL3 to build) a SKIP.
+step_sdl3_games()
+{
+	local f out rc=0 files=()
+	if [[ $dev_os != darwin ]]; then
+		echo "SKIP sdl3_games: macOS only, where the pinned SDL3 is built"
+		return 0
+	fi
+	"$dev_dir/build.sh" dev sdl3=1 d1x=1 d2x=1 build/dev-sdl3/compile_commands.json \
+		build/dev-sdl3/d1x-rebirth/d1x-rebirth build/dev-sdl3/d2x-rebirth/d2x-rebirth || return 1
+	while IFS= read -r f; do
+		[[ -z $f || $f == \#* ]] || files+=("$root/$f")
+	done < "$dev_dir/sdl3-only" || { echo "sdl3_games: cannot read tools/dev/sdl3-only"; return 1; }
+	if [[ ${#files[@]} -eq 0 ]]; then
+		echo "sdl3_games: tools/dev/sdl3-only lists no file"
+		return 1
+	fi
+	for f in "${files[@]}"; do
+		[[ -f $f ]] || { echo "sdl3_games: ${f#"$root"/} is in tools/dev/sdl3-only and missing"; rc=1; }
+	done
+	[[ $rc -eq 0 ]] || return 1
+	out=$("$dev_dir/format.sh" --tidy "${files[@]}" 2>&1) || rc=1
+	printf '%s\n' "$out"
+	if grep -q '^SKIP' <<<"$out"; then
+		echo "sdl3_games: the tidy of an SDL3-only file was skipped; the gate may not skip it"
+		rc=1
+	fi
+	return "$rc"
 }
 
 # The merge gate's R1 (ADR 6): r1.sh check against the base commit's
@@ -781,9 +822,11 @@ fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellc
 	workflows commit_sizes test_git gpu_gate sdl_arms gl_text shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests gl_calls
 	sdl3_link)
-# The merge gate's steps (ADR 6), with r1 run beside them.
+# The merge gate's steps (ADR 6), with r1 and the gate_beside steps run
+# beside them (the budget is wall-clock: see gate_beside's use below).
 gate_steps=(repo_config doctor guard gitleaks_allow new_secrets gpu_gate sdl_arms unit_tests
 	sanitizer_tests leaks changed_format)
+gate_beside=(sdl3_games)
 tools_steps=(shellcheck stale_hashes test_git shell_tests)
 
 mode=full
@@ -848,11 +891,29 @@ if [[ $mode == gate && ${#failed[@]} -eq 0 ]]; then
 		echo "-- r1: $((EPOCHSECONDS - step_start)) s"; exit "$rc"; } > "$r1_out" 2>&1 &
 	r1_pid=$!
 fi
+# The gate_beside steps build into a directory of their own (build/dev-sdl3,
+# its own .sconsign), so they run beside the others, like R1: the others
+# leave the machine's cores idle part of the time.
+beside_pids=() beside_outs=()
+if [[ $mode == gate ]]; then
+	for s in "${gate_beside[@]}"; do
+		out=$(mktemp "${TMPDIR:-/tmp}/check-$s.XXXXXX") || exit 1
+		{ step_start=$EPOCHSECONDS; "step_$s"; rc=$?
+			echo "-- $s: $((EPOCHSECONDS - step_start)) s"; exit "$rc"; } > "$out" 2>&1 &
+		beside_pids+=($!) beside_outs+=("$out")
+	done
+fi
 for s in "${steps[@]}"; do
 	echo "== $s"
 	step_start=$EPOCHSECONDS
 	"step_$s" || failed+=("$s")
 	[[ $mode == full || $mode == gate ]] && echo "-- $s: $((EPOCHSECONDS - step_start)) s"
+done
+for i in "${!beside_pids[@]}"; do
+	echo "== ${gate_beside[i]}"
+	wait "${beside_pids[i]}" || failed+=("${gate_beside[i]}")
+	cat "${beside_outs[i]}"
+	rm -f "${beside_outs[i]}"
 done
 if [[ -n $r1_pid ]]; then
 	echo "== r1"

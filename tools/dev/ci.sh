@@ -37,9 +37,10 @@
 # --gate: the merge gate of ADR 6, on the commits between the base REV
 # (default: the merge-base of HEAD and sdl-gpu-port) and HEAD, which must
 # be clean (no uncommitted or untracked file).  It runs `check.sh --gate
-# REV` natively (builds, tests, leaks, tidy and format of the changed fork
-# files, doctor, gitleaks on the new commits, R1 against REV's baseline;
-# its own 5-minute budget), and adds by changed path (path_classes):
+# REV` natively (builds, tests, leaks, both games built with sdl3=1 and the
+# SDL3-only files tidied, tidy and format of the changed fork files,
+# doctor, gitleaks on the new commits, R1 against REV's baseline; its own
+# 5-minute budget), and adds by changed path (path_classes):
 # tools/dev and docs/agents files run shellcheck and the shell tests of the
 # changed scripts (`check.sh --tools`); the SDL_GPU device's sources,
 # gpu-programs and gpu-validate.sh the GPU programs (`check.sh --gpu`,
