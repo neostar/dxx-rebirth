@@ -6,6 +6,7 @@ Amended 2026-10-27 (owner, decided 2026-10-22): the renderer is chosen at startu
 Amended 2026-10-27 (owner, #16): the device gains `select_eye` and `copy_region`, GL-only behind caps.
 Amended 2026-10-27 (#28): the depth pairing rule.
 Amended 2026-10-28 (#32): the pixel-centre rule for lines and points.
+Amended 2026-10-28 (owner, #29): the depth band keeps `discard` on every depth-tested draw.
 
 ## Context
 
@@ -55,8 +56,10 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   Apple's late depth-test path, which evidently skips the viewport clamp (SDL sets
   `MTLDepthClipModeClamp` per pipeline). This rests on undocumented Apple-GPU behaviour an OS
   update could change; the exemption is that dependency. Vulkan
-  (#25) and D3D12 (WARP) are not measured. Open for the owner: whether to change the model
-  for the band; T9's screen of 48 combinations found no other bit-exact one.
+  (#25) and D3D12 (WARP) are not measured. Decided (owner, #29): the model stays and every
+  depth-tested draw keeps `discard`. T9's screen of 48 combinations found no other bit-exact
+  one; in the demo only explosion sprites reach the band (41 draws in 17 of 5,396 frames), and
+  keeping `discard` costs at most 1 % (1024x768 and 3072x2304).
 - **Pixel-centre rule** (#32): lines, line loops and points reach SDL_GPU as triangle lists
   (`common/render/line_quads.h`), because D3D12 has no wide lines or sized points. A pixel belongs
   to a quad when its centre lies inside, and on the quad's left or upper edge in window
