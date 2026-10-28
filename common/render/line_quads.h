@@ -240,8 +240,30 @@ inline void append_line(std::vector<vertex> &out, const expansion_view &view, co
 	const double width{whole_pixels(view.size)};
 	const auto sa{window_step(view, p.c[3], minor, width)};
 	const auto sb{window_step(view, q.c[3], minor, width)};
-	append_quad(out, offset_vertex(p.v, sa, -0.5f), offset_vertex(p.v, sa, 0.5f),
-	            offset_vertex(q.v, sb, 0.5f), offset_vertex(q.v, sb, -0.5f));
+	/* A width-1 line GL draws by the diamond-exit rule: it includes a pixel
+	 * centre at the start of the line and not at its end, whichever way
+	 * it runs, where Metal's rasteriser includes a centre on a quad's left
+	 * edge and on its upper edge, not on its right or lower one.  Sliding
+	 * the line a subpixel along itself, away from the end that GL
+	 * includes, moves the ties to GL's and leaves the line where it is.  A
+	 * wider line GL draws as a quad, with Metal's ties (measured, #32).
+	 */
+	const bool along_x{minor == 1};
+	const double toward{width > 1 ? 0.0 : along_x ? (dx < 0 ? 1.0 : 0.0) : (dy > 0 ? -1.0 : 0.0)};
+	constexpr double subpixel{1.0 / 256};
+	const double slide_x{along_x ? toward * subpixel : toward * subpixel * dx / dy};
+	const double slide_y{along_x ? toward * subpixel * dy / dx : toward * subpixel};
+	const auto slide{[&](const clipped &end, const vertex &v) {
+		const auto sx{window_step(view, end.c[3], 0, slide_x)};
+		const auto sy{window_step(view, end.c[3], 1, slide_y)};
+		vertex r{v};
+		for (std::size_t i{0}; i != 3; ++i)
+			r.pos[i] += sx[i] + sy[i];
+		return r;
+	}};
+	const vertex pa{slide(p, p.v)}, qa{slide(q, q.v)};
+	append_quad(out, offset_vertex(pa, sa, -0.5f), offset_vertex(pa, sa, 0.5f),
+	            offset_vertex(qa, sb, 0.5f), offset_vertex(qa, sb, -0.5f));
 }
 
 inline void append_point(std::vector<vertex> &out, const expansion_view &view, const vertex &v)

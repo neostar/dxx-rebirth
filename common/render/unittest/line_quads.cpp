@@ -133,6 +133,24 @@ BOOST_AUTO_TEST_CASE(width_one_line_on_a_boundary_takes_the_upper_row)
 	BOOST_TEST((covered(view, render::lines_to_list(view, v)) == block(5, 19, 10, 10)));
 }
 
+/* Test that GL's ties at a line's ends follow its direction: it includes
+ * the pixel centre at the start and not the one at the end, whichever way
+ * the line runs, though Metal's rasteriser fixes the ties by axis.  Along
+ * x, right to left from 62.5 to 1.5 covers columns 62 down to 2; along y, a
+ * line up from 2.5 to 12.5 covers rows 2 to 11 and one down from 12.5 to
+ * 2.5 covers rows 12 down to 3 (all probed on GL).
+ */
+BOOST_AUTO_TEST_CASE(line_ends_follow_the_direction_of_the_line)
+{
+	const auto view{flat_view(1)};
+	const std::array<render::vertex, 2> left{{at(62.5f, 1.5f), at(1.5f, 1.5f)}};
+	BOOST_TEST((covered(view, render::lines_to_list(view, left)) == block(2, 62, 1, 1)));
+	const std::array<render::vertex, 2> up{{at(58.5f, 2.5f), at(58.5f, 12.5f)}};
+	BOOST_TEST((covered(view, render::lines_to_list(view, up)) == block(58, 58, 2, 11)));
+	const std::array<render::vertex, 2> down{{at(58.5f, 12.5f), at(58.5f, 2.5f)}};
+	BOOST_TEST((covered(view, render::lines_to_list(view, down)) == block(58, 58, 3, 12)));
+}
+
 /* Test that a width-2 line centred on a pixel centre covers the row of its
  * centre and the one above, not the one below: the quad's lower edge ties
  * with a pixel centre and its upper edge with another.
