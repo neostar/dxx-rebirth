@@ -23,11 +23,18 @@ checks the budget (as ADR 5's tiers are checked):
 - dev, asan and harness builds of the changed tree
 - unit tests, sanitizer tests, leaks
 - clang-tidy and clang-format on the changed fork files
+- both games built with `sdl3=1` (compile and link), and clang-tidy on every SDL3-only source (`tools/dev/sdl3-only`), changed or not; a skipped tidy fails the step (#95)
 - doctor once; gitleaks on the new commits
 - **R1** `check` against the base commit's baseline, captured once per base and R1 inputs and reused
 
 Budget basis, measured 2026-10-22 on the M1 Max: R1 `check` 123 s warm, 161 s cold; the other
 steps about 3 minutes; R1 runs beside the unit and sanitizer tests.
+
+Remeasured 2026-10-28 (#95, idle M1 Max), budget kept at 300 s: the SDL3 games build (`sdl3_games`,
+64-78 s) runs beside the other steps like R1, and the clang-tidy of the changed files runs one
+file per core. No fork C++ changed: 175 s (leaks 116 s, `sdl3_games` 70 s, R1 153 s). #28's
+seven commits (render device, `changed_format` 54 s, was 136-146 s serial): 235 s, a 65 s margin.
+Before the two changes the same chain took 332 s.
 
 **Steps follow the changed paths.** The gate adds steps for what a change touches:
 
