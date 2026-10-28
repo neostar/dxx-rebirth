@@ -33,6 +33,8 @@ make_dev_repo()
 	: > "$r/tools/dev/gl-calls-allow"
 	: > "$r/tools/dev/gl-calls-pending"
 	printf 'int main(void) { return 0; }\n' > "$r/main.c"
+	# The text pass reads tracked files only.
+	tgit -C "$r" add main.c || die "tracking main.c failed"
 	# It builds no GPU programs: the tests register their own.
 	grep '^#' "$DEV_DIR/gpu-programs" > "$r/tools/dev/gpu-programs"
 	# It holds no rtrace programs either: a stub SKIPs their tests.
