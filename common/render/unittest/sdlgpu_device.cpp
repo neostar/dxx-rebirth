@@ -32,6 +32,7 @@
 
 #include "common/render/ambient.h"
 #include "common/render/device.h"
+#include "common/render/frame_setup.h"
 #include "common/render/readback.h"
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
@@ -672,6 +673,77 @@ BOOST_AUTO_TEST_CASE(walls_keep_their_winding)
 	BOOST_REQUIRE(frames.size() == 3u);
 	BOOST_TEST(pixels_of(frames[0], red) == 0u);
 	BOOST_TEST(pixels_of(frames[0], {{0, 0, 0}}) == 0u);
+}
+
+/* Test R3 on the alpha trace (#29): the alpha test at 0.02 and 0.8, at
+ * alpha_test_off, on a texture without transparent pixels and on vertex
+ * alpha, and in the 3D view, hashes as GL draws it.  Pinned as the sample's
+ * are.
+ */
+BOOST_AUTO_TEST_CASE(alpha_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{0x184a14cee6aceb25u, 0x2eea67c587ee7f25u,
+	                                    0x891d9777e7a7e925u, 0xa80644d0e3157625u,
+	                                    0xe2bd10483a9fad25u, 0xaf7964e69a3f7925u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::alpha_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
+/* Test the alpha test by pixels, on any driver (#29): the 4x4 texture's
+ * blocks are 16 x 12 pixels, and a texel whose alpha is below the reference
+ * shows the clear colour: five blocks at 0.02, twelve at 0.8, none at
+ * alpha_test_off; the opaque texture discards none at 0.8 and the untextured
+ * quad of vertex alpha 0.5 is discarded whole; the discarded texels of the
+ * 3D view's wall leave the far wall's grey.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_discards_below_the_reference)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::alpha_trace())};
+	BOOST_REQUIRE(frames.size() == 6u);
+	constexpr std::size_t block{std::size_t{16} * 12};
+	BOOST_TEST(pixels_of(frames[0], {{0, 0, 0}}) == 5 * block);
+	BOOST_TEST(pixels_of(frames[1], {{0, 0, 0}}) == 12 * block);
+	BOOST_TEST(pixels_of(frames[2], {{0, 0, 0}}) == 0u);
+	BOOST_TEST(pixels_of(frames[3], {{0, 0, 0}}) == std::size_t{32} * 48);
+	BOOST_TEST(pixels_of(frames[4], {{0, 0, 0}}) == 0u);
+	/* A fragment whose alpha equals the reference passes (GL_GEQUAL). */
+	BOOST_TEST(pixels_of(frames[5], {{0, 0, 0}}) == 15 * block);
+	BOOST_TEST(pixels_of(frames[4], {{128, 128, 128}}) + pixels_of(frames[4], {{127, 127, 127}}) >
+	           0u);
+}
+
+/* Test the alpha test after a 3D frame (#29), through the front end's own
+ * state: before begin_3d_frame the title and menus draw with the alpha test
+ * off (ref 0) and a texel of alpha 0 shows; after it, with 0.02, the same
+ * draw discards the texel; after end_3d_frame the 2D drawing keeps the test.
+ */
+BOOST_AUTO_TEST_CASE(alpha_test_applies_after_a_3d_frame)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const dcx::render::rtrace::alpha_texture clear{true};
+	d->texture({1}, &clear.image);
+	render::ambient a;
+	a.viewport = {.x = 0, .y = 0, .size = target};
+	/* Blending off, so that a texel's colour shows whatever its alpha. */
+	a.blending = false;
+	const auto q{dcx::render::rtrace::sample_quad(dcx::render::rtrace::flat({{1, 1, 1, 1}}), 1)};
+	const auto shown{[&] {
+		d->clear({.color = true, .depth = true});
+		d->draw(a.fan(q, {1}));
+		return pixels_other_than(drawing(*d), clear_rgb);
+	}};
+	const std::size_t all{std::size_t{target.width} * target.height};
+	constexpr std::size_t block{std::size_t{16} * 12};
+	BOOST_TEST(shown() == all);
+	render::begin_3d_frame(*d, a, 1.f);
+	/* The 3D frame's state, drawn flat: only its alpha test is on trial. */
+	a.blending = false;
+	a.transforms = {render::screen_ortho, render::identity{}};
+	a.cull = render::cull::none;
+	a.depth = render::depth::off;
+	BOOST_TEST(shown() == all - 5 * block);
+	render::end_3d_frame(a);
+	BOOST_TEST(shown() == all - 5 * block);
 }
 
 /* Test that the transfer ring grows on a GPU: after a small frame that is
