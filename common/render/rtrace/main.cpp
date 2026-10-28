@@ -14,6 +14,9 @@
  *
  * The lines go to LOG, created or emptied first, or to stdout without one:
  * a wrapper such as tools/dev/leaks.sh keeps the program's stdout.
+ * With RTRACE_FRAMES_DIR set to a directory, each frame's RGB pixels, top
+ * row first, also go there as FRAME.rgb, for comparing frames pixel by
+ * pixel (rtrace-gpu writes the same).
  *
  * Exit status 0 when every record replayed and at least one frame was
  * presented, 1 on an unreadable or malformed trace, a trace without a

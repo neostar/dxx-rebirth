@@ -16,14 +16,21 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iomanip>
 #include <ios>
 #include <iterator>
 #include <span>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
+#include "common/debug/frame_hash.h"
 #include "common/render/ambient.h"
 #include "common/render/blit.h"
 #include "common/render/frame_setup.h"
@@ -33,6 +40,7 @@
 #include "common/render/rtrace/gl_host.h"
 #include "common/render/rtrace/lines_colours.h"
 #include "common/render/rtrace/lines_coverage.h"
+#include "common/render/rtrace/replay_file.h"
 #include "common/render/rtrace/sample_trace.h"
 #include "common/render/trace.h"
 #include "common/render/transform_matrix.h"
@@ -1113,4 +1121,50 @@ BOOST_AUTO_TEST_CASE(glyph_blits_its_window_of_the_texture)
 			BOOST_TEST((pixel_at(rgb, x, y) == std::array<std::uint8_t, 3>{{0, 0, 128}}));
 	BOOST_TEST((pixel_at(rgb, 16, 12) == black_rgb));
 	BOOST_TEST((pixel_at(rgb, 7, 12) == black_rgb));
+}
+
+/* Test that a replay given a frames directory writes each presented frame
+ * there as FRAME.rgb, its RGB pixels top row first, the very pixels its
+ * frame hash line hashes, and that one given none writes no file.
+ */
+BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
+{
+	const auto &suite{boost::unit_test::framework::master_test_suite()};
+	BOOST_REQUIRE(suite.argc == 7);
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
+	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
+	const auto dir{std::filesystem::temp_directory_path() /
+	               ("test-rtrace-frames-" + std::to_string(::getpid()))};
+	std::filesystem::remove_all(dir);
+	BOOST_REQUIRE(std::filesystem::create_directory(dir));
+	const render::rtrace::device_host host{
+	    [](const render::extent t, const std::function<void(render::device &)> &use) {
+		    render::rtrace::gl_host h{t};
+		    use(h.device());
+	    }};
+	std::ostringstream none_log;
+	BOOST_REQUIRE(render::rtrace::replay_file(args[1], none_log, host, "test-rtrace", {}) == 0);
+	BOOST_TEST(std::filesystem::is_empty(dir));
+	std::ostringstream log;
+	BOOST_REQUIRE(render::rtrace::replay_file(args[1], log, host, "test-rtrace", dir.string()) ==
+	              0);
+	BOOST_TEST(log.str() == none_log.str());
+	/* The sample's two frames, 0 and 1, by their log lines. */
+	std::istringstream lines{log.str()};
+	std::string frame, size, hash;
+	unsigned count{0};
+	while (lines >> frame >> size >> hash)
+	{
+		++count;
+		std::ifstream in{dir / (frame + ".rgb"), std::ios::binary};
+		BOOST_REQUIRE_MESSAGE(in.good(), "no " << frame << ".rgb");
+		const bytes rgb{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+		BOOST_TEST(rgb.size() == std::size_t{target.width} * target.height * 3);
+		std::ostringstream hex;
+		hex << std::hex << std::setw(16) << std::setfill('0')
+		    << dcx::frame_hash(std::as_bytes(std::span{rgb}));
+		BOOST_TEST(hex.str() == hash);
+	}
+	BOOST_TEST(count == 2u);
+	std::filesystem::remove_all(dir);
 }
