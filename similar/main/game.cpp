@@ -125,6 +125,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/frame_time_harness.h"
+#include "common/debug/input_script_harness.h"
 #endif
 
 d_time_fix ThisLevelTime;
@@ -688,9 +689,13 @@ void calc_frame_time()
 	const auto bound = f1_0 / (likely(vsync) ? MAXIMUM_FPS : CGameArg.SysMaxFPS);
 #if SDL_MAJOR_VERSION == 3
 	/* The swap need not block (docs/agents/sdl-window.md section 5): sleep
-	 * with vsync on as well.
+	 * with vsync on as well, but not while the harness clock runs.
 	 */
-	const auto may_sleep = !CGameArg.SysNoNiceFPS;
+	const auto may_sleep = !CGameArg.SysNoNiceFPS
+#if DXX_USE_DBG_HARNESS
+		&& !harness_clock_running()
+#endif
+		;
 #else
 	const auto may_sleep = !CGameArg.SysNoNiceFPS && !vsync;
 #endif

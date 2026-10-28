@@ -85,6 +85,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "common/sdl/display.h"
 #include "common/sdl/frame_pacer_sdl.h"
 #endif
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/input_script_harness.h"
+#endif
 
 #define EF_USED     1   // This edge is used
 #define EF_DEFINING 2   // A structure defining edge that should always draw.
@@ -1061,7 +1064,11 @@ static void draw_automap(fvcobjptr &vcobjptr, automap &am, fix eye = 0)
 	const auto vsync{CGameCfg.VSync};
 	const auto bound{F1_0 / (vsync ? MAXIMUM_FPS : CGameArg.SysMaxFPS)};
 #if SDL_MAJOR_VERSION == 3
-	const auto may_sleep{!CGameArg.SysNoNiceFPS};
+	const auto may_sleep{!CGameArg.SysNoNiceFPS
+#if DXX_USE_DBG_HARNESS
+		&& !harness_clock_running()
+#endif
+	};
 #else
 	const auto may_sleep{!CGameArg.SysNoNiceFPS && !vsync};
 #endif

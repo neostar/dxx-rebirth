@@ -56,6 +56,17 @@ inline std::int32_t read_harness_clock_step()
 	return harness_clock_step(read_harness_input_script_path(), harness_frame_time_of_run());
 }
 
+/* Whether the harness clock replaces the wall clock in this run.  Then a
+ * frame limiter need not sleep: game time steps per timer_update call, so
+ * a sleep changes no frame and only slows the run (#41).
+ */
+[[nodiscard]]
+inline bool harness_clock_running()
+{
+	static const bool running{read_harness_clock_step() != 0};
+	return running;
+}
+
 struct harness_file_closer
 {
 	void operator()(std::FILE *const f) const
