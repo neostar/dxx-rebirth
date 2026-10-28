@@ -21,15 +21,17 @@ using dcx::sdl::renderer;
 
 /* A fake SDL that keeps the rules open_display has to respect: the swap
  * interval needs a current GL context (SDL_video.h, SDL_GL_SetSwapInterval),
- * and a window can fail to come up.  Tests read what
+ * and an SDL_GPU device or a window can fail to come up.  Tests read what
  * the fake SDL ended up with, not the calls that got it there.
  */
 struct fake_sdl
 {
+	bool gpu_available{true};
 	bool window_possible{true};
 	bool swap_interval_supported{true};
 	/* What SDL ended up with. */
 	std::optional<SDL_WindowFlags> window_flags;
+	bool window_claimed{false};
 	bool context_current{false};
 	std::optional<int> swap_interval;
 	const char *error{""};
@@ -42,9 +44,20 @@ struct fake_handle
 struct fake_ops
 {
 	fake_sdl *sdl;
+	using gpu_device_ptr = std::unique_ptr<fake_handle>;
 	using window_ptr = std::unique_ptr<fake_handle>;
+	using claim_ptr = std::unique_ptr<fake_handle>;
 	using gl_context_ptr = std::unique_ptr<fake_handle>;
 
+	gpu_device_ptr create_gpu_device(const char *) const
+	{
+		if (!sdl->gpu_available)
+		{
+			sdl->error = "no supported GPU driver";
+			return nullptr;
+		}
+		return std::make_unique<fake_handle>();
+	}
 	window_ptr create_window(const char *, dcx::sdl::pixel_size, const SDL_WindowFlags flags) const
 	{
 		if (!sdl->window_possible)
@@ -53,6 +66,17 @@ struct fake_ops
 			return nullptr;
 		}
 		sdl->window_flags = flags;
+		return std::make_unique<fake_handle>();
+	}
+	claim_ptr claim_window(fake_handle *, fake_handle *) const
+	{
+		/* SDL_GPU claims only a window without a graphics flag here. */
+		if (sdl->window_flags.value() & SDL_WINDOW_OPENGL)
+		{
+			sdl->error = "window has OpenGL";
+			return nullptr;
+		}
+		sdl->window_claimed = true;
 		return std::make_unique<fake_handle>();
 	}
 	gl_context_ptr create_gl_context(fake_handle *) const
@@ -157,6 +181,41 @@ BOOST_AUTO_TEST_CASE(request_flags_become_window_flags)
 	            std::optional<SDL_WindowFlags>{SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN |
 	                                           SDL_WINDOW_BORDERLESS}));
 	BOOST_TEST(full.state.fullscreen());
+}
+
+/* Test that SDL_GPU, when a device comes up, claims a window made without
+ * a graphics flag and gets no GL context (section 2).
+ */
+BOOST_AUTO_TEST_CASE(sdl_gpu_claims_a_window_without_graphics_flag)
+{
+	fake_sdl sdl;
+	auto r{gl_request()};
+	r.preferred = renderer::sdl_gpu;
+	const auto d{dcx::sdl::open_display(r, fake_ops{&sdl})};
+	BOOST_TEST(static_cast<bool>(d));
+	BOOST_TEST((d.chosen == renderer::sdl_gpu));
+	BOOST_TEST((sdl.window_flags == std::optional<SDL_WindowFlags>{0}));
+	BOOST_TEST(sdl.window_claimed);
+	BOOST_TEST(!sdl.context_current);
+	BOOST_TEST(!d.fallback_reason.has_value());
+}
+
+/* Test that without an SDL_GPU device the window opens on GL, with the
+ * device's error in the logged reason (#52).
+ */
+BOOST_AUTO_TEST_CASE(no_gpu_device_falls_back_to_gl_with_reason)
+{
+	fake_sdl sdl;
+	sdl.gpu_available = false;
+	auto r{gl_request()};
+	r.preferred = renderer::sdl_gpu;
+	const auto d{dcx::sdl::open_display(r, fake_ops{&sdl})};
+	BOOST_TEST(static_cast<bool>(d));
+	BOOST_TEST((d.chosen == renderer::gl));
+	BOOST_TEST((sdl.window_flags == std::optional<SDL_WindowFlags>{SDL_WINDOW_OPENGL}));
+	BOOST_TEST((sdl.swap_interval == std::optional{1}));
+	BOOST_REQUIRE(d.fallback_reason.has_value());
+	BOOST_TEST(d.fallback_reason.value().find("no supported GPU driver") != std::string::npos);
 }
 
 /* Test that a window SDL cannot create fails the open, with SDL's error. */

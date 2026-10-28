@@ -21,9 +21,9 @@
 namespace dcx::sdl {
 
 /* The platform module's window (docs/agents/sdl-window.md, Design): the
- * window is made for the renderer (section 2), and for GL the swap
- * interval is set only once the context is current, since
- * SDL_GL_SetSwapInterval fails without one.
+ * renderer is chosen before the window exists (section 2), the window is
+ * made for it, and for GL the swap interval is set only once the context
+ * is current, since SDL_GL_SetSwapInterval fails without one.
  */
 
 enum class renderer : std::uint8_t
@@ -37,6 +37,9 @@ struct display_request
 	const char *title{""};
 	/* The windowed size, in window coordinates. */
 	pixel_size size{};
+	renderer preferred{renderer::gl};
+	/* SDL_GPU's driver name, or nullptr for SDL's choice. */
+	const char *gpu_driver{nullptr};
 	/* Borderless desktop fullscreen (section 3). */
 	bool fullscreen{false};
 	bool borderless{false};
@@ -48,14 +51,19 @@ struct display_request
 };
 
 /* What open_display built.  The members are declared in creation order, so
- * they are destroyed in reverse: the GL context, then the window.
+ * they are destroyed in reverse: the GL context, the window's claim, the
+ * window, the GPU device.
  */
 template <typename Ops>
 struct display
 {
+	typename Ops::gpu_device_ptr gpu;
 	typename Ops::window_ptr window;
+	typename Ops::claim_ptr claim;
 	typename Ops::gl_context_ptr gl;
 	renderer chosen{renderer::gl};
+	/* Why SDL_GPU was asked for and GL taken (#52), for the log. */
+	std::optional<std::string> fallback_reason;
 	/* Why no window was made: open_display failed. */
 	std::optional<std::string> error;
 	/* SDL refused the swap interval: the game runs on, so log it. */
@@ -87,17 +95,35 @@ display<Ops> open_display(const display_request &r, Ops ops)
 {
 	display<Ops> d;
 	d.state = window_state{r.fullscreen};
+	if (r.preferred == renderer::sdl_gpu)
+	{
+		d.gpu = ops.create_gpu_device(r.gpu_driver);
+		if (d.gpu)
+			d.chosen = renderer::sdl_gpu;
+		else
+			d.fallback_reason =
+			    std::string{"no SDL_GPU device ("} + ops.last_error() + "), using OpenGL";
+	}
 	d.window = ops.create_window(r.title, r.size, window_flags(r, d.chosen));
 	if (!d.window)
 	{
 		d.error = std::string{"cannot create the window: "} + ops.last_error();
 		return d;
 	}
-	d.gl = ops.create_gl_context(d.window.get());
-	if (!d.gl || !ops.make_current(d.window.get(), d.gl.get()))
-		d.error = std::string{"cannot create the GL context: "} + ops.last_error();
-	else if (!ops.set_swap_interval(r.vsync ? 1 : 0))
-		d.swap_interval_error = ops.last_error();
+	if (d.chosen == renderer::sdl_gpu)
+	{
+		d.claim = ops.claim_window(d.gpu.get(), d.window.get());
+		if (!d.claim)
+			d.error = std::string{"cannot claim the window for SDL_GPU: "} + ops.last_error();
+	}
+	else
+	{
+		d.gl = ops.create_gl_context(d.window.get());
+		if (!d.gl || !ops.make_current(d.window.get(), d.gl.get()))
+			d.error = std::string{"cannot create the GL context: "} + ops.last_error();
+		else if (!ops.set_swap_interval(r.vsync ? 1 : 0))
+			d.swap_interval_error = ops.last_error();
+	}
 	if (!d.error)
 		/* Fullscreen is asynchronous; at startup the game waits for it
 		 * so that the first mode is the fullscreen size (section 3).
