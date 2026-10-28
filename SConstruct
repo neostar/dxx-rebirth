@@ -5139,6 +5139,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-window-state', (
 			'common/sdl/unittest/window_state.cpp',
 			)),
+		RuntimeTest('test-load-pump', (
+			'common/sdl/unittest/load_pump.cpp',
+			)),
 		*((RuntimeTest('test-macos-defaults', (
 			'common/sdl/unittest/macos_defaults.mm',
 			'common/sdl/macos_defaults.mm',
