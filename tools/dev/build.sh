@@ -10,8 +10,12 @@
 #   order, later ones win).
 # Both build with the hardened standard library (hardening.py, ADR 5).
 # build/ is kept out of Time Machine backups (env.sh's dev_tm_exclude).
-# Both build D2X only: SConstruct reads d1x and d2x from the command line
-# alone, not from site files, so they are passed here.
+# Both build D2X only, unless the arguments choose the games: SConstruct reads
+# d1x and d2x from the command line alone, not from site files, so build.sh
+# passes d1x=0 d2x=1.  Any d1x=, d2x= or dxx= argument replaces that pair (a
+# repeated d1x= is a list of prefixes to SConstruct, so d1x=0 beside d1x=1
+# fails with "Illegal Variables key '0_expect_sconf...'"): `d1x=1 d2x=1` builds
+# both, `d1x=1` D1X alone, as SConstruct reads them.
 # Pass `check` to build and run the unit tests; scons then runs under
 # no-window.sh, so a test that takes focus or crashes fails the build.
 # Pass `sdl3=1` (any SCons true spelling: yes, true, on, ...; the last
@@ -63,8 +67,9 @@ export SDL_MAC_BACKGROUND_APP=1
 jobs=$dev_jobs
 sites=("site=$dev_dir/site-dev.py")
 [[ $profile == asan ]] && sites+=("site=$dev_dir/site-asan.py")
-wrap=() sdl3=0
+wrap=() sdl3=0 games=(d1x=0 d2x=1)
 for a in "$@"; do
+	[[ $a == d1x=* || $a == d2x=* || $a == dxx=* ]] && games=()
 	[[ $a == check ]] && wrap=("$dev_dir/no-window.sh")
 	if [[ $a == sdl3=* ]]; then
 		# SCons' BoolVariable spellings, in any case.
@@ -99,4 +104,4 @@ for a in "$@"; do
 done
 mkdir -p "$dir"
 export CCACHE_BASEDIR=$PWD DXX_SCONSIGN=$dir/.sconsign
-exec "${wrap[@]}" scons -j"$jobs" d1x=0 d2x=1 "${sites[@]}" "${build[@]}" "$@"
+exec "${wrap[@]}" scons -j"$jobs" ${games[@]+"${games[@]}"} "${sites[@]}" "${build[@]}" "$@"

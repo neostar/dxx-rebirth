@@ -90,6 +90,29 @@ test_dev_profile_builds_d2x_with_site_dev()
 	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py check "
 }
 
+# Test that the game is the caller's to choose: with none of d1x=, d2x= and
+# dxx= build.sh builds D2X only (d1x=0 d2x=1), and with one of them it adds
+# neither default, which SConstruct would read as the profile list "0,1"
+# (a repeated d1x= is a list of prefixes: "Illegal Variables key '0_expect_sconf...'").
+test_game_selection_is_the_callers_when_given()
+{
+	local out
+	out=$(scons_args dev d1x=1 d2x=1 | tr '\n' ' ')
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py d1x=1 d2x=1 "
+	assert_not_contains "$out" "d1x=0"
+	out=$(scons_args dev d1x=1 | tr '\n' ' ')
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py d1x=1 "
+	assert_not_contains "$out" "d1x=0"
+	assert_not_contains "$out" "d2x=1"
+	out=$(scons_args dev dxx=1 | tr '\n' ' ')
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py dxx=1 "
+	assert_not_contains "$out" "d1x=0"
+	out=$(scons_args dev d2x=1 | tr '\n' ' ')
+	assert_not_contains "$out" "d1x=0"
+	out=$(scons_args dev check | tr '\n' ' ')
+	assert_contains "$out" "d1x=0 d2x=1 "
+}
+
 # Test that the asan profile reads site-dev.py, then site-asan.py's
 # overrides, and keeps its own build directory.
 test_asan_profile_layers_site_asan_over_site_dev()
