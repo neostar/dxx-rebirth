@@ -137,6 +137,12 @@ display<Ops> open_display(const display_request &r, Ops ops)
 	return d;
 }
 
+/* SDL_GPU's debug mode, on as GPU validation needs (ADR 5); a release
+ * build may define it false, and #50, which gives the game this device,
+ * decides whether release builds do.
+ */
+inline constexpr bool gpu_debug_mode{true};
+
 /* SDL's side of open_display. */
 struct sdl_display_ops
 {
@@ -177,14 +183,11 @@ struct sdl_display_ops
 		}
 	};
 
-	/* Debug mode on, as GPU validation needs (ADR 5); #50, which gives the
-	 * game this device, decides whether release builds keep it.
-	 */
 	static gpu_device_ptr create_gpu_device(const char *const driver)
 	{
 		return gpu_device_ptr{SDL_CreateGPUDevice(
-		    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL, true,
-		    driver)};
+		    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL,
+		    gpu_debug_mode, driver)};
 	}
 	static window_ptr create_window(const char *const title, const pixel_size size,
 	                                const SDL_WindowFlags flags)
