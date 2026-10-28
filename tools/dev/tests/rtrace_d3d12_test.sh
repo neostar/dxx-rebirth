@@ -49,6 +49,7 @@ case ${1##*/} in
 	flash.rtr) lines=$PIN_FLASH ;;
 	walls.rtr) lines=$PIN_WALLS ;;
 	alpha.rtr) lines=$PIN_ALPHA ;;
+	lines.rtr) lines=$PIN_LINES ;;
 	*) exit 1 ;;
 esac
 lines=${FAKE_LINES-$lines}
@@ -70,6 +71,7 @@ check()
 	out=$(cd "$cwd" && D3D12_LINES=$d3d12_lines PIN_SAMPLE="${expected[*]}" \
 		PIN_OVERBRIGHT="${expected_overbright[*]}" PIN_FLASH="${expected_flash[*]}" \
 		PIN_WALLS="${expected_walls[*]}" PIN_ALPHA="${expected_alpha[*]}" \
+		PIN_LINES="${expected_lines[*]}" \
 		"$DEV_DIR/rtrace-d3d12.sh" "$@" 2>&1) && rc=0 || rc=$?
 	printf '%s\nstatus %s\n' "$out" "$rc"
 }
@@ -90,7 +92,8 @@ test_warp_run_with_validation_passes()
 overbright.rtr direct3d12 1
 flash.rtr direct3d12 1
 walls.rtr direct3d12 1
-alpha.rtr direct3d12 1"
+alpha.rtr direct3d12 1
+lines.rtr direct3d12 1"
 }
 
 # Test that the frame hash lines are recorded, not compared: every trace's
@@ -117,7 +120,12 @@ alpha ${expected_alpha[1]}
 alpha ${expected_alpha[2]}
 alpha ${expected_alpha[3]}
 alpha ${expected_alpha[4]}
-alpha ${expected_alpha[5]}"
+alpha ${expected_alpha[5]}
+lines ${expected_lines[0]}
+lines ${expected_lines[1]}
+lines ${expected_lines[2]}
+lines ${expected_lines[3]}
+lines ${expected_lines[4]}"
 	assert_contains "$out" "sample 1 64x48 9f40fbb36ef64325"
 	out=$(FAKE_HASH=0000000000000000 \
 		check --hashes "$d/other.txt" "$d")
@@ -130,6 +138,7 @@ alpha ${expected_alpha[5]}"
 		PIN_FLASH="${expected_flash[0]}|${expected_flash[1]}|${expected_flash[2]}" \
 		PIN_WALLS="${expected_walls[0]}|${expected_walls[1]}|${expected_walls[2]}" \
 		PIN_ALPHA="${expected_alpha[0]}|${expected_alpha[1]}|${expected_alpha[2]}|${expected_alpha[3]}|${expected_alpha[4]}|${expected_alpha[5]}" \
+		PIN_LINES="${expected_lines[0]}|${expected_lines[1]}|${expected_lines[2]}|${expected_lines[3]}|${expected_lines[4]}" \
 		"$DEV_DIR/rtrace-d3d12.sh" "$d" 2>&1)
 	assert_contains "$out" "rtrace-d3d12: passed"
 	assert_contains "$(cat "$h/d3d12-frame-hashes.txt")" "flash 2 64x48 c33733e407fec502"
@@ -235,7 +244,7 @@ test_launcher_runs_the_program()
 	chmod +x "$l/launch"
 	out=$(check "$d" "$l/launch")
 	assert_contains "$out" "status 0"
-	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 5
+	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 6
 }
 
 # Test that the smoke mode (Wine) passes a run that renders every frame on
@@ -253,7 +262,8 @@ test_smoke_run_passes_without_validation_or_warp()
 overbright.rtr direct3d12 unset
 flash.rtr direct3d12 unset
 walls.rtr direct3d12 unset
-alpha.rtr direct3d12 unset"
+alpha.rtr direct3d12 unset
+lines.rtr direct3d12 unset"
 	assert_not_contains "$out" "rtrace-d3d12: passed"
 }
 
@@ -281,7 +291,7 @@ test_smoke_run_fails_on_missing_frames_driver_or_status()
 	chmod +x "$l/launch"
 	out=$(FAKE_OUT=$wine_lines check --smoke "$d" "$l/launch")
 	assert_contains "$out" "status 0"
-	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 5
+	assert_eq "$(wc -l < "$l/launches" | tr -d ' ')" 6
 }
 
 # Test the usage errors and a directory without the build.
