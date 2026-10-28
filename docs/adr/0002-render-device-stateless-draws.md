@@ -7,6 +7,7 @@ Amended 2026-10-27 (owner, #16): the device gains `select_eye` and `copy_region`
 Amended 2026-10-27 (#28): the depth pairing rule.
 Amended 2026-10-28 (#32): the pixel-centre rule for lines and points.
 Amended 2026-10-28 (owner, #29): the depth band keeps `discard` on every depth-tested draw.
+Amended 2026-10-29 (#33): the font formats are not quantized; the adapter uploads the texel GL samples.
 
 ## Context
 
@@ -126,6 +127,24 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   self-contained draw call from that state.
 - Textures live in the front end's existing pool; `has_transparency` lets SDL_GPU skip `discard`, except that a vertex alpha below the
   reference also needs it and every depth-tested draw keeps it (the depth band, above).
+- **Texture formats** (#33): `texture_format` names the GL internal format, and an adapter uploads
+  the texel GL samples from the image's RGBA, not the bit depth of the name. Measured on Apple's GL
+  (M1 Max, macOS 27.2), 64 levels per channel through `fonts_trace`'s ramps
+  (`gl_keeps_the_font_formats_at_eight_bits`): `GL_RGBA2`, `GL_LUMINANCE4_ALPHA4` and
+  `GL_INTENSITY4` keep all eight bits, so the RGBA2 frames equal the RGBA8 ones and the 64 levels
+  stay distinct. A control on the same draw-and-`glReadPixels` path shows quantization where there
+  is some: `GL_RGBA4` samples 16 levels. One quirk: `glGetTexImage` on a `GL_RGBA2` texture
+  returns 16 levels although sampling keeps all 64, so a capture that read textures back from GL
+  would see 4-bit RGBA2; sampling is what draws the frame. SDL_GPU quantizes nothing. The formats
+  differ from RGBA8 in which channels they keep: `rgb8` samples alpha 1; `luminance4_alpha4` a grey of the red with its own alpha;
+  `intensity4` the red in all four channels. `sdlgpu::frame::texture` applies that, and the fonts
+  trace hashes as GL's (R3). The game's own font texels are uniform (white or clear), so only a
+  mixed-channel image shows the rule. Not measured: other GL drivers, which may store these
+  formats at their named depth; the SDL_GPU frames then differ from theirs by that quantization.
+  That caveat touches no game frame: SDL_GPU samples `R8G8B8A8_UNORM` on every backend, and the
+  game's intensity4 and luminance4_alpha4 texels are 0 and 255, exact at any UNORM depth. Only
+  `GL_RGBA2` could differ, with palette colours, used only under `-gl_intensity4_ok 0
+  -gl_luminance4_alpha4_ok 0`.
 - GL-only features (quad-buffer stereo, `copy_region`) stay behind `caps`.
 - No command list in the interface; SDL_GPU collects a frame internally and submits at `present`.
 

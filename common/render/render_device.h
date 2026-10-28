@@ -300,8 +300,8 @@ struct viewport
 	constexpr bool operator==(const viewport &) const = default;
 };
 
-/* The GL internal format a texture keeps, so the GL adapter quantizes as
- * today and SDL_GPU can replicate it.
+/* The GL internal format a texture keeps, so the GL adapter creates it as
+ * today and SDL_GPU can sample the same channels (ADR 2: no quantization).
  */
 enum class texture_format : std::uint8_t
 {
