@@ -81,7 +81,7 @@ if [[ $1 == *alpha.rtr ]]; then
 	exit 0
 fi
 if [[ $1 == *lines.rtr ]]; then
-	printf '%s\n' "${FAKE_GPU_LINES0:-0 64x48 43915bf482b8cf4c}" '1 64x48 4b23b29c3834f106' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903' > "$2"
+	printf '%s\n' "${FAKE_GPU_LINES0:-0 64x48 c523f67cb3e03eb2}" '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903' > "$2"
 	exit 0
 fi
 printf '%s\n' "${FAKE_GPU_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
