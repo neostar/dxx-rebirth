@@ -229,3 +229,16 @@ BOOST_AUTO_TEST_CASE(no_window_fails_with_sdl_error)
 	BOOST_TEST(d.error.value().find("no video device") != std::string::npos);
 	BOOST_TEST(!sdl.context_current);
 }
+
+/* Test that the SDL events the game acts on translate, and others do not. */
+BOOST_AUTO_TEST_CASE(sdl_window_events_translate)
+{
+	using dcx::sdl::window_event;
+	SDL_Event e{};
+	e.type = SDL_EVENT_WINDOW_OCCLUDED;
+	BOOST_TEST((dcx::sdl::window_event_of(e) == std::optional{window_event::occluded}));
+	e.type = SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED;
+	BOOST_TEST((dcx::sdl::window_event_of(e) == std::optional{window_event::pixel_size_changed}));
+	e.type = SDL_EVENT_WINDOW_MOVED;
+	BOOST_TEST(!dcx::sdl::window_event_of(e).has_value());
+}

@@ -132,6 +132,117 @@ display<Ops> open_display(const display_request &r, Ops ops)
 	return d;
 }
 
+/* SDL's side of open_display. */
+struct sdl_display_ops
+{
+	using gpu_device_ptr = sdl_unique_ptr<SDL_GPUDevice, SDL_DestroyGPUDevice>;
+	using window_ptr = sdl_unique_ptr<SDL_Window, SDL_DestroyWindow>;
+	using gl_context_ptr = sdl_unique_ptr<SDL_GLContextState, SDL_GL_DestroyContext>;
+	/* A window claimed by an SDL_GPU device; destroying it releases the
+	 * window from the device.
+	 */
+	class claim_ptr
+	{
+		SDL_GPUDevice *device{nullptr};
+		SDL_Window *window{nullptr};
+
+	  public:
+		claim_ptr() = default;
+		claim_ptr(SDL_GPUDevice *const d, SDL_Window *const w) : device{d}, window{w}
+		{}
+		claim_ptr(claim_ptr &&o) noexcept
+		    : device{std::exchange(o.device, nullptr)}, window{std::exchange(o.window, nullptr)}
+		{}
+		claim_ptr &operator=(claim_ptr &&o) noexcept
+		{
+			std::swap(device, o.device);
+			std::swap(window, o.window);
+			return *this;
+		}
+		claim_ptr(const claim_ptr &) = delete;
+		claim_ptr &operator=(const claim_ptr &) = delete;
+		~claim_ptr()
+		{
+			if (device)
+				SDL_ReleaseWindowFromGPUDevice(device, window);
+		}
+		explicit operator bool() const
+		{
+			return device != nullptr;
+		}
+	};
+
+	/* Debug mode on, as GPU validation needs (ADR 5); #50, which gives the
+	 * game this device, decides whether release builds keep it.
+	 */
+	static gpu_device_ptr create_gpu_device(const char *const driver)
+	{
+		return gpu_device_ptr{SDL_CreateGPUDevice(
+		    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_MSL, true,
+		    driver)};
+	}
+	static window_ptr create_window(const char *const title, const pixel_size size,
+	                                const SDL_WindowFlags flags)
+	{
+		return window_ptr{SDL_CreateWindow(title, size.width, size.height, flags)};
+	}
+	static claim_ptr claim_window(SDL_GPUDevice *const device, SDL_Window *const window)
+	{
+		if (!SDL_ClaimWindowForGPUDevice(device, window))
+			return {};
+		return {device, window};
+	}
+	static gl_context_ptr create_gl_context(SDL_Window *const window)
+	{
+		return gl_context_ptr{SDL_GL_CreateContext(window)};
+	}
+	static bool make_current(SDL_Window *const window, SDL_GLContextState *const context)
+	{
+		return SDL_GL_MakeCurrent(window, context);
+	}
+	static bool set_swap_interval(const int interval)
+	{
+		return SDL_GL_SetSwapInterval(interval);
+	}
+	static void sync_window(SDL_Window *const window)
+	{
+		SDL_SyncWindow(window);
+	}
+	static const char *last_error()
+	{
+		return SDL_GetError();
+	}
+};
+
+/* The window event an SDL event is, if the game acts on it. */
+[[nodiscard]]
+constexpr std::optional<window_event> window_event_of(const SDL_Event &e)
+{
+	switch (e.type)
+	{
+	case SDL_EVENT_WINDOW_SHOWN:
+		return window_event::shown;
+	case SDL_EVENT_WINDOW_HIDDEN:
+		return window_event::hidden;
+	case SDL_EVENT_WINDOW_EXPOSED:
+		return window_event::exposed;
+	case SDL_EVENT_WINDOW_OCCLUDED:
+		return window_event::occluded;
+	case SDL_EVENT_WINDOW_MINIMIZED:
+		return window_event::minimized;
+	case SDL_EVENT_WINDOW_RESTORED:
+		return window_event::restored;
+	case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+		return window_event::enter_fullscreen;
+	case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+		return window_event::leave_fullscreen;
+	case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+		return window_event::pixel_size_changed;
+	default:
+		return std::nullopt;
+	}
+}
+
 }
 
 #endif
