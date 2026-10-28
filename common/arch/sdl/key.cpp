@@ -575,6 +575,21 @@ void key_init()
 
 namespace {
 
+#if SDL_MAJOR_VERSION >= 2
+static SDL_Scancode sticky_key_scancode(const unsigned i)
+{
+	switch (i)
+	{
+		case KEY_CAPSLOCK:
+			return SDL_SCANCODE_CAPSLOCK;
+		case KEY_SCROLLOCK:
+			return SDL_SCANCODE_SCROLLLOCK;
+		default:
+			return SDL_SCANCODE_NUMLOCKCLEAR;
+	}
+}
+#endif
+
 #if SDL_MAJOR_VERSION == 3
 /* SDL_GetKeyboardState returns an array of bool in SDL3. */
 static void restore_sticky_key(const bool *keystate, const unsigned i)
@@ -585,7 +600,8 @@ static void restore_sticky_key(const uint8_t *keystate, const unsigned i)
 #if SDL_MAJOR_VERSION == 1
 	const auto ki = key_properties[i].sym;
 #elif SDL_MAJOR_VERSION >= 2
-	const auto ki{i};
+	/* keystate is indexed by SDL scancode, but i is a game key code. */
+	const auto ki{sticky_key_scancode(i)};
 #endif
 	const auto v = keystate[ki];	// do not flush status of sticky keys
 	keyd_pressed.update_pressed(i, v);
@@ -605,7 +621,7 @@ void key_flush()
 #define DXX_SDL_STICKY_KEYS	{KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLOCK}
 #elif SDL_MAJOR_VERSION >= 2
 	const auto &keystate = SDL_GetKeyboardState(nullptr);
-#define DXX_SDL_STICKY_KEYS	{SDL_SCANCODE_CAPSLOCK, SDL_SCANCODE_SCROLLLOCK, SDL_SCANCODE_NUMLOCKCLEAR}
+#define DXX_SDL_STICKY_KEYS	{KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLOCK}
 #endif
 	range_for (const auto key, DXX_SDL_STICKY_KEYS)
 #undef DXX_SDL_STICKY_KEYS
