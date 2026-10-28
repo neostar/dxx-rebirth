@@ -31,6 +31,8 @@
 #include "common/render/render_device.h"
 #include "common/render/replay.h"
 #include "common/render/rtrace/gl_host.h"
+#include "common/render/rtrace/lines_colours.h"
+#include "common/render/rtrace/lines_coverage.h"
 #include "common/render/rtrace/sample_trace.h"
 #include "common/render/trace.h"
 #include "common/render/transform_matrix.h"
@@ -415,6 +417,103 @@ BOOST_AUTO_TEST_CASE(alpha_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(lines_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(6) == render::rtrace::lines_trace()));
+}
+
+/* Test the lines trace on GL (#32): the pixels each frame covers and their
+ * colours are the goldens test-sdlgpu holds SDL_GPU to (lines_coverage.h,
+ * lines_colours.h), so the tolerance there is measured against what GL
+ * draws.
+ */
+BOOST_AUTO_TEST_CASE(lines_coverage_is_gls)
+{
+	const auto o{replay_on_gl(render::rtrace::lines_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == render::rtrace::lines_trace_frames);
+	for (std::size_t f{0}; f != o.frames.size(); ++f)
+	{
+		std::vector<std::uint32_t> colours;
+		const auto &rgb{o.frames[f].rgb};
+		for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+			if (rgb[i] != 0 || rgb[i + 1] != 0 || rgb[i + 2] != 0)
+				colours.push_back(std::uint32_t{rgb[i]} << 16u | std::uint32_t{rgb[i + 1]} << 8u |
+				                  std::uint32_t{rgb[i + 2]});
+		const auto golden{render::rtrace::lines_gl_colours[f]};
+		BOOST_TEST_CONTEXT("frame " << f << " colours")
+		BOOST_TEST((f == 2 || std::ranges::equal(colours, golden)));
+		for (std::size_t y{0}; y != render::rtrace::sample_rows; ++y)
+		{
+			std::uint64_t row{0};
+			for (std::size_t x{0}; x != 64; ++x)
+			{
+				const auto i{(y * 64 + x) * 3};
+				if (rgb[i] != 0 || rgb[i + 1] != 0 || rgb[i + 2] != 0)
+					row |= std::uint64_t{1} << x;
+			}
+			BOOST_TEST_CONTEXT("frame " << f << " row " << y)
+			BOOST_TEST(row == render::rtrace::lines_gl_coverage[f][y]);
+		}
+	}
+}
+
+/* Test the width-2 ties on GL (#32), the probes behind line_quads's
+ * width_two_line_ends_do_not_follow_the_direction: a wide line's ties do
+ * not follow its direction, as a width-1 line's do.  In the rows from the
+ * bottom of a 48-row target, a line up from y = 2.5 to 12.5 at x = 58.5 and
+ * one down from 12.5 to 2.5 both cover columns 57 and 58 and rows 3 to 12,
+ * where a width-1 line covers rows 2 to 11 up and 3 to 12 down; along x at
+ * y = 20.5, from 5.5 to 20.5 and back, both cover columns 5 to 19 and
+ * rows 20 and 21.
+ */
+BOOST_AUTO_TEST_CASE(wide_line_ties_do_not_follow_the_direction_on_gl)
+{
+	namespace rt = render::rtrace;
+	struct probe
+	{
+		float x0, y0, x1, y1, width;
+		int col0, col1, row0, row1;
+	};
+	constexpr std::array<probe, 6> probes{{
+	    {58.5f, 2.5f, 58.5f, 12.5f, 1, 58, 58, 2, 11},
+	    {58.5f, 12.5f, 58.5f, 2.5f, 1, 58, 58, 3, 12},
+	    {58.5f, 2.5f, 58.5f, 12.5f, 2, 57, 58, 3, 12},
+	    {58.5f, 12.5f, 58.5f, 2.5f, 2, 57, 58, 3, 12},
+	    {5.5f, 20.5f, 20.5f, 20.5f, 2, 5, 19, 20, 21},
+	    {20.5f, 20.5f, 5.5f, 20.5f, 2, 5, 19, 20, 21},
+	}};
+	trace::writer w{rt::sample_target};
+	for (std::size_t i{0}; i != probes.size(); ++i)
+	{
+		const auto &p{probes[i]};
+		w.clear({.color = true, .depth = true});
+		const std::array<render::vertex, 2> v{
+		    {rt::sample_pixel(p.x0, p.y0, red), rt::sample_pixel(p.x1, p.y1, red)}};
+		w.draw(rt::line_draw(render::topology::lines, v, p.width));
+		w.present({.frame = static_cast<std::uint32_t>(i)});
+	}
+	const auto o{replay_on_gl(w.take())};
+	BOOST_REQUIRE(o.frames.size() == probes.size());
+	for (std::size_t i{0}; i != probes.size(); ++i)
+	{
+		const auto &p{probes[i]};
+		int x0{99}, x1{-1}, y0{99}, y1{-1};
+		for (int row{0}; row != 48; ++row)
+			for (int x{0}; x != 64; ++x)
+				if (o.frames[i].rgb[static_cast<std::size_t>(row * 64 + x) * 3u] != 0)
+				{
+					const int y{47 - row};
+					x0 = std::min(x0, x);
+					x1 = std::max(x1, x);
+					y0 = std::min(y0, y);
+					y1 = std::max(y1, y);
+				}
+		BOOST_TEST_CONTEXT("probe " << i)
+		{
+			BOOST_TEST(x0 == p.col0);
+			BOOST_TEST(x1 == p.col1);
+			BOOST_TEST(y0 == p.row0);
+			BOOST_TEST(y1 == p.row1);
+		}
+	}
 }
 
 /* Test the alpha trace on GL (#29): GL_GEQUAL discards a texel whose alpha
