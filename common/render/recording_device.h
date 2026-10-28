@@ -112,4 +112,35 @@ inline device &front_device(device &inner, recording_device *const recorder)
 	return *recorder;
 }
 
+/* Releases slot's image through front, the device the front end draws
+ * through; nothing once front is null, after the devices are gone.
+ */
+inline void release_texture(device *const front, const texture_slot slot)
+{
+	if (front)
+		front->texture(slot, nullptr);
+}
+
+/* Nulls the front end's device pointer when destroyed.  A static one
+ * declared after the devices front points into is destroyed before them
+ * at exit, so the texture releases that later static destructors make
+ * (the fonts') find no device instead of a destroyed one.
+ */
+class front_reset
+{
+	device *&front_;
+
+  public:
+	explicit front_reset(device *&front) : front_{front}
+	{}
+	~front_reset()
+	{
+		front_ = nullptr;
+	}
+	front_reset(const front_reset &) = delete;
+	front_reset &operator=(const front_reset &) = delete;
+	front_reset(front_reset &&) = delete;
+	front_reset &operator=(front_reset &&) = delete;
+};
+
 }

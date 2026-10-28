@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -248,4 +249,29 @@ BOOST_AUTO_TEST_CASE(backward_range_refused)
 	                                            [] { return target; },
 	                                            [](std::span<const std::uint8_t>) {}}),
 	                  std::invalid_argument);
+}
+
+/* Test that the front end's devices torn down in exit order (the guard
+ * declared last, so destroyed first, then the recorder, then the device)
+ * leave the front pointer null, so a texture release that a later static
+ * destructor makes (the fonts', at exit) touches no destroyed device.
+ */
+BOOST_AUTO_TEST_CASE(release_after_teardown_touches_no_device)
+{
+	render::device *front{nullptr};
+	{
+		const auto inner{std::make_unique<fake_device>()};
+		const auto recorder{std::make_unique<render::recording_device>(
+		    *inner, render::frame_range{.first = 0, .last = 0}, [] { return target; },
+		    [](std::span<const std::uint8_t>) {})};
+		const render::front_reset guard{front};
+		front = &render::front_device(*inner, recorder.get());
+		render::release_texture(front, {5});
+		BOOST_TEST(inner->textures == 1u);
+	}
+	/* Required: with front left dangling, the release below would touch
+	 * the destroyed recorder.
+	 */
+	BOOST_REQUIRE(front == nullptr);
+	render::release_texture(front, {5});
 }
