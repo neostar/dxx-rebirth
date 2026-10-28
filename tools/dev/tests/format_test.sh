@@ -215,6 +215,36 @@ PY
 	assert_contains "$out" "src/gpu.cpp:4:9: error: unsafe buffer access"
 }
 
+# Test that --tidy runs the files in parallel without losing a failure or
+# the order: with one job and with four, the bad file is the middle or the
+# last of the files, the largest file (started first) is a good one, and the
+# findings print in the order the files were given.
+test_tidy_runs_files_in_parallel_in_a_stable_order()
+{
+	local r out rc jobs f
+	r=$(fork_repo) || die "fork_repo failed"
+	for f in a b c; do
+		printf '%s\n' "int f_$f(const int *p);" "int f_$f(const int *p)" '{' '	return p[2];' '}' \
+			> "$r/src/$f.cpp"
+		add_database_entry "$r" "src/$f.cpp"
+	done
+	printf '%s\n' "int big;" '// padding padding padding padding padding padding padding' \
+		'// padding padding padding padding padding padding padding' > "$r/src/d.cpp"
+	add_database_entry "$r" src/d.cpp
+	for jobs in 1 4; do
+		out=$(DXX_JOBS=$jobs "$r/tools/dev/format.sh" --tidy "$r/src/a.cpp" "$r/src/d.cpp" \
+			"$r/src/c.cpp" 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$out (jobs $jobs)"
+		assert_contains "$out" "src/a.cpp:4:9: error: unsafe buffer access"
+		assert_contains "$out" "src/c.cpp:4:9: error: unsafe buffer access"
+		assert_eq "$(grep -n 'error: unsafe buffer' <<<"$out" | head -1 | grep -c 'src/a.cpp')" 1 "a prints first (jobs $jobs)"
+		out=$(DXX_JOBS=$jobs "$r/tools/dev/format.sh" --tidy "$r/src/d.cpp" "$r/src/d.cpp" \
+			"$r/src/b.cpp" 2>&1) && rc=0 || rc=$?
+		assert_eq "$rc" 1 "$out (last file bad, jobs $jobs)"
+		assert_contains "$out" "src/b.cpp:4:9: error: unsafe buffer access"
+	done
+}
+
 # Test that C files get clang-format but not the C++ clang-tidy rules, so a
 # C file needs no compilation database; a C++ file without one fails.
 test_staged_c_file_skips_tidy()

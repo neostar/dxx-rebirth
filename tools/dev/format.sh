@@ -36,10 +36,12 @@
 # and on an unpaired upstream_begin.h or upstream_end.h (check_includes).  Source
 # files keep their database entry, less the flags the pinned clang-tidy
 # rejects (GCC's, in the container), found by one probe run and dropped with
-# --removed-arg.  Files are tidied in one run per .clang-tidy that applies
-# to them: clang-tidy filters every file's findings in a run by the config
-# of the last file, so a unittest/ file would otherwise switch off checks
-# for the others.  Exit status 1 means a file needs formatting or clang-tidy
+# --removed-arg.  Files are tidied in one clang-tidy run each, env.sh's
+# dev_jobs (DXX_JOBS) at a time, the largest first; each file's output prints
+# whole in the order given, and any run failing fails --tidy.  A run per file
+# also reads each file's own .clang-tidy: clang-tidy filters every file's
+# findings in a run by the config of the last file, so a unittest/ file
+# would otherwise switch off checks for the others.  Exit status 1 means a file needs formatting or clang-tidy
 # reported a problem, 2 a usage error or a missing or empty fork-dirs.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
@@ -405,7 +407,7 @@ with_config()
 # clang-tidy the headers among "${@:2}" whose config is $1.
 tidy_headers()
 {
-	local f sel=() flags=()
+	local f sel=() flags=() header_flags=()
 	mapfile -t sel < <(with_config "$@")
 	[[ ${#sel[@]} -eq 0 ]] && return 0
 	read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
@@ -417,8 +419,15 @@ tidy_headers()
 	for f in "${sel[@]}"; do
 		flags+=(-I "$root/$(dirname "$(rel "$f")")")
 	done
-	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "${sel[@]}" -- \
-		-x c++-header -std=c++23 "${flags[@]}" \
+	header_flags=("${flags[@]}")
+	tidy_parallel tidy_header "${sel[@]}"
+}
+
+# clang-tidy header $1 with the flags tidy_headers collected.
+tidy_header()
+{
+	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" --quiet "$1" -- \
+		-x c++-header -std=c++23 "${header_flags[@]}" \
 		-isystem "$dev_deps_prefix/include" -isystem "$dev_deps_prefix/include/SDL3" \
 		-isystem "$dev_deps_prefix/include/SDL3_image" -isystem "$dev_deps_prefix/include/SDL3_mixer" \
 		-DSDL_ENABLE_OLD_NAMES 2>&1 | strip_tree
@@ -432,9 +441,42 @@ tidy_sources()
 	local sel=()
 	mapfile -t sel < <(with_config "$@")
 	[[ ${#sel[@]} -eq 0 ]] && return 0
+	tidy_parallel tidy_source "${sel[@]}"
+}
+
+# clang-tidy source $1 with the database $db less the flags clang rejects.
+tidy_source()
+{
 	"$clang_tidy" "${tidy_opts[@]+"${tidy_opts[@]}"}" "${filter[@]}" \
-		"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "${sel[@]}" 2>&1 | strip_tree
+		"${removed[@]+"${removed[@]}"}" -p "$db" --quiet "$1" 2>&1 | strip_tree
 	[[ ${PIPESTATUS[0]} -eq 0 ]]
+}
+
+# Run function $1 on each file among "${@:2}", dev_jobs (env.sh) at a time,
+# the largest files first, which keeps the last job short; print each one's
+# output whole in the order the files were given, so the output does not
+# depend on timing.  Fails when any run fails, or leaves no status behind.
+tidy_parallel()
+{
+	local fn=$1 dir i rc=0 order=()
+	local files=("${@:2}")
+	dir=$(mktemp -d "${TMPDIR:-/tmp}/format-tidy.XXXXXX") || return 1
+	mapfile -t order < <(for i in "${!files[@]}"; do
+		printf '%s %s\n' "$(wc -c < "${files[i]}" 2>/dev/null | tr -d ' ' )" "$i"
+	done | sort -rn | cut -d' ' -f2)
+	for i in "${order[@]}"; do
+		while [[ $(jobs -rp | wc -l) -ge $dev_jobs ]]; do
+			wait -n
+		done
+		("$fn" "${files[i]}" > "$dir/$i" 2>&1; echo "$?" > "$dir/$i.rc") &
+	done
+	wait
+	for i in "${!files[@]}"; do
+		cat "$dir/$i"
+		[[ $(cat "$dir/$i.rc" 2>/dev/null) == 0 ]] || rc=1
+	done
+	rm -rf "$dir"
+	return "$rc"
 }
 
 # Print, one per line, the warning and code generation flags in compilation
