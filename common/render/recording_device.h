@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <span>
 
@@ -48,7 +49,8 @@ using trace_out = std::function<void(std::span<const std::uint8_t>)>;
 using target_size = std::function<extent()>;
 
 /* Passes every call on to the inner device and records the calls of the
- * frames in range.
+ * frames in range.  Until the range starts it keeps a copy of every slot's
+ * image, so that the trace starts with the textures its draws sample.
  * Reads, eye selection and region copies are passed on unrecorded: the
  * trace format holds none of them.
  */
@@ -60,6 +62,8 @@ class recording_device final : public device
 	trace_out out_;
 	/* The index of the frame being drawn. */
 	std::uint32_t frame_{0};
+	/* Each slot's image, by slot index, until the recording starts. */
+	std::map<std::uint32_t, trace::texture> textures_;
 	/* While recording. */
 	std::optional<trace::writer> writer_;
 	/* Once the last frame in range is handed out. */

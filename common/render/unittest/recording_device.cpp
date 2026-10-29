@@ -156,6 +156,43 @@ BOOST_AUTO_TEST_CASE(records_the_frames_in_range)
 	BOOST_TEST((h.value().target == target));
 }
 
+/* Test that a trace starts with the image of every slot given before its
+ * range, its pixels as they were, and without a slot released before it, so
+ * the trace replays without the frames before it.
+ */
+BOOST_AUTO_TEST_CASE(textures_given_before_the_range_lead_the_trace)
+{
+	fake_device inner;
+	recording rec{inner, {.first = 1, .last = 1}};
+	std::vector<std::uint8_t> pixels{1, 2, 3, 4, 5, 6, 7, 8};
+	const render::texture_image image{{.size = {.width = 2, .height = 1},
+	                                   .format = render::texture_format::rgba8,
+	                                   .filter = render::filter::nearest,
+	                                   .anisotropic = false,
+	                                   .has_transparency = true},
+	                                  pixels};
+	rec.recorder.texture({3}, &image);
+	rec.recorder.texture({4}, &image);
+	rec.recorder.texture({4}, nullptr);
+	play(rec.recorder, 1);
+	/* The game's copy may change once given; the trace keeps the pixels as
+	 * they were given.
+	 */
+	pixels.assign(pixels.size(), 0);
+	play(rec.recorder, 1);
+	BOOST_TEST(inner.textures == 3u);
+	const auto records{rec.records()};
+	BOOST_REQUIRE(!records.empty());
+	BOOST_REQUIRE(std::holds_alternative<trace::texture>(records.front()));
+	const auto &t{std::get<trace::texture>(records.front())};
+	BOOST_TEST(t.slot.index == 3u);
+	BOOST_TEST(t.rgba == (std::vector<std::uint8_t>{1, 2, 3, 4, 5, 6, 7, 8}),
+	           boost::test_tools::per_element());
+	for (const auto &r : records)
+		if (const auto *const other{std::get_if<trace::texture>(&r)})
+			BOOST_TEST(other->slot.index != 4u);
+}
+
 /* Test that the depth clears of a frame are recorded, each of depth alone:
  * the one that starts the 3D frame and the rear view's in mid-frame
  * (begin_3d_frame, #16), after the frame's first draw.

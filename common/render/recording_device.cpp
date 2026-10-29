@@ -27,6 +27,9 @@ void recording_device::start_if_due()
 	if (frame_ != range_.first || writer_ || done_)
 		return;
 	writer_.emplace(target_());
+	for (const auto &[index, t] : textures_)
+		writer_->write(t);
+	textures_.clear();
 }
 
 void recording_device::draw(const draw_call &call)
@@ -41,6 +44,20 @@ void recording_device::texture(const texture_slot slot, const texture_image *con
 	inner_->texture(slot, image);
 	if (writer_)
 		writer_->texture(slot, image);
+	else if (done_)
+		return;
+	else if (!image)
+		textures_.erase(slot.index);
+	else
+	{
+		/* Reuses the slot's buffer: a slot uploaded each frame (the movie
+		 * frame's) allocates once.
+		 */
+		auto &kept{textures_.try_emplace(slot.index).first->second};
+		kept.slot = slot;
+		kept.desc = image->desc();
+		kept.rgba.assign(image->rgba().begin(), image->rgba().end());
+	}
 }
 
 void recording_device::clear(const clear_targets targets)
