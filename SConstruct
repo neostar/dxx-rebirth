@@ -6333,6 +6333,13 @@ class D2XProgram(DXXProgram):
 			'common/misc/physfsx.cpp',
 			'common/misc/ignorecase.cpp',
 			)),
+		# arch_init turns the real joystick backends off before SDL_Init in a hidden run (#44).
+		DXXProgram.GameObjectTest('test-arch-init', (
+			'common/sdl/unittest/arch_init.cpp',
+			), (
+			'similar/arch/sdl/init.cpp',
+			# SDL3's init_video registers the early user defaults on macOS.
+			) + (('common/sdl/macos_defaults.mm',) if sys.platform == 'darwin' else ())),
 		)
 
 	# general source files

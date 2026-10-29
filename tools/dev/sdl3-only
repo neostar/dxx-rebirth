@@ -16,3 +16,4 @@ common/sdl/unittest/assertion_exit.cpp
 common/sdl/unittest/mouse_input.cpp
 common/sdl/unittest/joystick_events.cpp
 common/sdl/unittest/pilot_file.cpp
+common/sdl/unittest/arch_init.cpp
