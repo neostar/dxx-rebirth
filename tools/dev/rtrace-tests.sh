@@ -10,8 +10,7 @@
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
 #   sample, overbright, flash, walls, alpha, lines, oversize, fonts and filters traces to compare
-#   with their writers, its
-#   report written to a file and read back;
+#   with their writers, its report written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
 # - rtrace on synthetic/overbright.rtr (#27), once: its pinned lines;
@@ -24,15 +23,18 @@
 # - rtrace on synthetic/filters.rtr (#34), once: its six pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
-#   <profile> sdl3=1 builds it), rtrace-gpu on the sample, the
-#   overbright, flash, walls, alpha, lines, oversize and fonts traces (the oversize one, viewports past the
-#   target, which SDL's debug mode asserts on unclamped), through no-window.sh and gpu-validate.sh
-#   rather than WRAPPER, each of which must log GL's pinned lines (the lines trace SDL_GPU's own
-#   on Metal, which differ from GL's by pixels at line ends, within the tolerance test-sdlgpu
-#   holds, #32; the filters trace too, within ADR 2's FLIP per filter, #34); the pins are Apple's
-#   GL on Metal, so another driver it names is a SKIP (lavapipe compares
-#   with FLIP, #25), and so is a missing rtrace-gpu; a run that names no
-#   driver fails.
+#   <profile> sdl3=1 builds it), rtrace-gpu on the sample, overbright,
+#   flash, walls, alpha, oversize, fonts, lines and filters traces, through
+#   no-window.sh and gpu-validate.sh rather than WRAPPER (the oversize
+#   trace's viewports reach past the target, which SDL's debug mode asserts
+#   on unclamped).  Each must log GL's pinned lines, except two pinned to
+#   Metal's own, each with a GL tolerance: the lines trace, which differs
+#   from GL's by pixels at line ends within the tolerance test-sdlgpu holds
+#   (#32), and the filters trace, whose frames must stay within GL's by the
+#   pixels and levels of filters_gl_tolerance in rtrace-pins.sh (#34).  The
+#   pins are Apple's GL on Metal, so another driver it names is a SKIP
+#   (lavapipe compares with FLIP, #25), and so is a missing rtrace-gpu; a
+#   run that names no driver fails.
 # A wrapper may drop the program's status and stdout (leaks.sh), so each
 # outcome is read from a file as well as from the status.  Each run is
 # killed after RTRACE_TEST_TIMEOUT seconds (default 300), which fails it.
@@ -75,6 +77,47 @@ logs_lines()
 	for ((i = 0; i < ${#lines[@]}; i++)); do
 		[[ ${lines[i]} == "${*:i+2:1}" ]] || return 1
 	done
+}
+
+# Whether the frames F.rgb of directory $2, rtrace-gpu's of trace $3, are
+# within the tolerances $4... of GL's frames in directory $1, F from 0:
+# each "PIXELS LEVELS", at most PIXELS pixels differ and none by more than
+# LEVELS in a channel.  A missing frame fails.
+frames_within()
+{
+	local gl=$1 gpu=$2 name=$3 f=0 limit diff status px levels ok=0
+	shift 3
+	for limit in "$@"; do
+		if [[ ! -s $gl/$f.rgb ]]; then
+			echo "rtrace-tests: no frame $f of the $name trace from rtrace" >&2
+			return 1
+		elif [[ ! -s $gpu/$f.rgb ]]; then
+			echo "rtrace-tests: no frame $f of the $name trace from rtrace-gpu" >&2
+			return 1
+		elif [[ $(wc -c < "$gl/$f.rgb") -ne $(wc -c < "$gpu/$f.rgb") ]]; then
+			echo "rtrace-tests: frame $f of the $name trace has another size on rtrace-gpu" >&2
+			return 1
+		fi
+		cmp -l "$gl/$f.rgb" "$gpu/$f.rgb" > "$tmp/cmp" && status=0 || status=$?
+		if [[ $status -gt 1 ]]; then
+			echo "rtrace-tests: cmp failed on frame $f of the $name trace" >&2
+			return 1
+		fi
+		# cmp -l prints each differing byte's offset from 1 and both values in octal.
+		diff=$(awk '
+			function dec(o, v, i) { v = 0; for (i = 1; i <= length(o); i++) v = v * 8 + substr(o, i, 1); return v }
+			{ d = dec($2) - dec($3); if (d < 0) d = -d; if (d > big) big = d; px[int(($1 - 1) / 3)] = 1 }
+			END { n = 0; for (p in px) n++; print n, big + 0 }' "$tmp/cmp") ||
+			{ echo "rtrace-tests: awk failed on frame $f of the $name trace" >&2; return 1; }
+		read -r px levels <<< "$diff"
+		if [[ $px -gt ${limit% *} || $levels -gt ${limit#* } ]]; then
+			printf "rtrace-tests: rtrace-gpu's frame %s of the %s trace is off GL's by %s px, %s\n" \
+				"$f" "$name" "$px" "up to $levels levels (at most ${limit% *} px, ${limit#* } levels)" >&2
+			ok=1
+		fi
+		f=$((f + 1))
+	done
+	return "$ok"
 }
 
 # Print process $1 and all its descendants, one pid a line.
@@ -233,8 +276,11 @@ elif ! logs_lines "$tmp/fonts.log" "${expected_fonts[@]}"; then
 	cat "$tmp/fonts.log" >&2
 	rc=1
 fi
-# rtrace on the filters trace.
-if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$filters" "$tmp/filters.log"; then
+# rtrace on the filters trace, its frames kept for rtrace-gpu's tolerance.
+mkdir "$tmp/filters-gl" "$tmp/filters-gpu" ||
+	{ echo "rtrace-tests: mkdir failed" >&2; exit 1; }
+if ! RTRACE_FRAMES_DIR=$tmp/filters-gl bounded ${wrap[@]+"${wrap[@]}"} \
+	"$root/$build/common/rtrace" "$filters" "$tmp/filters.log"; then
 	echo "rtrace-tests: rtrace on the filters trace failed" >&2
 	rc=1
 elif ! logs_lines "$tmp/filters.log" "${expected_filters[@]}"; then
@@ -255,11 +301,13 @@ fi
 # R3: rtrace-gpu, each synthetic trace through SDL_GPU, logs GL's lines.
 rtrace_gpu=$root/build/$profile-sdl3/common/rtrace-gpu
 # Run rtrace-gpu on trace $1, named $2, which must log lines $3...; they are
-# GL's unless pinned_as says otherwise.
+# GL's unless pinned_as says otherwise.  It sets driver to the SDL_GPU
+# driver the run named.
 pinned_as="GL's"
 check_gpu()
 {
-	local trace=$1 name=$2 out=$tmp/gpu-$2 driver gpu_program=$rtrace_gpu
+	local trace=$1 name=$2 out=$tmp/gpu-$2 gpu_program=$rtrace_gpu
+	driver=""
 	if ! bounded "$dev_dir/no-window.sh" "$dev_dir/gpu-validate.sh" "$gpu_program" "$trace" \
 		"$out.log" > "$out.out" 2>&1; then
 		cat "$out.out" >&2
@@ -293,7 +341,14 @@ else
 	check_gpu "$fonts" fonts "${expected_fonts[@]}" || rc=1
 	pinned_as="the pinned Metal ones"
 	check_gpu "$lines_rtr" lines "${expected_lines_metal[@]}" || rc=1
-	check_gpu "$filters" filters "${expected_filters_metal[@]}" || rc=1
+	if ! RTRACE_FRAMES_DIR=$tmp/filters-gpu check_gpu "$filters" filters \
+		"${expected_filters_metal[@]}"; then
+		rc=1
+	elif [[ $driver == Metal ]] &&
+		! frames_within "$tmp/filters-gl" "$tmp/filters-gpu" filters \
+			"${filters_gl_tolerance[@]}"; then
+		rc=1
+	fi
 fi
 [[ $rc -eq 0 ]] && echo "rtrace-tests ($profile): passed"
 exit "$rc"

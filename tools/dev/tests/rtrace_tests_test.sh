@@ -21,7 +21,10 @@ source "$(dirname "$0")/lib.sh"
 # FAKE_GPU_NO_DRIVER=1, and logs the sample's
 # two lines, frame 0's as $FAKE_GPU_FRAME0 when set, or the overbright
 # trace's, frame 0's as $FAKE_GPU_OVERBRIGHT0 when set; a pass-through
-# gpu-validate.sh fails when FAKE_GPU_INVALID=1.
+# gpu-validate.sh fails when FAKE_GPU_INVALID=1.  On the filters trace,
+# with RTRACE_FRAMES_DIR set, both write its six frames black (fakes/frames),
+# rtrace-gpu none when FAKE_GPU_NO_FRAMES=1 and one off by $FAKE_GPU_DRIFT,
+# "FRAME PIXELS LEVEL", when set.
 make_rtrace_repo()
 {
 	local r
@@ -90,6 +93,10 @@ if [[ $1 == *oversize.rtr ]]; then
 fi
 if [[ $1 == *filters.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_FILTERS0:-0 64x48 0d33b500a6d9edb0}" '1 64x48 3c3b6542f0892545' '2 64x48 94b7bb5bbc66bd40' '3 64x48 6296affa12046ccd' '4 64x48 5a2c8b8fdd1d6b6c' '5 64x48 5ec9c859bccd8b27' > "$2"
+	if [[ -n ${RTRACE_FRAMES_DIR-} && ${FAKE_GPU_NO_FRAMES-} != 1 ]]; then
+		# shellcheck disable=SC2086 # FAKE_GPU_DRIFT is three words
+		"$(dirname "$0")/../../../fakes/frames" "$RTRACE_FRAMES_DIR" ${FAKE_GPU_DRIFT-} || exit 1
+	fi
 	exit 0
 fi
 if [[ $1 == *fonts.rtr ]]; then
@@ -146,6 +153,9 @@ if [[ $1 == *oversize.rtr ]]; then
 fi
 if [[ $1 == *filters.rtr ]]; then
 	printf '%s\n' "${FAKE_FILTERS0:-0 64x48 abb6708701beb951}" '1 64x48 bf8cff063215a44d' '2 64x48 dd52b4e17b9124c9' '3 64x48 fb84893daf27c17a' '4 64x48 acf0c45d32ada5a5' '5 64x48 5c57a490f2fa9148' > "$2"
+	if [[ -n ${RTRACE_FRAMES_DIR-} ]]; then
+		"$(dirname "$0")/../../../fakes/frames" "$RTRACE_FRAMES_DIR" || exit 1
+	fi
 	exit 0
 fi
 if [[ $1 == *fonts.rtr ]]; then
@@ -159,6 +169,21 @@ fi
 printf '%s\n' "${FAKE_FRAME0:-0 64x48 86388f1d5003af2a}" '1 64x48 9f40fbb36ef64325' > "$2"
 [[ ${FAKE_DIFFER-} == 1 && $2 == *run2.log ]] && echo extra >> "$2"
 exit 0
+EOF
+	cat > "$r/fakes/frames" <<'EOF'
+#!/usr/bin/env bash
+# Write the filters trace's six 64x48 frames to directory $1, black; with
+# FRAME PIXELS LEVEL after it, that frame's first PIXELS pixels LEVEL red.
+for f in 0 1 2 3 4 5; do
+	n=0
+	[[ $f == "${2-}" ]] && n=$3
+	{
+		for ((i = 0; i < n; i++)); do
+			printf '%b' "\\x$(printf %02x "$4")\\0\\0"
+		done
+		head -c $((64 * 48 * 3 - 3 * n)) /dev/zero
+	} > "$1/$f.rgb" || exit 1
+done
 EOF
 	chmod +x "$r/tools/dev/build.sh" "$r/tools/dev/no-window.sh" "$r/tools/dev/rtrace-tests.sh" \
 		"$r/tools/dev/gpu-validate.sh" \
@@ -470,6 +495,38 @@ test_filters_lines_are_pinned()
 		"rtrace-tests: rtrace-gpu's frame hashes of the filters trace are not the pinned Metal ones:"
 	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
+}
+
+# Test that rtrace-gpu's frames of the filters trace, under its Metal pins,
+# must stay within GL's frames by the tolerance rtrace-pins.sh holds: at
+# most 5 pixels off in frame 0, and in the others at most 2, 15 or 38
+# pixels, none more than 1 level off in a channel; missing frames fail.
+test_filters_frames_are_held_to_gl()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIFT='0 5 225' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIFT='3 38 1' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIFT='0 6 1' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame 0 of the filters trace is off GL's by 6 px, up to 1 levels (at most 5 px, 255 levels)"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIFT='1 3 1' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "frame 1 of the filters trace is off GL's by 3 px, up to 1 levels"
+	out=$(FAKE_GPU=1 FAKE_GPU_DRIFT='2 1 2' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "frame 2 of the filters trace is off GL's by 1 px, up to 2 levels"
+	out=$(FAKE_GPU=1 FAKE_GPU_NO_FRAMES=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: no frame 0 of the filters trace from rtrace-gpu"
 }
 
 run_tests --parallel

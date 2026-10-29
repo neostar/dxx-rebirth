@@ -41,4 +41,9 @@ expected_filters=('0 64x48 abb6708701beb951' '1 64x48 bf8cff063215a44d' '2 64x48
 # SDL_GPU's on Metal, with GL's mipmaps: within one level of GL's in every
 # filtered frame, and 5 pixels off in the classic one (ADR 2's FLIP per filter).
 expected_filters_metal=('0 64x48 0d33b500a6d9edb0' '1 64x48 3c3b6542f0892545' '2 64x48 94b7bb5bbc66bd40' '3 64x48 6296affa12046ccd' '4 64x48 5a2c8b8fdd1d6b6c' '5 64x48 5ec9c859bccd8b27')
+# How far each of those frames may be off GL's, "PIXELS LEVELS": at most PIXELS pixels
+# differ, none by more than LEVELS in a channel. Measured on Metal (#34): frame 0, classic,
+# takes other minified nearest texels on 5 pixels; the filtered frames are within one level
+# on 2, 15 and 38 pixels.
+filters_gl_tolerance=('5 255' '2 1' '15 1' '38 1' '15 1' '38 1')
 filters=$root/common/render/rtrace/synthetic/filters.rtr
