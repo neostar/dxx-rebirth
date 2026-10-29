@@ -35,6 +35,9 @@
 #include <utility>
 #include "common/debug/hidden_window.h"
 #include "common/debug/input_script_harness.h"
+#if SDL_MAJOR_VERSION >= 2
+#include "common/sdl/virtual_joystick.h"
+#endif
 #include "console.h"
 #include "dxxerror.h"
 #endif
@@ -200,6 +203,26 @@ void harness_push_input()
 			con_printf(CON_NORMAL, "DXX_DBG_INPUT_SCRIPT: the script ends the run at tick %u", std::to_underlying(e.tick));
 			fflush(nullptr);
 			_Exit(0);
+		}
+		const bool joystick_line{e.action == input_action::joy_attach || e.action == input_action::joy_detach ||
+		                         e.action == input_action::joy_axis || e.action == input_action::joy_button_down ||
+		                         e.action == input_action::joy_button_up || e.action == input_action::joy_hat};
+		if (joystick_line)
+		{
+#if SDL_MAJOR_VERSION >= 2
+			/* The script's virtual joysticks, on SDL's virtual driver; their events come with the
+			 * next pump.  A hidden window is in the background, where SDL drops joystick events
+			 * unless told otherwise.
+			 */
+			static sdl::virtual_joystick_slots devices;
+			if (e.action == input_action::joy_attach)
+				SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+			if (!devices.play(e))
+				UserError("DXX_DBG_INPUT_SCRIPT: a joystick line at tick %u failed: %s", std::to_underlying(e.tick), SDL_GetError());
+			continue;
+#else
+			UserError_puts("DXX_DBG_INPUT_SCRIPT: joystick lines need an SDL 2 or SDL 3 build");
+#endif
 		}
 		if (e.action != input_action::key_down && e.action != input_action::key_up)
 		{

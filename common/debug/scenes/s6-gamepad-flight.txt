@@ -1,0 +1,19 @@
+# S6: a gamepad plugged in at start, so the new pilot gets the gamepad's default bindings;
+# level 1 starts with the briefing skipped, the right stick turns the ship right and pitches
+# it, the right trigger fires and the D-pad turns the headlight on (#44).
+# Format: common/debug/input_script.h.  Run: docs/agents/game-data.md.
+0 joy_attach 0 gamepad
+330 press N	# New game
+340 press ENTER
+390 press ENTER	# start at level 1
+440 press ENTER	# difficulty: the default
+490 press ESC	# skip the briefing
+650 joy_axis 0 2 32767	# right stick right: turn right
+680 joy_axis 0 2 0
+690 joy_axis 0 3 -32768	# right stick up: pitch (inverted by default)
+700 joy_axis 0 3 0
+710 joy_axis 0 5 32767	# right trigger: fire primary
+715 joy_axis 0 5 -32768
+730 joy_button 0 11 down	# D-pad up: headlight
+731 joy_button 0 11 up
+780 end

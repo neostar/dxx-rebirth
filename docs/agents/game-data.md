@@ -104,7 +104,8 @@ DXX_DBG_TRACE=$PWD/traces/local/s2.rtr DXX_DBG_TRACE_FRAMES=0-1600 \
 
 The scripted scenes S1, S3 and S4 (`GLOSSARY.md`, input script) are in `common/debug/scenes/`,
 with S5 (`s5-mouse-turn.txt`, #43), which moves a menu choice with the wheel and turns the ship
-by mouse; `r1.sh` plays S1-S4 only.
+by mouse, and S6 (`s6-gamepad-flight.txt`, #44), which flies it with a virtual gamepad; `r1.sh`
+plays S1-S4 only.
 A `dbg_harness=1` build plays one with no window on screen and writes its frames to a
 `# scene <script name>` section of the frame hash log:
 
@@ -128,6 +129,11 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
   per frame, and the frame loop calls it until a frame is due: scene logs compare only between
   runs at the same `-maxfps` and VSync. Real-time timeouts count calls too and collapse, to about
   30 calls at 30 (the MIDI reset in `hmp.cpp`, the timeouts of `net_udp.cpp`).
+- A script's `joy_attach` lines plug virtual joysticks into SDL's virtual driver, never a real
+  device; the game still opens any real controller plugged into the Mac. Keep real ones out of a
+  run with `SDL_JOYSTICK_HIDAPI=0 SDL_JOYSTICK_IOKIT=0 SDL_JOYSTICK_MFI=0` (SDL reads hints from
+  the environment), and set `SDL_ASSERT=ignore` so an SDL assertion logs instead of opening a
+  dialog: fail a run whose output holds `Assertion`.
 - The `end` line exits with `_Exit(0)`: no `atexit` handlers or static destructors run, and
   LeakSanitizer prints no report, so ASan scene runs do not check leaks.
 - To write a scene, play a draft script with `press PRSCR` lines and look at the screenshots in
