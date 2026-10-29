@@ -162,6 +162,14 @@ SDL_Event harness_mouse_event(const input_event &e)
 #else
 			event.wheel.y = e.y;
 			event.wheel.preciseY = static_cast<float>(e.y);
+			/* sdl2-compat (2.32.74, src/sdl2_compat.c:2543ff) turns a pushed SDL2 event into
+			 * SDL3's by copying the body byte for byte, which puts mouseY where SDL3 keeps
+			 * integer_y; its wheel case (:2578-2586) leaves integer_y alone, and the event the
+			 * game polls takes y from integer_y (:2431-2432).  So the steps go in mouseY too.
+			 * Real SDL2 passes mouseY, the cursor's row, through untouched, and the wheel
+			 * handler reads only y.
+			 */
+			event.wheel.mouseY = e.y;
 #endif
 			break;
 		default:
