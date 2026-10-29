@@ -53,15 +53,17 @@ struct hint
  * everywhere.  The game shows SDL's system cursor in its menus, so on
  * Windows it scales with the display (SDL_HINT_MOUSE_DPI_SCALE_CURSORS "1",
  * docs/agents/sdl-window.md section 8), set before SDL creates the cursor.
+ * SDL_HINT_JOYSTICK_ENHANCED_REPORTS "auto" leaves a PlayStation or Switch
+ * pad's report mode alone: SDL's "1" changes it on open, which a PlayStation
+ * pad keeps until it is power-cycled, and the game uses no rumble, LED or gyro.
  * Every other input hint stays at SDL's default, among them
  * SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, the player's way out of the keyboard
  * grab; the test pins the list.
  */
 inline constexpr std::array pre_init_hints{
-    hint{SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"},
-    hint{SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "0"},
-    hint{SDL_HINT_MAC_PRESS_AND_HOLD, "0"},
-    hint{SDL_HINT_MOUSE_DPI_SCALE_CURSORS, "1"},
+    hint{SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"}, hint{SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "0"},
+    hint{SDL_HINT_MAC_PRESS_AND_HOLD, "0"},           hint{SDL_HINT_MOUSE_DPI_SCALE_CURSORS, "1"},
+    hint{SDL_HINT_JOYSTICK_ENHANCED_REPORTS, "auto"},
 };
 
 struct sdl_ops

@@ -76,6 +76,7 @@ BOOST_AUTO_TEST_CASE(init_order_is_metadata_hints_defaults_init)
 	    "hint SDL_WINDOWS_CLOSE_ON_ALT_F4=0",
 	    "hint SDL_MAC_PRESS_AND_HOLD=0",
 	    "hint SDL_MOUSE_DPI_SCALE_CURSORS=1",
+	    "hint SDL_JOYSTICK_ENHANCED_REPORTS=auto",
 	    "defaults",
 	    "init",
 	};
@@ -103,12 +104,13 @@ BOOST_AUTO_TEST_CASE(refusals_are_reported_and_do_not_stop_the_start_up)
 	BOOST_TEST(report.initialised);
 	BOOST_REQUIRE(report.metadata_error.has_value());
 	BOOST_TEST(report.metadata_error.value() == "metadata error text");
-	BOOST_TEST(log.size() == 7u);
-	BOOST_REQUIRE(report.refused_hints.size() == 4u);
+	BOOST_TEST(log.size() == 8u);
+	BOOST_REQUIRE(report.refused_hints.size() == 5u);
 	BOOST_TEST(std::string{report.refused_hints[0]} == "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS");
 	BOOST_TEST(std::string{report.refused_hints[1]} == "SDL_WINDOWS_CLOSE_ON_ALT_F4");
 	BOOST_TEST(std::string{report.refused_hints[2]} == "SDL_MAC_PRESS_AND_HOLD");
 	BOOST_TEST(std::string{report.refused_hints[3]} == "SDL_MOUSE_DPI_SCALE_CURSORS");
+	BOOST_TEST(std::string{report.refused_hints[4]} == "SDL_JOYSTICK_ENHANCED_REPORTS");
 	log.clear();
 	const auto clean{dcx::sdl::init_video(test_metadata, recording_ops{&log})};
 	BOOST_TEST(!clean.metadata_error.has_value());
@@ -179,6 +181,20 @@ BOOST_AUTO_TEST_CASE(start_up_sets_only_the_listed_hints)
 		const bool listed{std::ranges::contains(allowed, std::string{h.name})};
 		BOOST_TEST(listed, "unlisted hint " << h.name);
 	}
+}
+
+/* Test that start-up sets SDL_HINT_JOYSTICK_ENHANCED_REPORTS to "auto": SDL's default "1" changes
+ * a PlayStation or Switch pad's report mode on open, which a PlayStation pad keeps until it is
+ * power-cycled; the game uses no rumble, LED or gyro (docs/agents/sdl-input.md, "Platform-only
+ * hints and their defaults").
+ */
+BOOST_AUTO_TEST_CASE(start_up_leaves_the_pads_report_mode_alone)
+{
+	const auto h{std::ranges::find(
+	    dcx::sdl::pre_init_hints, std::string_view{SDL_HINT_JOYSTICK_ENHANCED_REPORTS},
+	    [](const dcx::sdl::hint &x) { return std::string_view{x.name}; })};
+	BOOST_REQUIRE(h != dcx::sdl::pre_init_hints.end());
+	BOOST_TEST(std::string_view{h->value} == "auto");
 }
 
 namespace {
