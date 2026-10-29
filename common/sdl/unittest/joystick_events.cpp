@@ -1,0 +1,494 @@
+/*
+ * This file is part of the DXX-Rebirth project <https://github.com/dxx-rebirth/dxx-rebirth/>.
+ * It is copyright by its individual contributors, as recorded in the
+ * project's Git history.  See COPYING.txt at the top level for license
+ * terms and a link to the Git history.
+ */
+
+/* Virtual joysticks through the game's joystick and gamepad handlers (#44, R12).  One program for
+ * SDL2 and SDL3, as key_oracle.cpp is.  The seam is SDL's virtual-joystick driver: the test
+ * attaches virtual gamepads and flight sticks (common/sdl/virtual_joystick.h), moves their
+ * inputs, and calls event_poll, which pumps SDL and hands the events to the game's own handlers
+ * (joy.cpp, gamecontroller.cpp); standard_handler, the game's last-resort handler, records what
+ * reaches the game.  With no window open, every event reaches it.
+ *
+ * A saved binding is the number of a button or axis the game reports, so what each control
+ * reports, and the label the controls menu shows for it, is what a pilot file's bindings mean.
+ * Built with SDL2 (test-joystick-sdl2, in the reference container: Linux, SDL 2.30.0) with
+ * DXX_JOYSTICK_ORACLE_PRINT=1, the program prints the rows joystick_oracle_sdl2.inc holds; every
+ * build compares its own rows with that file, so a binding an SDL2 build saved means the same
+ * control in the SDL3 build.
+ */
+
+/* dxxsconf.h first: it defines the feature macros that the C library headers SDL.h pulls in would
+ * define differently.
+ */
+// clang-format off
+#include "dxxsconf.h"
+// clang-format on
+#include <SDL.h>
+#include <algorithm>
+#include <array>
+#include <cstdio>
+#include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <optional>
+#include <random>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "common/debug/input_script.h"
+#include "common/sdl/gamepad_layout.h"
+#include "common/sdl/virtual_joystick.h"
+
+// clang-format off
+#include "tools/dev/upstream_begin.h"
+#include "args.h"
+#include "config.h"
+#include "console.h"
+#include "dxxerror.h"
+#include "event.h"
+#include "joy.h"
+#include "kconfig.h"
+#include "key.h"
+#include "mouse.h"
+#include "physfsrwops.h"
+#include "timer.h"
+#include "window.h"
+#include "cmd.h"
+#include "tools/dev/upstream_end.h"
+// clang-format on
+
+#if SDL_MAJOR_VERSION == 2
+static_assert(SDL_CONTROLLER_BUTTON_MAX == ::dcx::sdl::gamepad_button_count,
+              "saved gamepad bindings start the axis-buttons at SDL2's button count");
+static_assert(SDL_CONTROLLER_AXIS_MAX == ::dcx::sdl::gamepad_axis_count);
+#elif SDL_MAJOR_VERSION == 3
+static_assert(SDL_GAMEPAD_BUTTON_COUNT ==
+                  ::dcx::sdl::gamepad_button_count + ::dcx::sdl::gamepad_extra_button_count,
+              "SDL3's buttons past SDL2's 21 take the numbers after the axis-buttons");
+static_assert(SDL_GAMEPAD_AXIS_COUNT == ::dcx::sdl::gamepad_axis_count);
+#endif
+
+namespace {
+
+/* What reached the game's last-resort handler. */
+struct seen
+{
+	event_type type;
+	/* A joystick button's number or a key's code; a joystick axis's number. */
+	unsigned number;
+	int value;
+};
+std::vector<seen> seen_events;
+
+}
+
+/* The game's PhysicsFS is not started: no gamecontrollerdb.txt. */
+std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *)
+{
+	return {nullptr, PHYSFS_ERR_NOT_FOUND};
+}
+
+int cmd_queue_process()
+{
+	return 0;
+}
+
+namespace dcx {
+
+CArg CGameArg;
+
+CCfg CGameCfg;
+
+// NOLINTNEXTLINE(readability-identifier-naming): the game's name for its window
+SDL_Window *g_pRebirthSDLMainWindow;
+
+/* The controls menu's labels, which kconfig.cpp defines. */
+joybutton_text_t joybutton_text;
+joyaxis_text_t joyaxis_text;
+
+fix64 timer_query()
+{
+	return 0;
+}
+
+fix64 timer_update()
+{
+	return 0;
+}
+
+#undef UserError
+void UserError(const char *, ...)
+{
+	std::abort();
+}
+
+#undef Warning
+void Warning(const char *, ...)
+{}
+
+#undef con_printf
+void con_printf(const con_priority_wrapper, const char *, ...)
+{}
+
+void con_puts(const con_priority_wrapper, std::span<const char>)
+{}
+
+window *window_get_front()
+{
+	return nullptr;
+}
+
+window *window_get_first()
+{
+	return nullptr;
+}
+
+window_event_result window::send_event(const d_event &, const char *, unsigned)
+{
+	return window_event_result::ignored;
+}
+
+#if SDL_MAJOR_VERSION == 3
+void gr_handle_window_event(const SDL_Event &)
+{}
+#endif
+
+void gr_flip()
+{}
+
+window_event_result standard_handler(const d_event &event)
+{
+	switch (event.type)
+	{
+	case event_type::joystick_button_down:
+	case event_type::joystick_button_up:
+		seen_events.push_back({.type = event.type,
+		                       .number = static_cast<unsigned>(event_joystick_get_button(event)),
+		                       .value = 0});
+		break;
+	case event_type::joystick_moved: {
+		const auto &a{event_joystick_get_axis(event)};
+		seen_events.push_back({.type = event.type, .number = a.axis, .value = a.value});
+		break;
+	}
+	case event_type::key_command:
+		seen_events.push_back({.type = event.type,
+		                       .number = static_cast<unsigned>(event_key_get(event)),
+		                       .value = 0});
+		break;
+	default:
+		break;
+	}
+	return window_event_result::handled;
+}
+
+}
+
+#define BOOST_TEST_DYN_LINK
+#define BOOST_TEST_MODULE Rebirth joystick events
+#include <boost/test/unit_test.hpp>
+
+namespace {
+
+using ::dcx::sdl::virtual_joystick;
+using ::dcx::sdl::virtual_joystick_shape;
+
+/* One game event a control of a scene produced: the scene, the control moved ("d1 b3 down": device
+ * 1, button 3), the game's event, its number and value, and the label the controls menu shows for
+ * the number (kconfig.cpp's get_item_text: the gamepad's while a gamepad is open).
+ */
+struct oracle_row
+{
+	std::string_view scene;
+	std::string_view control;
+	std::string_view event;
+	unsigned number;
+	int value;
+	std::string_view label;
+};
+
+constexpr auto sdl2_rows{std::to_array<oracle_row>({
+#include "common/sdl/unittest/joystick_oracle_sdl2.inc"
+})};
+
+struct recorded_row
+{
+	std::string scene;
+	std::string control;
+	std::string event;
+	unsigned number;
+	int value;
+	std::string label;
+	bool operator==(const recorded_row &) const = default;
+};
+
+std::ostream &operator<<(std::ostream &os, const recorded_row &r)
+{
+	return os << r.scene << " | " << r.control << " | " << r.event << ' ' << r.number << ' '
+	          << r.value << " | " << r.label;
+}
+
+/* An SDL assertion ends the test run with a failure, never with SDL's dialog. */
+SDL_AssertState SDLCALL fail_on_assertion(const SDL_AssertData *const data, void *)
+{
+	std::cerr << "SDL assertion failed: " << data->condition << " (" << data->filename << ':'
+	          << data->linenum << ")\n"
+	          << std::flush;
+	std::_Exit(3);
+}
+
+/* SDL with its joystick and gamepad subsystems on the dummy video driver, joystick events
+ * delivered in the background, and the game's joystick and gamepad state started as arch_init
+ * does, once the devices `attach` makes are plugged in.
+ */
+struct sdl_joysticks
+{
+	sdl_joysticks()
+	{
+		SDL_SetAssertionHandler(fail_on_assertion, nullptr);
+#if SDL_MAJOR_VERSION == 2
+		SDL_SetHint(SDL_HINT_VIDEODRIVER, "dummy");
+#elif SDL_MAJOR_VERSION == 3
+		SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+#endif
+		SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#if SDL_MAJOR_VERSION == 2
+		BOOST_REQUIRE(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) == 0);
+#elif SDL_MAJOR_VERSION == 3
+		BOOST_REQUIRE(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
+#endif
+		seen_events.clear();
+	}
+	/* Start the game's joystick and gamepad code, as arch_init does, and take the events of the
+	 * devices plugged in at start.
+	 */
+	static void start_game()
+	{
+		::dcx::joy_init();
+		::dcx::gamecontroller_init();
+		::dcx::event_poll();
+	}
+	sdl_joysticks(const sdl_joysticks &) = delete;
+	sdl_joysticks &operator=(const sdl_joysticks &) = delete;
+	sdl_joysticks(sdl_joysticks &&) = delete;
+	sdl_joysticks &operator=(sdl_joysticks &&) = delete;
+	~sdl_joysticks()
+	{
+		::dcx::gamecontroller_close();
+		::dcx::joy_close();
+		SDL_Quit();
+	}
+};
+
+constexpr virtual_joystick_shape gamepad_shape{
+    ::dcx::sdl::virtual_shape_of(::dcx::input_device_shape::gamepad)};
+constexpr virtual_joystick_shape stick_shape{
+    ::dcx::sdl::virtual_shape_of(::dcx::input_device_shape::stick)};
+/* A second, smaller stick, so that two sticks' order shows in what each reports. */
+constexpr virtual_joystick_shape small_stick_shape{
+    .gamepad = false, .axes = 2, .buttons = 8, .hats = 0, .name = "DXX small stick"};
+
+/* A label as a C string literal's body, so that the rows print as C++. */
+std::string escaped(const std::string_view s)
+{
+	std::string out;
+	for (const char c : s)
+	{
+		const auto u{static_cast<unsigned char>(c)};
+		if (u < 32 || u > 126 || c == '"' || c == '\\')
+		{
+			std::array<char, 5> octal{};
+			std::snprintf(octal.data(), octal.size(), "\\%03o", u);
+			out += octal.data();
+		}
+		else
+			out += c;
+	}
+	return out;
+}
+
+std::string label_of(const seen &e)
+{
+	const bool pad{::dcx::num_controllers != 0};
+	if (e.type == event_type::joystick_moved)
+	{
+		if (pad)
+			return e.number < ::dcx::gamecontroller_axis_text.size()
+			           ? std::string{::dcx::gamecontroller_axis_text[e.number].data()}
+					   : std::string{"none"};
+		return e.number < ::dcx::joyaxis_text.size()
+		           ? std::string{::dcx::joyaxis_text[e.number].data()}
+				   : std::string{"none"};
+	}
+	if (pad)
+		return e.number < ::dcx::gcbutton_text.size()
+		           ? std::string{::dcx::gcbutton_text[e.number].data()}
+				   : std::string{"none"};
+	return e.number < ::dcx::joybutton_text.size()
+	           ? std::string{::dcx::joybutton_text[e.number].data()}
+			   : std::string{"none"};
+}
+
+std::string_view event_name(const event_type t)
+{
+	switch (t)
+	{
+	case event_type::joystick_button_down:
+		return "down";
+	case event_type::joystick_button_up:
+		return "up";
+	case event_type::joystick_moved:
+		return "moved";
+	case event_type::key_command:
+		return "key";
+	default:
+		return "other";
+	}
+}
+
+/* Runs a scene: records each game event a step's event_poll produced. */
+class scene_recorder
+{
+	std::string scene;
+
+  public:
+	std::vector<recorded_row> rows;
+	explicit scene_recorder(std::string name) : scene{std::move(name)}
+	{}
+	void step(const std::string &control, const std::function<void()> &move)
+	{
+		seen_events.clear();
+		move();
+		::dcx::event_poll();
+		for (const auto &e : seen_events)
+			rows.push_back(
+			    {.scene = scene,
+				 .control = control,
+				 .event = std::string{event_name(e.type)},
+				 .number = e.number,
+				 .value = e.value,
+				 .label = e.type == event_type::key_command ? std::string{} : label_of(e)});
+	}
+	/* Every control of `j`, device `d` of the scene: each button down and up, each hat around its
+	 * four directions, each axis to its ends and back.
+	 */
+	void sweep(const unsigned d, virtual_joystick &j, const virtual_joystick_shape &shape)
+	{
+		const auto name{[d](const char kind, const unsigned n, const std::string_view what) {
+			return 'd' + std::to_string(d) + ' ' + kind + std::to_string(n) + ' ' +
+			       std::string{what};
+		}};
+		for (unsigned b{0}; b < shape.buttons; ++b)
+		{
+			step(name('b', b, "down"),
+			     [&] { BOOST_TEST(j.set_button(static_cast<int>(b), true)); });
+			step(name('b', b, "up"), [&] { BOOST_TEST(j.set_button(static_cast<int>(b), false)); });
+		}
+		for (unsigned h{0}; h < shape.hats; ++h)
+			for (const auto &[what, bits] :
+			     {std::pair{"up", SDL_HAT_UP}, std::pair{"right", SDL_HAT_RIGHT},
+			      std::pair{"down", SDL_HAT_DOWN}, std::pair{"left", SDL_HAT_LEFT},
+			      std::pair{"centered", SDL_HAT_CENTERED}})
+				step(name('h', h, what),
+				     [&] { BOOST_TEST(j.set_hat(static_cast<int>(h), static_cast<Uint8>(bits))); });
+		for (unsigned a{0}; a < shape.axes; ++a)
+			for (const auto &[what, value] : {std::pair{"max", 32767}, std::pair{"rest", 0},
+			                                  std::pair{"min", -32768}, std::pair{"rest", 0}})
+				step(name('a', a, what), [&] {
+					BOOST_TEST(j.set_axis(static_cast<int>(a), static_cast<Sint16>(value)));
+				});
+	}
+};
+
+/* A scene's devices, attached in order before the game starts. */
+std::vector<recorded_row> sweep_scene(const std::string &name,
+                                      const std::vector<virtual_joystick_shape> &shapes)
+{
+	const sdl_joysticks sdl;
+	std::vector<virtual_joystick> devices;
+	for (const auto &shape : shapes)
+	{
+		auto j{virtual_joystick::attach(shape)};
+		BOOST_REQUIRE_MESSAGE(j.has_value(), "attach: " << SDL_GetError());
+		devices.push_back(std::move(j).value());
+	}
+	scene_recorder recorder{name};
+	recorder.step("start", sdl_joysticks::start_game);
+	recorder.rows.push_back({.scene = name,
+	                         .control = "start",
+	                         .event = "counts",
+	                         .number = static_cast<unsigned>(::dcx::num_controllers),
+	                         .value = static_cast<int>(::dcx::joybutton_text.size()),
+	                         .label = std::to_string(::dcx::joyaxis_text.size())});
+	for (std::size_t d{0}; d < devices.size(); ++d)
+		recorder.sweep(static_cast<unsigned>(d), devices[d], shapes[d]);
+	return recorder.rows;
+}
+
+std::vector<recorded_row> all_scenes()
+{
+	std::vector<recorded_row> rows;
+	const auto add{
+	    [&rows](std::vector<recorded_row> r) { rows.insert(rows.end(), r.begin(), r.end()); }};
+	add(sweep_scene("pad", {gamepad_shape}));
+	add(sweep_scene("stick", {stick_shape}));
+	add(sweep_scene("no device", {}));
+	add(sweep_scene("two sticks", {stick_shape, small_stick_shape}));
+	add(sweep_scene("two sticks swapped", {small_stick_shape, stick_shape}));
+	add(sweep_scene("pad and stick", {gamepad_shape, stick_shape}));
+	return rows;
+}
+
+}
+
+/* Test that every control of a virtual gamepad and of virtual flight sticks reaches the game as
+ * the number, and with the controls menu's label, that the SDL2 build gives it, in each device
+ * shape a pilot's bindings meet at load: a pad alone (the SDL2 axis-button numbers, +RT at 31),
+ * a stick alone, the bound stick unplugged, two sticks and the same two swapped (the numbers
+ * follow the order the sticks were plugged in, not the stick), a pad plus a stick.  A pilot file
+ * saves these numbers, so the rows are its bindings' meaning.
+ */
+BOOST_AUTO_TEST_CASE(controls_report_what_the_sdl2_build_reports)
+{
+	auto rows{all_scenes()};
+	if (const char *const print{std::getenv("DXX_JOYSTICK_ORACLE_PRINT")};
+	    print && std::string_view{print} == "1")
+	{
+		for (const auto &r : rows)
+			std::cout << "oracle_row{\"" << r.scene << "\", \"" << r.control << "\", \"" << r.event
+			          << "\", " << r.number << ", " << r.value << ", \"" << escaped(r.label)
+			          << "\"},\n";
+		return;
+	}
+	/* The rows SDL3 (and sdl2-compat, the Mac's SDL2) adds or changes against SDL 2.30, none of
+	 * which moves a saved number: SDL 2.30's virtual driver maps a virtual gamepad's first 20
+	 * buttons only, so the oracle has no rows for button 20, TOUCHPAD, and it does not report the
+	 * Guide button's release, button 5 up; SDL3 reports both, as SDL2's numbers 20 and 5.  With a
+	 * gamepad open the controls menu shows the gamepad's labels, so a stick's numbers 33-37 show
+	 * SDL3's MISC2 to MISC6 ("M2" to "M6"), which SDL2's 33 labels do not reach.
+	 */
+	std::erase_if(rows, [](const recorded_row &r) {
+		const bool pad_scene{r.scene == "pad" || r.scene == "pad and stick"};
+		return pad_scene && ((r.control.starts_with("d0 b20 ") && r.number == 20) ||
+		                     (r.control == "d0 b5 up" && r.number == 5));
+	});
+	for (auto &r : rows)
+		if (r.number >= ::dcx::sdl::gamepad_extra_button_start &&
+		    r.number < ::dcx::sdl::gamepad_virtual_button_count && r.event != "moved" &&
+		    r.label.starts_with('M'))
+			r.label = "none";
+	std::vector<recorded_row> want;
+	for (const auto &r : sdl2_rows)
+		want.push_back({.scene = std::string{r.scene},
+		                .control = std::string{r.control},
+		                .event = std::string{r.event},
+		                .number = r.number,
+		                .value = r.value,
+		                .label = std::string{r.label}});
+	BOOST_TEST(rows == want, boost::test_tools::per_element());
+}

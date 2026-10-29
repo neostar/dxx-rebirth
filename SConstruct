@@ -5305,6 +5305,15 @@ class DXXArchive(DXXCommon):
 			'common/render/trace.cpp',
 			)),
 			)
+	# Virtual joysticks through the game's joystick and gamepad handlers.
+	_joystick_test_sources = (
+		'common/sdl/unittest/joystick_events.cpp',
+		'common/arch/sdl/event.cpp',
+		'common/arch/sdl/gamecontroller.cpp',
+		'common/arch/sdl/joy.cpp',
+		'common/arch/sdl/key.cpp',
+		'common/arch/sdl/mouse.cpp',
+		)
 	sdl2_runtime_tests = (
 		# The mouse helpers read SDL2's or SDL3's wheel event; SDL 1.2 has none.
 		RuntimeTest('test-mouse-input', (
@@ -5322,6 +5331,7 @@ class DXXArchive(DXXCommon):
 			'common/arch/sdl/key.cpp',
 			'common/arch/sdl/mouse.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-joystick-sdl2', _joystick_test_sources, use_default_libs=True),
 		)
 	sdl3_runtime_tests = (
 		RuntimeTest('test-mouse-input', (
@@ -5358,7 +5368,7 @@ class DXXArchive(DXXCommon):
 			'common/sdl/unittest/sdl_init.cpp',
 			) + (('common/sdl/macos_defaults.mm',) if sys.platform == 'darwin' else ()), use_default_libs=True),
 		)
-	del RuntimeTest, _rtrace_sources
+	del RuntimeTest, _rtrace_sources, _joystick_test_sources
 
 	def get_objects_common(self,
 		__get_objects_common=DXXCommon.create_lazy_object_getter((

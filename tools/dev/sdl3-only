@@ -14,3 +14,4 @@ common/sdl/unittest/event_poll.cpp
 common/sdl/assertion_exit.cpp
 common/sdl/unittest/assertion_exit.cpp
 common/sdl/unittest/mouse_input.cpp
+common/sdl/unittest/joystick_events.cpp
