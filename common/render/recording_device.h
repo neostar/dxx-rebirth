@@ -10,7 +10,8 @@
  * every call on and writes the calls of a chosen frame range as a trace
  * (trace.h), so any game run can be replayed without the game by rtrace
  * and rtrace-gpu.  Recording is off unless the front end makes a
- * recorder.
+ * recorder: front_device then hands out the device itself, so no
+ * decorator sits in the call path.
  */
 
 #pragma once
@@ -76,6 +77,13 @@ class recording_device final : public device
 	 * before its first.
 	 */
 	recording_device(device &inner, frame_range range, target_size target, trace_out out);
+	/* Passes the calls from now on to inner, a device that took the
+	 * textures of the one before (a new GL context).
+	 */
+	void rebind(device &inner)
+	{
+		inner_ = &inner;
+	}
 	/* Whether the last frame in range was recorded and handed out. */
 	[[nodiscard]]
 	bool finished() const
@@ -91,5 +99,17 @@ class recording_device final : public device
 	void select_eye(eye e) override;
 	void copy_region(const copy_rect &rect, bool from_left_eye) override;
 };
+
+/* The device the front end draws through: inner itself when recorder is
+ * null (recording off), else recorder, around inner from now on.
+ */
+[[nodiscard]]
+inline device &front_device(device &inner, recording_device *const recorder)
+{
+	if (!recorder)
+		return inner;
+	recorder->rebind(inner);
+	return *recorder;
+}
 
 }

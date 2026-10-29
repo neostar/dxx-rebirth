@@ -223,6 +223,22 @@ BOOST_AUTO_TEST_CASE(depth_clears_are_recorded_with_the_rear_views)
 	           boost::test_tools::per_element());
 }
 
+/* Test that with recording off the front end draws through the device
+ * itself, with no recorder in the call path; with a recorder, through it.
+ */
+BOOST_AUTO_TEST_CASE(recording_off_draws_through_the_device_itself)
+{
+	fake_device inner;
+	BOOST_TEST(&render::front_device(inner, nullptr) == &inner);
+	recording rec{inner, {.first = 0, .last = 0}};
+	fake_device other;
+	render::device &front{render::front_device(other, &rec.recorder)};
+	BOOST_TEST(&front == &rec.recorder);
+	play(front, 1);
+	BOOST_TEST(other.draws == 1u);
+	BOOST_TEST(inner.draws == 0u);
+}
+
 /* Test that a range ending before it starts is refused. */
 BOOST_AUTO_TEST_CASE(backward_range_refused)
 {
