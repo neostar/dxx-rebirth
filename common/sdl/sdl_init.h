@@ -50,13 +50,18 @@ struct hint
  * SDL_HINT_MAC_PRESS_AND_HOLD is "0": the game wants the held letter to
  * repeat in a name field (docs/agents/sdl-input.md, "Platform-only hints and
  * their defaults").  The hint does nothing on the other platforms, so it is set
- * everywhere.  Every other input hint stays at SDL's default; the test pins
- * the list.
+ * everywhere.  The game shows SDL's system cursor in its menus, so on
+ * Windows it scales with the display (SDL_HINT_MOUSE_DPI_SCALE_CURSORS "1",
+ * docs/agents/sdl-window.md section 8), set before SDL creates the cursor.
+ * Every other input hint stays at SDL's default, among them
+ * SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, the player's way out of the keyboard
+ * grab; the test pins the list.
  */
 inline constexpr std::array pre_init_hints{
     hint{SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"},
     hint{SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "0"},
     hint{SDL_HINT_MAC_PRESS_AND_HOLD, "0"},
+    hint{SDL_HINT_MOUSE_DPI_SCALE_CURSORS, "1"},
 };
 
 struct sdl_ops

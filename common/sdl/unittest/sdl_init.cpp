@@ -75,6 +75,7 @@ BOOST_AUTO_TEST_CASE(init_order_is_metadata_hints_defaults_init)
 	    "hint SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0",
 	    "hint SDL_WINDOWS_CLOSE_ON_ALT_F4=0",
 	    "hint SDL_MAC_PRESS_AND_HOLD=0",
+	    "hint SDL_MOUSE_DPI_SCALE_CURSORS=1",
 	    "defaults",
 	    "init",
 	};
@@ -102,11 +103,12 @@ BOOST_AUTO_TEST_CASE(refusals_are_reported_and_do_not_stop_the_start_up)
 	BOOST_TEST(report.initialised);
 	BOOST_REQUIRE(report.metadata_error.has_value());
 	BOOST_TEST(report.metadata_error.value() == "metadata error text");
-	BOOST_TEST(log.size() == 6u);
-	BOOST_REQUIRE(report.refused_hints.size() == 3u);
+	BOOST_TEST(log.size() == 7u);
+	BOOST_REQUIRE(report.refused_hints.size() == 4u);
 	BOOST_TEST(std::string{report.refused_hints[0]} == "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS");
 	BOOST_TEST(std::string{report.refused_hints[1]} == "SDL_WINDOWS_CLOSE_ON_ALT_F4");
 	BOOST_TEST(std::string{report.refused_hints[2]} == "SDL_MAC_PRESS_AND_HOLD");
+	BOOST_TEST(std::string{report.refused_hints[3]} == "SDL_MOUSE_DPI_SCALE_CURSORS");
 	log.clear();
 	const auto clean{dcx::sdl::init_video(test_metadata, recording_ops{&log})};
 	BOOST_TEST(!clean.metadata_error.has_value());
@@ -129,6 +131,11 @@ BOOST_AUTO_TEST_CASE(real_sdl_initialises_with_hints_and_metadata)
 	BOOST_TEST(text(SDL_GetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS)) == "0");
 	BOOST_TEST(text(SDL_GetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4)) == "0");
 	BOOST_TEST(text(SDL_GetHint(SDL_HINT_MAC_PRESS_AND_HOLD)) == "0");
+	BOOST_TEST(text(SDL_GetHint(SDL_HINT_MOUSE_DPI_SCALE_CURSORS)) == "1");
+	/* Alt+Tab stays the player's way out of the keyboard grab (sdl-input.md, Platform-only
+	 * hints): the hint is unset or true, SDL's default being true.
+	 */
+	BOOST_TEST(SDL_GetHintBoolean(SDL_HINT_ALLOW_ALT_TAB_WHILE_GRABBED, true));
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_NAME_STRING)) == "Test");
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_VERSION_STRING)) == "1.2.3");
 	BOOST_TEST(text(SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_IDENTIFIER_STRING)) ==
@@ -164,10 +171,8 @@ BOOST_AUTO_TEST_CASE(versions_text_names_the_built_and_the_loaded_version)
 BOOST_AUTO_TEST_CASE(start_up_sets_only_the_listed_hints)
 {
 	const std::vector<std::string> allowed{
-	    "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS",
-	    "SDL_WINDOWS_CLOSE_ON_ALT_F4",
-	    "SDL_MAC_PRESS_AND_HOLD",
-	    "SDL_JOYSTICK_ENHANCED_REPORTS",
+	    "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", "SDL_WINDOWS_CLOSE_ON_ALT_F4", "SDL_MAC_PRESS_AND_HOLD",
+	    "SDL_JOYSTICK_ENHANCED_REPORTS",    "SDL_MOUSE_DPI_SCALE_CURSORS",
 	};
 	for (const auto &h : dcx::sdl::pre_init_hints)
 	{
