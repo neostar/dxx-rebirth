@@ -278,6 +278,17 @@ SDL2's device-index order per platform is a measurement. Storing a device GUID b
 bindings would make multi-device HOTAS setups robust, but it is a save-format change: an ADR
 after #44, not part of it.
 
+**As built (#44).** `common/sdl/gamepad_layout.h` holds the layout; `joystick_oracle_sdl2.inc`,
+printed by the SDL2 build in the reference container, records the number and label of every
+control of a virtual pad and stick, and each build compares its own with it. The test names
+three differences, none of which moves a number: SDL 2.30's virtual driver reports neither button
+20 (TOUCHPAD) nor the Guide release, and with a pad open SDL3 labels a stick's numbers 33-37
+"M2" to "M6", SDL3's new buttons, where SDL2 shows no label. `pilot_file_sdl2.inc`, a pilot file
+the same SDL2 build wrote (gamepad defaults plus stick bindings), is read field by field by the D2X SDL2
+and SDL3 builds in `common/sdl/unittest/pilot_file.cpp`, which also checks that an SDL3 new pilot's
+gamepad defaults equal SDL2's and that a pilot file round-trips. The `.plx` weapon keys load on no build:
+`read_player_dxx` scans the text after the `=` with `"%d="`, so every load keeps the defaults.
+
 ## Hot-plug, device IDs and Steam Input (#44)
 
 **What SDL3 does.** `SDL_EVENT_JOYSTICK_ADDED` and `GAMEPAD_ADDED` carry the instance ID
@@ -294,6 +305,14 @@ scan's duplicate guard can go once the event path is tested. Raw joysticks: also
 `SDL_EVENT_JOYSTICK_ADDED` (gamepads excluded) so a macOS HOTAS that appears after start still
 works; append it to the flattened list rather than re-sorting, so live bindings stay put
 mid-game. Under Steam, expect a virtual Xbox pad; nothing to configure.
+
+**As built (#44).** SDL3 opens gamepads and other joysticks only from their added events. A
+stick unplugged keeps its numbers, and the next stick of the same shape (axes, buttons, hats)
+plugged in takes them back; any other is appended. Labels number devices as SDL2's device indices
+did, gamepads counted ("J2 B1" for a stick after a pad). With a pad and a stick open, both report
+from 0, as on SDL2. `common/sdl/unittest/joystick_events.cpp` pins the numbers against SDL 2.30,
+and the "J2" label of a stick after a pad in its own case: with a pad open the oracle shows the
+pad's labels.
 
 ## Event pumping, latency and frame timing (#42-#44)
 
