@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <span>
@@ -115,6 +116,20 @@ void harness_front::bind(render::device &inner, render::target_size target)
 		    });
 	}
 	front_ = &render::front_device(inner, recorder_.get());
+}
+
+harness_front::~harness_front()
+{
+	if (!recorder_)
+		return;
+	try
+	{
+		report_.exit_note(("DXX_DBG_TRACE: " + render::recording_summary(*recorder_)).c_str());
+	}
+	catch (const std::exception &)
+	{
+		report_.exit_note("DXX_DBG_TRACE: cannot say what was recorded");
+	}
 }
 
 render::device &harness_front::get() const

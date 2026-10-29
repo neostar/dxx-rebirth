@@ -96,7 +96,14 @@ void note(const char *const message)
 	notes.emplace_back(message);
 }
 
-constexpr dcx::harness_report report{.fail = fail_with, .note = note};
+std::vector<std::string> exit_notes;
+
+void exit_note(const char *const message)
+{
+	exit_notes.emplace_back(message);
+}
+
+constexpr dcx::harness_report report{.fail = fail_with, .note = note, .exit_note = exit_note};
 
 constexpr render::extent screen{.width = 32, .height = 16};
 
@@ -188,7 +195,10 @@ BOOST_AUTO_TEST_CASE(request_records_its_frames_to_the_file)
 			front.get().present();
 		}
 		BOOST_TEST(inner.presents == 3u);
+		exit_notes.clear();
 	}
+	BOOST_REQUIRE(exit_notes.size() == 1u);
+	BOOST_TEST(exit_notes.front() == "DXX_DBG_TRACE: recorded frames 1-1 of 1-1");
 	const auto bytes{file.bytes()};
 	const auto records{render::trace::read_all(bytes)};
 	BOOST_REQUIRE(records.has_value());

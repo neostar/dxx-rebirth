@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdio>
 #include <stdexcept>
 
 #include "common/render/device.h"
@@ -39,14 +40,18 @@ namespace dcx::render {
 using screen_size = extent (*)();
 
 #if DXX_USE_DBG_HARNESS
-/* harness_front, reporting through the game: UserError and the console. */
+/* harness_front, reporting through the game: UserError, the console, and
+ * at exit stderr.
+ */
 class device_front : public harness_front
 {
   public:
 	device_front()
-	    : harness_front{{.fail = [](const char *const m) { UserError("%s", m); },
-		                 .note = [](const char *const m) { con_printf(CON_NORMAL, "%s", m); }},
-		                read_harness_trace()}
+	    : harness_front{
+	          {.fail = [](const char *const m) { UserError("%s", m); },
+			   .note = [](const char *const m) { con_printf(CON_NORMAL, "%s", m); },
+			   .exit_note = [](const char *const m) { (void)std::fprintf(stderr, "%s\n", m); }},
+	          read_harness_trace()}
 	{}
 	void bind(gl_device &inner, const screen_size size)
 	{

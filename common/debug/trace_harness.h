@@ -83,12 +83,13 @@ inline std::optional<trace_request> read_harness_trace()
 
 /* How a harness run reports, given by the game (device_front.h): fail ends
  * the run with the message (UserError) and does not return; note logs a
- * line.
+ * line; exit_note writes one at exit, after the console is gone (stderr).
  */
 struct harness_report
 {
 	void (*fail)(const char *message);
 	void (*note)(const char *message);
+	void (*exit_note)(const char *message);
 };
 
 /* The device the front end draws through in a dbg_harness build
@@ -112,6 +113,14 @@ class harness_front
 
   public:
 	harness_front(harness_report report, std::optional<trace_request> request);
+	/* With a recorder, notes at exit what it recorded (recording_summary):
+	 * a run that ended before the range's last frame gives a shorter trace.
+	 */
+	~harness_front();
+	harness_front(const harness_front &) = delete;
+	harness_front &operator=(const harness_front &) = delete;
+	harness_front(harness_front &&) = delete;
+	harness_front &operator=(harness_front &&) = delete;
 	/* Draws through inner from now on.  The first bind makes the recorder
 	 * of the trace asked for, its header of the size target gives when
 	 * the range starts; a malformed range or a file that cannot be written

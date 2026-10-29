@@ -115,6 +115,7 @@ void recording_device::present()
 		else
 		{
 			out_(bytes);
+			recorded_ = {.first = recorded_ ? recorded_->first : frame_, .last = frame_};
 			if (frame_ == range_.last)
 			{
 				writer_.reset();
@@ -140,6 +141,17 @@ void recording_device::select_eye(const eye e)
 void recording_device::copy_region(const copy_rect &rect, const bool from_left_eye)
 {
 	inner_->copy_region(rect, from_left_eye);
+}
+
+std::string recording_summary(const recording_device &recorder)
+{
+	const auto asked{recorder.range()};
+	const std::string of{std::to_string(asked.first) + '-' + std::to_string(asked.last)};
+	if (const auto r{recorder.recorded()})
+		return "recorded frames " + std::to_string(r->first) + '-' + std::to_string(r->last) +
+		       " of " + of;
+	return "recorded no frame of " + of + ": the run presented " +
+	       std::to_string(recorder.presented()) + " frames";
 }
 
 }

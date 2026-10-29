@@ -390,3 +390,21 @@ BOOST_AUTO_TEST_CASE(target_resized_in_range_ends_the_recording)
 	           "the render target changed from 64x32 to 32x32 at frame 1");
 	BOOST_TEST(rec.recorder.finished());
 }
+
+/* Test that the summary names the frames recorded against those asked
+ * for: all, the first part of a run that ended early, or none.
+ */
+BOOST_AUTO_TEST_CASE(summary_names_the_frames_recorded)
+{
+	fake_device inner;
+	recording all{inner, {.first = 1, .last = 2}};
+	play(all.recorder, 4);
+	BOOST_TEST(render::recording_summary(all.recorder) == "recorded frames 1-2 of 1-2");
+	recording part{inner, {.first = 1, .last = 5}};
+	play(part.recorder, 3);
+	BOOST_TEST(render::recording_summary(part.recorder) == "recorded frames 1-2 of 1-5");
+	recording none{inner, {.first = 5, .last = 9}};
+	play(none.recorder, 3);
+	BOOST_TEST(render::recording_summary(none.recorder) ==
+	           "recorded no frame of 5-9: the run presented 3 frames");
+}

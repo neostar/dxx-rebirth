@@ -21,6 +21,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 #include "common/render/device.h"
@@ -92,6 +93,8 @@ class recording_device final : public device
 	extent recorded_target_{};
 	/* Once the last frame in range is handed out. */
 	bool done_{false};
+	/* The frames handed out so far. */
+	std::optional<frame_range> recorded_;
 	/* Records the frame starting now when it is in range. */
 	void start_if_due();
 	/* Runs write, a call to the writer, and ends the recording with a
@@ -117,11 +120,29 @@ class recording_device final : public device
 		inner_ = &inner;
 		take_caps(inner);
 	}
-	/* Whether the last frame in range was recorded and handed out. */
+	/* Whether the recording ended: its last frame handed out, or stopped. */
 	[[nodiscard]]
 	bool finished() const
 	{
 		return done_;
+	}
+	/* The frames asked for. */
+	[[nodiscard]]
+	frame_range range() const
+	{
+		return range_;
+	}
+	/* The frames recorded and handed out so far, nullopt for none. */
+	[[nodiscard]]
+	std::optional<frame_range> recorded() const
+	{
+		return recorded_;
+	}
+	/* The frames presented so far, recorded or not. */
+	[[nodiscard]]
+	std::uint32_t presented() const
+	{
+		return frame_;
 	}
 	void draw(const draw_call &call) override;
 	void texture(texture_slot slot, const texture_image *image) override;
@@ -132,6 +153,14 @@ class recording_device final : public device
 	void select_eye(eye e) override;
 	void copy_region(const copy_rect &rect, bool from_left_eye) override;
 };
+
+/* What recorder recorded of the frames asked for, for the run's log at
+ * exit: "recorded frames X-Y of FIRST-LAST", or "recorded no frame of
+ * FIRST-LAST: the run presented N frames".  A run that ends before LAST
+ * gives a shorter trace, which this names.
+ */
+[[nodiscard]]
+std::string recording_summary(const recording_device &recorder);
 
 /* The device the front end draws through: inner itself when recorder is
  * null (recording off), else recorder, around inner from now on.

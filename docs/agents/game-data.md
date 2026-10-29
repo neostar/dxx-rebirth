@@ -96,6 +96,9 @@ DXX_DBG_TRACE=$PWD/traces/local/s2.rtr DXX_DBG_TRACE_FRAMES=0-1600 \
   writes its lines with the bottom-first hash, which compare with the game's log line by line:
   drop the log's `#` section headers, take its lines FIRST to LAST, and compare the size and hash
   columns (a section's frame numbers restart at 0).
+- At exit the run writes on stderr what it recorded, `DXX_DBG_TRACE: recorded frames X-Y of
+  FIRST-LAST`, or `recorded no frame of FIRST-LAST: the run presented N frames`: a run that ends
+  before LAST gives a shorter trace, and one that never reaches FIRST an empty file.
 
 ## Playing a scene, invisibly
 
