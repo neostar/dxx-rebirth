@@ -8,7 +8,7 @@ decisions; the original plan is archived, frozen, in `docs/history/2026-10-20-po
 |---|---|---|---|
 | R1 | Refactors don't change the GL picture | Every frame's hash bit-identical to the base commit, same machine and flags | `tools/dev/r1.sh` on S1-S4 at `-maxfps` 60 and 200; in the merge gate (ADR 6) |
 | R2 | Trace fidelity | GL replay of a recorded trace equals the in-game GL frame (hash), every 30th frame | Open: #68 (after #18) |
-| R3 | Synthetic SDL_GPU frames match GL | Metal: GL's pinned frame-hash lines, exactly. Vulkan and D3D12: hashes recorded, judged by FLIP in #37 | `tools/dev/rtrace-tests.sh` (`check_gpu`); D3D12: `tools/dev/rtrace-d3d12.sh` on WARP (ADR 4) |
+| R3 | Synthetic SDL_GPU frames match GL | Metal: GL's pinned frame-hash lines, exactly; the lines and filters traces are pinned to Metal's own hashes, with a GL tolerance (lines: test-sdlgpu's goldens, #32; filters: `filters_gl_tolerance`, #34). Vulkan and D3D12: hashes recorded, judged by FLIP in #37 | `tools/dev/rtrace-tests.sh` (`check_gpu`); D3D12: `tools/dev/rtrace-d3d12.sh` on WARP (ADR 4) |
 | R4 | Scenes on SDL_GPU match GL | Metal bit-exact. Vulkan and D3D12: per scene, p95 frame FLIP mean <= 0.01, worst frame mean <= 0.03; no max-error gate | Open: #37. D3D12 frames come from the manual WARP run |
 | R5 | Coverage | Every reachable (topology x blend x depth x alpha_ref x filter x wrap x MSAA x aniso x texture format) tuple hit; unreachable ones listed with a reason | Open: #20, #22 |
 | R6 | Validation | 0 messages in every R3, R4 and R12 run | `tools/dev/gpu-validate.sh` (Metal, Vulkan); D3D12 debug layer with GPU-based validation via `rtrace-d3d12.sh` |
