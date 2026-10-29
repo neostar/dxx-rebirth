@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -169,6 +170,100 @@ BOOST_AUTO_TEST_CASE(malformed_mouse_lines_are_rejected)
 	BOOST_TEST(error_line("1 wheel\n2 end") == 1);
 	BOOST_TEST(error_line("1 wheel 1 2\n2 end") == 1);
 	BOOST_TEST(error_line("1 mouse_move -32767 32767\n1 wheel -1\n2 end") == 0);
+}
+
+/* Test that joystick lines become events: a virtual device attached to a slot as a gamepad or a
+ * flight stick, its axis values, button downs and ups, hat directions, and its detach.
+ */
+BOOST_AUTO_TEST_CASE(joystick_lines_become_events)
+{
+	using dcx::input_device_shape;
+	const auto joy{[](const unsigned tick, const input_action action, const std::uint8_t device,
+	                  const input_device_shape shape, const std::uint8_t control,
+	                  const std::int32_t value) {
+		return input_event{.tick = harness_tick{tick},
+		                   .action = action,
+		                   .key = {},
+		                   .x = 0,
+		                   .y = 0,
+		                   .button = {},
+		                   .device = device,
+		                   .shape = shape,
+		                   .control = control,
+		                   .value = value};
+	}};
+	constexpr auto none{input_device_shape::none};
+	const std::vector<input_event> want{
+	    joy(0, input_action::joy_attach, 0, input_device_shape::gamepad, 0, 0),
+	    joy(0, input_action::joy_attach, 7, input_device_shape::stick, 0, 0),
+	    joy(1, input_action::joy_axis, 0, none, 5, 32767),
+	    joy(1, input_action::joy_axis, 7, none, 2, -32768),
+	    joy(2, input_action::joy_button_down, 7, none, 31, 0),
+	    joy(3, input_action::joy_button_up, 0, none, 20, 0),
+	    joy(3, input_action::joy_hat, 7, none, 0, dcx::input_hat_up_left),
+	    joy(4, input_action::joy_hat, 7, none, 0, dcx::input_hat_centered),
+	    joy(5, input_action::joy_detach, 0, none, 0, 0),
+	    joy(6, input_action::joy_attach, 0, input_device_shape::stick, 0, 0),
+	    {.tick = harness_tick{7}, .action = input_action::end, .key = {}},
+	};
+	BOOST_TEST(parsed("0 joy_attach 0 gamepad\n0 joy_attach 7 stick\n1 joy_axis 0 5 32767\n"
+	                  "1 joy_axis 7 2 -32768\n2 joy_button 7 31 down\n3 joy_button 0 20 up\n"
+	                  "3 joy_hat 7 0 up_left\n4 joy_hat 7 0 centered\n5 joy_detach 0\n"
+	                  "6 joy_attach 0 stick\n7 end\n") == want);
+}
+
+/* Test that every hat direction has its name, as SDL's hat bits. */
+BOOST_AUTO_TEST_CASE(hat_directions_are_named)
+{
+	const auto hat{[](const std::string_view direction) {
+		const auto events{
+		    parsed("0 joy_attach 0 stick\n1 joy_hat 0 0 " + std::string{direction} + "\n2 end")};
+		BOOST_REQUIRE(events.size() == 3u);
+		return events[1].value;
+	}};
+	BOOST_TEST(hat("centered") == 0);
+	BOOST_TEST(hat("up") == 1);
+	BOOST_TEST(hat("right") == 2);
+	BOOST_TEST(hat("down") == 4);
+	BOOST_TEST(hat("left") == 8);
+	BOOST_TEST(hat("up_right") == 3);
+	BOOST_TEST(hat("down_right") == 6);
+	BOOST_TEST(hat("down_left") == 12);
+	BOOST_TEST(hat("up_left") == 9);
+}
+
+/* Test that a malformed joystick line is rejected with its line number: a slot from 0 to 7, a
+ * shape of gamepad or stick, a device attached before its other lines and not attached twice,
+ * axes, buttons and hats the shape has (a gamepad: 6 axes, 21 buttons, no hat; a stick: 3 axes,
+ * 32 buttons, 1 hat), an axis value from -32768 to 32767, down or up, a hat direction's name.
+ */
+BOOST_AUTO_TEST_CASE(malformed_joystick_lines_are_rejected)
+{
+	BOOST_TEST(error_line("1 joy_attach 8 stick\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_attach 0 wheel\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_attach 0\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_attach 0 stick 1\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n1 joy_attach 0 gamepad\n2 end") == 2);
+	BOOST_TEST(error_line("1 joy_axis 0 0 1\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_detach 0\n2 end") == 1);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_detach 0\n3 joy_button 0 1 down\n4 end") ==
+	           3);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_detach 0 1\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_axis 0 3 0\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 gamepad\n2 joy_axis 0 6 0\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_axis 0 0 32768\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_axis 0 0 -32769\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_axis 0 0\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_button 0 32 down\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 gamepad\n2 joy_button 0 21 down\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_button 0 1 pressed\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_button 0 1\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 gamepad\n2 joy_hat 0 0 up\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_hat 0 1 up\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_hat 0 0 north\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_hat 0 0 up left\n3 end") == 2);
+	BOOST_TEST(error_line("1 joy_attach 0 stick\n2 joy_detach 0\n3 joy_attach 0 gamepad\n"
+	                      "4 joy_button 0 20 down\n5 end") == 0);
 }
 
 /* Test that a malformed line is rejected with its 1-based line number. */

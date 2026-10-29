@@ -36,6 +36,18 @@ enum class input_action : std::uint8_t
 	mouse_up,
 	/* y steps of the wheel, positive away from the user. */
 	wheel,
+	/* A virtual joystick of shape `shape` is attached in slot `device`, or
+	 * the one there is detached.
+	 */
+	joy_attach,
+	joy_detach,
+	/* Axis `control` of the device in slot `device` moves to `value`. */
+	joy_axis,
+	/* Its button `control` goes down or comes up. */
+	joy_button_down,
+	joy_button_up,
+	/* Its hat `control` points to `value`, SDL's hat bits (input_hat_*). */
+	joy_hat,
 	/* End the run: the game exits with status 0, closing nothing, so a
 	 * scene ends at the same frame whatever screen it is on.
 	 */
@@ -64,9 +76,63 @@ enum class input_button : std::uint8_t
 {
 };
 
+/* The shape of a virtual joystick an input script attaches: SDL's virtual
+ * gamepad, with SDL2's 21 buttons and its 6 axes (the layout saved bindings
+ * use), or a flight stick with 3 axes, 32 buttons and 1 hat (sdl-input.md,
+ * "Injected events and virtual devices").
+ */
+enum class input_device_shape : std::uint8_t
+{
+	none,
+	gamepad,
+	stick,
+};
+
+/* The slots a script attaches devices in, as many as the game's default
+ * DXX_MAX_JOYSTICKS.
+ */
+constexpr std::size_t input_device_count{8};
+
+/* The axes, buttons and hats a device of `shape` has. */
+struct input_device_controls
+{
+	std::uint8_t axes;
+	std::uint8_t buttons;
+	std::uint8_t hats;
+};
+
+[[nodiscard]]
+constexpr input_device_controls input_controls_of(const input_device_shape shape)
+{
+	switch (shape)
+	{
+	case input_device_shape::gamepad:
+		return {.axes = 6, .buttons = 21, .hats = 0};
+	case input_device_shape::stick:
+		return {.axes = 3, .buttons = 32, .hats = 1};
+	case input_device_shape::none:
+		break;
+	}
+	return {.axes = 0, .buttons = 0, .hats = 0};
+}
+
+/* A hat's directions, the values of SDL's SDL_HAT_* bits in SDL2 and SDL3. */
+constexpr std::int32_t input_hat_centered{0};
+constexpr std::int32_t input_hat_up{1};
+constexpr std::int32_t input_hat_right{2};
+constexpr std::int32_t input_hat_down{4};
+constexpr std::int32_t input_hat_left{8};
+constexpr std::int32_t input_hat_up_right{3};
+constexpr std::int32_t input_hat_down_right{6};
+constexpr std::int32_t input_hat_down_left{12};
+constexpr std::int32_t input_hat_up_left{9};
+
 /* One input event of an input script, due at harness tick `tick`.  `key`
  * is a key event's code, 0 for the others; `x` and `y` a mouse move's
  * motion, `y` the wheel's steps; `button` a mouse button event's button.
+ * A joystick event's `device` is its slot, `shape` an attach's shape,
+ * `control` the axis, button or hat number from 0, `value` the axis value or
+ * the hat's direction.
  */
 struct input_event
 {
@@ -76,6 +142,10 @@ struct input_event
 	std::int32_t x{0};
 	std::int32_t y{0};
 	input_button button{};
+	std::uint8_t device{0};
+	input_device_shape shape{input_device_shape::none};
+	std::uint8_t control{0};
+	std::int32_t value{0};
 	bool operator==(const input_event &) const = default;
 };
 
@@ -161,6 +231,131 @@ constexpr std::optional<input_button> parse_button(const std::string_view word)
 	return input_button{button.value()};
 }
 
+/* A hat direction's name, as SDL's hat bits. */
+[[nodiscard]]
+constexpr std::optional<std::int32_t> parse_hat_direction(const std::string_view word)
+{
+	struct named_direction
+	{
+		std::string_view name;
+		std::int32_t bits;
+	};
+	constexpr std::array<named_direction, 9> directions{{
+	    {.name = "centered", .bits = input_hat_centered},
+	    {.name = "up", .bits = input_hat_up},
+	    {.name = "right", .bits = input_hat_right},
+	    {.name = "down", .bits = input_hat_down},
+	    {.name = "left", .bits = input_hat_left},
+	    {.name = "up_right", .bits = input_hat_up_right},
+	    {.name = "down_right", .bits = input_hat_down_right},
+	    {.name = "down_left", .bits = input_hat_down_left},
+	    {.name = "up_left", .bits = input_hat_up_left},
+	}};
+	const auto i{std::ranges::find(directions, word, &named_direction::name)};
+	if (i == directions.end())
+		return std::nullopt;
+	return i->bits;
+}
+
+/* One joystick line after its action word: the event, or why it is
+ * rejected.  `shapes` holds each slot's attached shape, which an attach
+ * sets and a detach clears.
+ */
+[[nodiscard]]
+inline std::expected<input_event, std::string>
+parse_joystick_line(const harness_tick tick, const std::string_view action, std::string_view rest,
+                    std::array<input_device_shape, input_device_count> &shapes)
+{
+	/* The next word as a whole number from `low` to `high`; nullopt for anything else. */
+	const auto next_number{[&rest]<typename T>(const T low, const T high) -> std::optional<T> {
+		const auto number{parse_whole<T>(next_word(rest))};
+		if (!number || number.value() < low || number.value() > high)
+			return std::nullopt;
+		return number;
+	}};
+	const auto slot{next_number(std::uint8_t{0}, std::uint8_t{input_device_count - 1})};
+	if (!slot)
+		return std::unexpected{std::string{action} + " needs a slot from 0 to 7"};
+	auto &shape{shapes[slot.value()]};
+	input_event event{.tick = tick, .action = input_action::end, .key = {}, .device = slot.value()};
+	const auto done{[&rest, &event, action]() -> std::expected<input_event, std::string> {
+		if (!next_word(rest).empty())
+			return std::unexpected{"too many words for " + std::string{action}};
+		return event;
+	}};
+	if (action == "joy_attach")
+	{
+		const auto word{next_word(rest)};
+		if (shape != input_device_shape::none)
+			return std::unexpected{"slot " + std::to_string(slot.value()) + " is attached already"};
+		if (word == "gamepad")
+			event.shape = input_device_shape::gamepad;
+		else if (word == "stick")
+			event.shape = input_device_shape::stick;
+		else
+			return std::unexpected{std::string{"joy_attach needs a shape: gamepad or stick"}};
+		event.action = input_action::joy_attach;
+		shape = event.shape;
+		return done();
+	}
+	if (shape == input_device_shape::none)
+		return std::unexpected{"slot " + std::to_string(slot.value()) + " has no device attached"};
+	const auto controls{input_controls_of(shape)};
+	/* The number of the last of `count` controls; every shape has at least one of each it has. */
+	const auto last{[](const std::uint8_t count) { return static_cast<std::uint8_t>(count - 1); }};
+	if (action == "joy_detach")
+	{
+		event.action = input_action::joy_detach;
+		shape = input_device_shape::none;
+		return done();
+	}
+	if (action == "joy_axis")
+	{
+		const auto axis{next_number(std::uint8_t{0}, last(controls.axes))};
+		if (!axis)
+			return std::unexpected{"joy_axis needs an axis from 0 to " +
+			                       std::to_string(controls.axes - 1)};
+		const auto value{next_number(std::int32_t{-32768}, std::int32_t{32767})};
+		if (!value)
+			return std::unexpected{std::string{"joy_axis needs a value from -32768 to 32767"}};
+		event.action = input_action::joy_axis;
+		event.control = axis.value();
+		event.value = value.value();
+		return done();
+	}
+	if (action == "joy_button")
+	{
+		const auto button{next_number(std::uint8_t{0}, last(controls.buttons))};
+		if (!button)
+			return std::unexpected{"joy_button needs a button from 0 to " +
+			                       std::to_string(controls.buttons - 1)};
+		const auto state{next_word(rest)};
+		if (state == "down")
+			event.action = input_action::joy_button_down;
+		else if (state == "up")
+			event.action = input_action::joy_button_up;
+		else
+			return std::unexpected{std::string{"joy_button needs down or up"}};
+		event.control = button.value();
+		return done();
+	}
+	/* joy_hat */
+	if (controls.hats == 0)
+		return std::unexpected{"slot " + std::to_string(slot.value()) + "'s device has no hat"};
+	const auto hat{next_number(std::uint8_t{0}, last(controls.hats))};
+	if (!hat)
+		return std::unexpected{"joy_hat needs a hat from 0 to " +
+		                       std::to_string(controls.hats - 1)};
+	const auto direction{parse_hat_direction(next_word(rest))};
+	if (!direction)
+		return std::unexpected{std::string{"joy_hat needs a direction: centered, up, right, down, "
+		                                   "left, up_right, down_right, down_left or up_left"}};
+	event.action = input_action::joy_hat;
+	event.control = hat.value();
+	event.value = direction.value();
+	return done();
+}
+
 }
 
 /* Parse an input script: one event per line,
@@ -173,12 +368,22 @@ constexpr std::optional<input_button> parse_button(const std::string_view word)
  *                                   right, or SDL's button number 1 to 17
  *     <tick> mouse_up <button>      it comes up
  *     <tick> wheel <steps>          wheel steps, positive away from the user
+ *     <tick> joy_attach <slot> <shape>  a virtual joystick in slot 0 to 7:
+ *                                   gamepad or stick (input_device_shape)
+ *     <tick> joy_detach <slot>      it is unplugged
+ *     <tick> joy_axis <slot> <axis> <value>   an axis, from 0, moves to
+ *                                   a value from -32768 to 32767
+ *     <tick> joy_button <slot> <button> down|up   a button, from 0
+ *     <tick> joy_hat <slot> <hat> <direction>     a hat, from 0, points
+ *                                   centered, up, right, down, left,
+ *                                   up_right, down_right, down_left or up_left
  *     <tick> end                    the run ends
  *
  * with words separated by blanks, `#` starting a comment, blank lines
  * skipped, and ticks never going back from one line to the next.  Exactly
  * one end line ends the script, and its event comes last: a hidden run
- * without one would never end.
+ * without one would never end.  A joystick line names an attached slot,
+ * and an axis, button or hat its shape has (input_controls_of).
  * `key_of` maps a key's name to its code, nullopt for an unknown name.
  * The events come back ordered by tick, in script order within a tick.
  */
@@ -194,6 +399,8 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 	std::size_t line_number{0};
 	/* The end line's number; 0 before it. */
 	std::size_t end_line{0};
+	/* Each slot's attached device, in the order of the lines. */
+	std::array<input_device_shape, input_device_count> shapes{};
 	const auto fail{[&line_number](std::string message) {
 		return std::unexpected{input_script_error{.line = std::max(line_number, std::size_t{1}),
 		                                          .message = std::move(message)}};
@@ -224,6 +431,16 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 				return fail("end takes no key");
 			events.push_back({.tick = tick.value(), .action = input_action::end, .key = {}});
 			end_line = line_number;
+			continue;
+		}
+		if (action == "joy_attach" || action == "joy_detach" || action == "joy_axis" ||
+		    action == "joy_button" || action == "joy_hat")
+		{
+			auto event{
+			    input_script_detail::parse_joystick_line(tick.value(), action, rest, shapes)};
+			if (!event)
+				return fail(std::move(event).error());
+			events.push_back(event.value());
 			continue;
 		}
 		if (action == "mouse_move")
@@ -276,7 +493,8 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 		}
 		if (action != "down" && action != "up" && action != "press")
 			return fail(
-			    "expected down, up, press, mouse_move, mouse_down, mouse_up, wheel or end, not \"" +
+			    "expected down, up, press, mouse_move, mouse_down, mouse_up, wheel, joy_attach, "
+			    "joy_detach, joy_axis, joy_button, joy_hat or end, not \"" +
 			    std::string{action} + '"');
 		const auto name{next_word(rest)};
 		if (name.empty())
