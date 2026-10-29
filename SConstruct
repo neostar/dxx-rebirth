@@ -5137,6 +5137,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-link-stub', (
 			'common/sdl/unittest/link_stub.cpp',
 			)),
+		RuntimeTest('test-gamepad-layout', (
+			'common/sdl/unittest/gamepad_layout.cpp',
+			)),
 		RuntimeTest('test-window-state', (
 			'common/sdl/unittest/window_state.cpp',
 			)),
