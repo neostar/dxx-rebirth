@@ -5357,6 +5357,7 @@ class DXXArchive(DXXCommon):
 			'common/arch/sdl/key.cpp',
 			'common/arch/sdl/mouse.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-joystick-sdl3', _joystick_test_sources, use_default_libs=True),
 		RuntimeTest('test-text-input', (
 			'common/sdl/unittest/text_input.cpp',
 			), use_default_libs=True),

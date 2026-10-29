@@ -23,9 +23,6 @@
 #include "u_mem.h"
 #include "kconfig.h"
 #include "compiler-range_for.h"
-#if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
-#endif
 
 #if DXX_MAX_JOYSTICKS
 #include "compiler-cf_assert.h"
@@ -39,6 +36,20 @@ namespace dcx {
 namespace {
 
 int num_joysticks{0};
+#if SDL_MAJOR_VERSION == 3
+/* The number SDL2's joy_init gave the next joystick: its device index from
+ * 1, which counts gamepads too.  The controls menu names a stick's inputs
+ * by it ("J2 B1").
+ */
+unsigned joystick_device_number;
+/* The inputs of each stick in SDL_Joysticks, for the one plugged in again. */
+struct joystick_shape
+{
+	unsigned axes, buttons, hats;
+	constexpr bool operator==(const joystick_shape &) const = default;
+};
+std::array<joystick_shape, DXX_MAX_JOYSTICKS> joystick_shapes;
+#endif
 
 std::vector<unsigned> joy_key_map;
 
@@ -196,7 +207,7 @@ static d_physical_joystick *find_joystick(const decltype(SDL_JoyButtonEvent::whi
 	if (which >= num_joysticks)
 		return nullptr;
 	return &SDL_Joysticks[which];
-#else
+#elif SDL_MAJOR_VERSION >= 2
 	for (auto &joystick : partial_range(SDL_Joysticks, static_cast<unsigned>(num_joysticks)))
 	{
 		if (SDL_JoystickInstanceID(joystick.handle().get()) == which)
@@ -359,9 +370,6 @@ window_event_result joy_axis_handler(const SDL_JoyAxisEvent *const jae)
 
 namespace {
 
-#if SDL_MAJOR_VERSION == 3
-/* joy_init's SDL3 stub (#44) counts no joysticks, so check_warn_joy_support_limit has no caller. */
-#else
 static unsigned check_warn_joy_support_limit(const unsigned n, const char *const desc, const unsigned MAX)
 {
 	if (n <= MAX)
@@ -372,20 +380,178 @@ static unsigned check_warn_joy_support_limit(const unsigned n, const char *const
 	Warning("sdl-joystick: found %d %ss, only %d supported.", n, desc, MAX);
 	return MAX;
 }
-#endif
 
 }
 
 void joy_init()
 {
 #if SDL_MAJOR_VERSION == 3
-	/* SDL3 enumerates joysticks by instance id (SDL_GetJoysticks) and has
-	 * no SDL_NumJoysticks; the port opens none until #44 does.
+	/* SDL3 sends SDL_EVENT_JOYSTICK_ADDED for each joystick plugged in at
+	 * start and for each one plugged in later; joy_device_added opens it.
 	 */
-	static dcx::sdl::link_stub stub{"joystick and gamepad enumeration", "#44"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
-	return;
+	if (!SDL_InitSubSystem(SDL_INIT_JOYSTICK)) {
+		con_printf(CON_NORMAL, "sdl-joystick: initialisation failed: %s.",SDL_GetError());
+		return;
+	}
+
+	Joystick = {};
+#if DXX_MAX_AXES_PER_JOYSTICK
+	joyaxis_text.clear();
+#endif
+	joybutton_text.clear();
+	joy_key_map.clear();
+	num_joysticks = 0;
+	joystick_device_number = 0;
+}
+
+namespace {
+
+/* Number the inputs of `joystick` after those of the sticks before it, as
+ * SDL2's joy_init does, and give them the controls menu's labels and the
+ * menu keys.
+ */
+void joy_number_inputs(d_physical_joystick &joystick, const joystick_shape shape, const unsigned label)
+{
+	unsigned joystick_n_buttons = joybutton_text.size();
+#if DXX_MAX_AXES_PER_JOYSTICK
+	unsigned joystick_n_axes = joyaxis_text.size();
+	const auto n_axes = shape.axes;
+	joyaxis_text.resize(joyaxis_text.size() + n_axes);
+	for (auto &&[idx, value] : enumerate(partial_range(joystick.axis_map(), n_axes), 1))
+	{
+		cf_assert(idx <= DXX_MAX_AXES_PER_JOYSTICK);
+		auto &text = joyaxis_text[joystick_n_axes];
+		value = joystick_n_axes++;
+		snprintf(text.data(), text.size(), "J%u A%u", label, idx);
+	}
+#else
+	const auto n_axes{0u};
+#endif
+	const auto n_buttons = shape.buttons;
+	const auto n_hats = shape.hats;
+	const auto n_virtual_buttons = n_buttons + (4 * n_hats) + (2 * n_axes);
+	joybutton_text.resize(joybutton_text.size() + n_virtual_buttons);
+	joy_key_map.resize(joy_key_map.size() + n_virtual_buttons, 0);
+#if DXX_MAX_BUTTONS_PER_JOYSTICK
+	for (auto &&[idx, value] : enumerate(partial_range(joystick.button_map(), n_buttons), 1))
+	{
+		cf_assert(idx <= DXX_MAX_BUTTONS_PER_JOYSTICK);
+		switch (idx)
+		{
+			case 1: joy_key_map[joystick_n_buttons] = KEY_ENTER; break;
+			case 2: joy_key_map[joystick_n_buttons] = KEY_ESC; break;
+			case 3: joy_key_map[joystick_n_buttons] = KEY_SPACEBAR; break;
+			case 4: joy_key_map[joystick_n_buttons] = KEY_DELETE; break;
+			default: break;
+		}
+		auto &text = joybutton_text[joystick_n_buttons];
+		value = joystick_n_buttons++;
+		snprintf(text.data(), text.size(), "J%u B%u", label, idx);
+	}
+#endif
+#if DXX_MAX_HATS_PER_JOYSTICK
+	for (auto &&[idx, value] : enumerate(partial_range(joystick.hat_map(), n_hats), 1))
+	{
+		cf_assert(idx <= DXX_MAX_HATS_PER_JOYSTICK);
+		value = joystick_n_buttons;
+		//a hat counts as four buttons
+		joy_key_map[joystick_n_buttons] = KEY_UP;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u H%u%c", label, idx, 0202);
+		joy_key_map[joystick_n_buttons] = KEY_RIGHT;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u H%u%c", label, idx, 0177);
+		joy_key_map[joystick_n_buttons] = KEY_DOWN;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u H%u%c", label, idx, 0200);
+		joy_key_map[joystick_n_buttons] = KEY_LEFT;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u H%u%c", label, idx, 0201);
+	}
+#endif
+#if DXX_MAX_AXES_PER_JOYSTICK
+	for (auto &&[idx, value] : enumerate(partial_range(joystick.axis_button_map(), n_axes), 1))
+	{
+		cf_assert(idx <= DXX_MAX_AXES_PER_JOYSTICK);
+		value = joystick_n_buttons;
+		//an axis count as 2 buttons. negative - and positive +
+		joy_key_map[joystick_n_buttons] = (idx == 1) ? KEY_RIGHT : (idx == 2) ? KEY_DOWN : 0;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u -A%u", label, idx);
+		joy_key_map[joystick_n_buttons] = (idx == 1) ? KEY_LEFT : (idx == 2) ? KEY_UP : 0;
+		snprintf(&joybutton_text[joystick_n_buttons++][0], sizeof(joybutton_text[0]), "J%u +A%u", label, idx);
+	}
+#endif
+	con_printf(CON_NORMAL, "sdl-joystick: %u axes (total)", static_cast<unsigned>(joyaxis_text.size()));
+	con_printf(CON_NORMAL, "sdl-joystick: %u buttons (total)", joystick_n_buttons);
+}
+
+unsigned joy_count(const int n, const char *const desc, const unsigned max)
+{
+	return check_warn_joy_support_limit(n < 0 ? 0u : static_cast<unsigned>(n), desc, max);
+}
+
+}
+
+window_event_result joy_device_added(const SDL_JoyDeviceEvent *const jde)
+{
+	const SDL_JoystickID id = jde->which;
+	const unsigned label = ++joystick_device_number;
+	if (SDL_IsGamepad(id))
+	{
+		con_printf(CON_NORMAL, "sdl-gamecontroller: joystick #%u is a gamecontroller", label - 1);
+		return window_event_result::ignored;
+	}
+	SDL_Joystick *const handle = SDL_OpenJoystick(id);
+	con_printf(CON_NORMAL, "sdl-joystick %u: %s", label - 1, handle ? SDL_GetJoystickName(handle) : "?");
+	if (!handle)
+	{
+		con_puts(CON_NORMAL, "sdl-joystick: initialization failed!");
+		return window_event_result::ignored;
+	}
+	const joystick_shape shape{
+#if DXX_MAX_AXES_PER_JOYSTICK
+		.axes = joy_count(SDL_GetNumJoystickAxes(handle), "axe", DXX_MAX_AXES_PER_JOYSTICK),
+#else
+		.axes = 0,
+#endif
+		.buttons = joy_count(SDL_GetNumJoystickButtons(handle), "button", DXX_MAX_BUTTONS_PER_JOYSTICK),
+		.hats = joy_count(SDL_GetNumJoystickHats(handle), "hat", DXX_MAX_HATS_PER_JOYSTICK),
+	};
+	/* A stick plugged in again takes back the place a stick of its shape
+	 * left, so its bindings act again; any other is appended, so that no
+	 * live binding moves (docs/agents/sdl-input.md, "Hot-plug").
+	 */
+	for (const unsigned i : xrange(static_cast<unsigned>(num_joysticks)))
+	{
+		auto &joystick = SDL_Joysticks[i];
+		if (!joystick.handle() && joystick_shapes[i] == shape)
+		{
+			joystick.handle().reset(handle);
+#if DXX_MAX_AXES_PER_JOYSTICK
+			joystick.axis_value() = {};
+#endif
+			con_printf(CON_NORMAL, "sdl-joystick: joystick %u is back", i + 1);
+			return window_event_result::handled;
+		}
+	}
+	if (num_joysticks >= DXX_MAX_JOYSTICKS)
+	{
+		Warning("sdl-joystick: found more joysticks, only %d supported.", DXX_MAX_JOYSTICKS);
+		SDL_CloseJoystick(handle);
+		return window_event_result::ignored;
+	}
+	auto &joystick = SDL_Joysticks[num_joysticks];
+	joystick.handle().reset(handle);
+	joystick_shapes[num_joysticks] = shape;
+	joy_number_inputs(joystick, shape, label);
+	num_joysticks++;
+	return window_event_result::handled;
+}
+
+window_event_result joy_device_removed(const SDL_JoyDeviceEvent *const jde)
+{
+	auto *const joystick = find_joystick(jde->which);
+	if (!joystick)
+		return window_event_result::ignored;
+	con_printf(CON_NORMAL, "sdl-joystick: removed instance %u", jde->which);
+	joystick->handle().reset();
+	return window_event_result::handled;
 }
 #else
 	if (SDL_Init(SDL_INIT_JOYSTICK) < 0) {
@@ -571,7 +737,7 @@ bool joy_translate_menu_key(const d_event &event) {
 			return true;
 		}
 	}
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 	return gamecontroller_translate_menu_key(e.button);
 #else
 	return false;

@@ -24,7 +24,7 @@ BOOST_AUTO_TEST_CASE(a_stub_logs_on_its_first_use_only)
 BOOST_AUTO_TEST_CASE(stubs_log_independently)
 {
 	dcx::sdl::link_stub a{"the SDL_mixer music", "#46"};
-	dcx::sdl::link_stub b{"gamepads", "#44"};
+	dcx::sdl::link_stub b{"the movie audio", "#47"};
 	BOOST_TEST(a.first_use());
 	BOOST_TEST(b.first_use());
 }
@@ -32,6 +32,6 @@ BOOST_AUTO_TEST_CASE(stubs_log_independently)
 /* Test that the message names the stub and the ticket that replaces it. */
 BOOST_AUTO_TEST_CASE(the_message_names_the_stub_and_its_ticket)
 {
-	const dcx::sdl::link_stub stub{"gamepads", "#44"};
-	BOOST_TEST(stub.message() == "SDL3 link stub: gamepads is stubbed until #44");
+	const dcx::sdl::link_stub stub{"the movie audio", "#47"};
+	BOOST_TEST(stub.message() == "SDL3 link stub: the movie audio is stubbed until #47");
 }

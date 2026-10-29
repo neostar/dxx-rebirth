@@ -597,7 +597,7 @@ static void game_flush_common_inputs()
 	key_flush();
 #if DXX_MAX_JOYSTICKS
 	joy_flush();
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 	gamecontroller_flush();
 #endif
 #endif

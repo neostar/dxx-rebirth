@@ -13,7 +13,7 @@
 #include "dxxsconf.h"
 #include "joy.h"
 
-#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION >= 2
 
 #include <memory>
 #include <vector>
@@ -31,6 +31,9 @@
 #include "d_range.h"
 #include "partial_range.h"
 #include "physfsrwops.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/gamepad_layout.h"
+#endif
 
 /* Allow the build system to pick whether to search the SDL base directory. */
 #ifndef DXX_ENABLE_GAMECONTROLLER_SEARCH_SDL_BASE_DIRECTORY
@@ -66,7 +69,12 @@ struct SDL_GameController_deleter
 struct d_gamecontroller
 {
 	std::unique_ptr<SDL_GameController, SDL_GameController_deleter> handle;
+#if SDL_MAJOR_VERSION == 2
 	SDL_JoystickID instance_id{-1};
+#elif SDL_MAJOR_VERSION == 3
+	/* SDL3's instance IDs are Uint32, 0 invalid. */
+	SDL_JoystickID instance_id{0};
+#endif
 };
 
 static std::array<d_gamecontroller, DXX_MAX_JOYSTICKS> GameControllers;
@@ -96,10 +104,23 @@ struct d_event_joystick_moved : d_event, d_event_joystick_axis_value
  *   Axes 0-5: the 6 GameController axes
  */
 
+#if SDL_MAJOR_VERSION == 2
 constexpr unsigned GC_NUM_BUTTONS = SDL_CONTROLLER_BUTTON_MAX;
 constexpr unsigned GC_NUM_AXES = SDL_CONTROLLER_AXIS_MAX;
 constexpr unsigned GC_NUM_VIRTUAL_BUTTONS = GC_NUM_BUTTONS + (2 * GC_NUM_AXES);
 constexpr unsigned GC_AXIS_BUTTON_START = GC_NUM_BUTTONS;
+#elif SDL_MAJOR_VERSION == 3
+/* Saved bindings keep SDL2's layout (common/sdl/gamepad_layout.h): SDL3's
+ * SDL_CONTROLLER_BUTTON_MAX is 26, which would move every axis-button.
+ * SDL3's MISC2 to MISC6 follow the axis-buttons.
+ */
+constexpr unsigned GC_NUM_BUTTONS = sdl::gamepad_button_count;
+constexpr unsigned GC_NUM_AXES = sdl::gamepad_axis_count;
+constexpr unsigned GC_NUM_VIRTUAL_BUTTONS = sdl::gamepad_virtual_button_count;
+constexpr unsigned GC_AXIS_BUTTON_START = sdl::gamepad_axis_button_start;
+static_assert(SDL_GAMEPAD_AXIS_COUNT == GC_NUM_AXES);
+static_assert(SDL_GAMEPAD_BUTTON_COUNT == GC_NUM_BUTTONS + sdl::gamepad_extra_button_count);
+#endif
 
 static const char *gc_button_name(int button)
 {
@@ -209,7 +230,11 @@ static void gc_load_controller_db()
 	{
 		std::array<char, PATH_MAX> path;
 		snprintf(path.data(), path.size(), "%sgamecontrollerdb.txt", base);
+#if SDL_MAJOR_VERSION == 2
 		SDL_free(base);
+#elif SDL_MAJOR_VERSION == 3
+		/* SDL3 owns the base path. */
+#endif
 		const auto n = SDL_GameControllerAddMappingsFromFile(path.data());
 		if (n >= 0)
 		{
@@ -221,6 +246,7 @@ static void gc_load_controller_db()
 #endif
 }
 
+#if SDL_MAJOR_VERSION == 2
 static void gc_open_controller(int device_index)
 {
 	// Check if already open (SDL2 may fire ADDED for already-connected devices)
@@ -251,6 +277,32 @@ static void gc_open_controller(int device_index)
 	con_printf(CON_NORMAL, "gamecontroller %d: %s (instance %d)", num_controllers, name ? name : "Unknown", gc.instance_id);
 	num_controllers++;
 }
+#elif SDL_MAJOR_VERSION == 3
+/* SDL3 opens a gamepad by instance ID from its SDL_EVENT_GAMEPAD_ADDED,
+ * which SDL sends once for each gamepad, the ones plugged in at start
+ * among them: no start-up scan, so no duplicate to guard against.
+ */
+static void gc_open_controller(const SDL_JoystickID instance_id)
+{
+	if (num_controllers >= DXX_MAX_JOYSTICKS)
+	{
+		con_printf(CON_NORMAL, "gamecontroller: ignoring instance %u, max %d controllers supported", instance_id, DXX_MAX_JOYSTICKS);
+		return;
+	}
+
+	auto &gc = GameControllers[num_controllers];
+	gc.handle.reset(SDL_OpenGamepad(instance_id));
+	if (!gc.handle)
+	{
+		con_printf(CON_NORMAL, "gamecontroller: failed to open instance %u: %s", instance_id, SDL_GetError());
+		return;
+	}
+	gc.instance_id = instance_id;
+	const char *name = SDL_GetGamepadName(gc.handle.get());
+	con_printf(CON_NORMAL, "gamecontroller %d: %s (instance %u)", num_controllers, name ? name : "Unknown", instance_id);
+	num_controllers++;
+}
+#endif
 
 static void gc_close_controller(SDL_JoystickID instance_id)
 {
@@ -260,7 +312,11 @@ static void gc_close_controller(SDL_JoystickID instance_id)
 		{
 			con_printf(CON_NORMAL, "gamecontroller: removed controller %d (instance %d)", i, instance_id);
 			GameControllers[i].handle.reset();
+#if SDL_MAJOR_VERSION == 2
 			GameControllers[i].instance_id = -1;
+#elif SDL_MAJOR_VERSION == 3
+			GameControllers[i].instance_id = 0;
+#endif
 			// Shift remaining controllers down
 			for (int j = i; j < num_controllers - 1; j++)
 				GameControllers[j] = std::move(GameControllers[j + 1]);
@@ -292,10 +348,17 @@ constexpr gamecontroller_axis_text_array gamecontroller_axis_text{
 
 void gamecontroller_init()
 {
+#if SDL_MAJOR_VERSION == 2
 	if (SDL_Init(SDL_INIT_GAMECONTROLLER) < 0) {
 		con_printf(CON_NORMAL, "gamecontroller: initialization failed: %s.", SDL_GetError());
 		return;
 	}
+#elif SDL_MAJOR_VERSION == 3
+	if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+		con_printf(CON_NORMAL, "gamecontroller: initialization failed: %s.", SDL_GetError());
+		return;
+	}
+#endif
 
 	gc_axis_values = {};
 	gcbutton_text.clear();
@@ -305,7 +368,11 @@ void gamecontroller_init()
 	gc_load_controller_db();
 
 	// Enable controller events
+#if SDL_MAJOR_VERSION == 2
 	SDL_GameControllerEventState(SDL_ENABLE);
+#elif SDL_MAJOR_VERSION == 3
+	SDL_SetGamepadEventsEnabled(true);
+#endif
 
 	// Set up fixed button/axis text and key mappings
 	gcbutton_text.resize(GC_NUM_VIRTUAL_BUTTONS);
@@ -328,6 +395,15 @@ void gamecontroller_init()
 		snprintf(text_neg.data(), text_neg.size(), "-%s", name.data());
 	}
 
+#if SDL_MAJOR_VERSION == 3
+	for (unsigned i = 0; i < sdl::gamepad_extra_button_count; i++)
+	{
+		auto &text = gcbutton_text[sdl::gamepad_extra_button_start + i];
+		snprintf(text.data(), text.size(), "M%u", i + 2);
+	}
+#endif
+
+#if SDL_MAJOR_VERSION == 2
 	const auto n_js = SDL_NumJoysticks();
 	con_printf(CON_NORMAL, "gamecontroller: %d joystick(s) detected", n_js);
 	for (int i = 0; i < n_js; i++)
@@ -335,6 +411,11 @@ void gamecontroller_init()
 		if (SDL_IsGameController(i))
 			gc_open_controller(i);
 	}
+#elif SDL_MAJOR_VERSION == 3
+	/* SDL sends SDL_EVENT_GAMEPAD_ADDED for each gamepad plugged in at
+	 * start; gc_device_added opens it.
+	 */
+#endif
 }
 
 void gamecontroller_close()
@@ -356,9 +437,16 @@ void gamecontroller_flush()
 
 window_event_result gc_button_handler(const SDL_ControllerButtonEvent *const cbe)
 {
+#if SDL_MAJOR_VERSION == 2
 	const unsigned button = cbe->button;
 	if (button >= GC_NUM_BUTTONS)
 		return window_event_result::ignored;
+#elif SDL_MAJOR_VERSION == 3
+	const auto virtual_button = sdl::gamepad_virtual_button(cbe->button);
+	if (!virtual_button)
+		return window_event_result::ignored;
+	const unsigned button = *virtual_button;
+#endif
 
 	const d_event_joystickbutton event{
 		(cbe->type == SDL_CONTROLLERBUTTONDOWN) ? event_type::joystick_button_down : event_type::joystick_button_up,
@@ -433,14 +521,22 @@ window_event_result gc_axis_handler(const SDL_ControllerAxisEvent *const cae)
 
 window_event_result gc_device_added(const SDL_ControllerDeviceEvent *const cde)
 {
+#if SDL_MAJOR_VERSION == 2
 	con_printf(CON_NORMAL, "gamecontroller: device added (index %d)", cde->which);
+#elif SDL_MAJOR_VERSION == 3
+	con_printf(CON_NORMAL, "gamecontroller: device added (instance %u)", cde->which);
+#endif
 	gc_open_controller(cde->which);
 	return window_event_result::handled;
 }
 
 window_event_result gc_device_removed(const SDL_ControllerDeviceEvent *const cde)
 {
+#if SDL_MAJOR_VERSION == 2
 	con_printf(CON_NORMAL, "gamecontroller: device removed (instance %d)", cde->which);
+#elif SDL_MAJOR_VERSION == 3
+	con_printf(CON_NORMAL, "gamecontroller: device removed (instance %u)", cde->which);
+#endif
 	gc_close_controller(cde->which);
 	return window_event_result::handled;
 }
@@ -462,4 +558,4 @@ bool gamecontroller_translate_menu_key(const unsigned button)
 
 }
 
-#endif // DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#endif // DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION >= 2

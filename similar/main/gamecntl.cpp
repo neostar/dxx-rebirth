@@ -2207,7 +2207,7 @@ window_event_result ReadControls(const d_level_shared_robot_info_state &LevelSha
 	if (Newdemo_state == ND_STATE_PLAYBACK)
 		update_vcr_state();
 
-#if DXX_MAX_BUTTONS_PER_JOYSTICK && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_BUTTONS_PER_JOYSTICK && SDL_MAJOR_VERSION >= 2
 	// Translate Back (-> ESC, opens game menu) and L3 (-> Shift+F4, guidebot in D2)
 	// during gameplay, but only if the button is not already bound to a kconfig
 	// action.  This preserves user customization: if the user binds Back to a

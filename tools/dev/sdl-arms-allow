@@ -2,13 +2,9 @@
 # or >= 2 branch, for tools/dev/check_sdl_arms.py (ADR 3):
 #   <path> <count> -- <reason>
 # A slice that adds a file's SDL3 branches lowers its count or drops it.
-common/arch/sdl/event.cpp 1 -- SDL3 branches come with #44 (gamepad events)
-common/arch/sdl/gamecontroller.cpp 1 -- SDL3 branches come with #44 (gamepad)
-common/arch/sdl/joy.cpp 4 -- SDL3 branches come with #44 (joystick)
+common/arch/sdl/joy.cpp 2 -- the chains nest in joy_init's SDL1.2/SDL2 arm, whose SDL3 twin is joy_device_added
 common/arch/win32/rbaudio.cpp 1 -- SDL3 branches come with #49 (Windows build)
-common/include/joy.h 1 -- SDL3 branches come with #44 (joystick)
 common/include/rbaudio.h 1 -- SDL3 branches come with #46 (CD music)
-common/main/kconfig.h 2 -- SDL3 branches come with #44 (gamepad)
 common/main/songs.h 1 -- SDL3 branches come with #46 (music)
 d1x-rebirth/main/movie.cpp 1 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/libmve/mvelib.h 3 -- SDL3 branches come with #47 (movie audio)
@@ -16,11 +12,5 @@ d2x-rebirth/libmve/mveplay.cpp 2 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/main/movie.cpp 1 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/unittest/mve_audio_stream.cpp 1 -- SDL3 branches come with #47 (movie audio)
 similar/arch/sdl/digi_mixer.cpp 1 -- SDL3 branches come with #45 (sound effects on SDL3_mixer)
-similar/arch/sdl/init.cpp 2 -- SDL3 branches come with #44 (gamepad)
-similar/main/game.cpp 1 -- SDL3 branches come with #44 (gamepad)
-similar/main/gamecntl.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/inferno.cpp 1 -- the chain nests in the SDL2 version report, whose SDL3 arm is beside it
-similar/main/kconfig.cpp 10 -- SDL3 branches come with #44 (gamepad)
 similar/main/menu.cpp 1 -- SDL3 branches come with #46 (music options)
-similar/main/playsave.cpp 2 -- SDL3 branches come with #44 (gamepad)
-similar/main/titles.cpp 1 -- SDL3 branches come with #44 (gamepad)

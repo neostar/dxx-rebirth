@@ -384,6 +384,40 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 			case SDL_CONTROLLERDEVICEREMOVED:
 				result = gc_device_removed(&event.cdevice);
 				break;
+#elif SDL_MAJOR_VERSION == 3
+#if DXX_MAX_BUTTONS_PER_JOYSTICK
+			case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+			case SDL_EVENT_GAMEPAD_BUTTON_UP:
+				if (CGameArg.CtlNoJoystick)
+					continue;
+				result = gc_button_handler(&event.gbutton);
+				break;
+#endif
+#if DXX_MAX_AXES_PER_JOYSTICK
+			case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+				if (CGameArg.CtlNoJoystick)
+					continue;
+#if (DXX_MAX_BUTTONS_PER_JOYSTICK || DXX_MAX_HATS_PER_JOYSTICK)
+				highest_result = std::max(gc_axisbutton_handler(&event.gaxis), highest_result);
+#endif
+				result = gc_axis_handler(&event.gaxis);
+				break;
+#endif
+			case SDL_EVENT_GAMEPAD_ADDED:
+				result = gc_device_added(&event.gdevice);
+				break;
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				result = gc_device_removed(&event.gdevice);
+				break;
+			/* SDL3 sends these for every joystick, gamepads too; SDL2's
+			 * joysticks were opened once at start (joy_init).
+			 */
+			case SDL_EVENT_JOYSTICK_ADDED:
+				result = joy_device_added(&event.jdevice);
+				break;
+			case SDL_EVENT_JOYSTICK_REMOVED:
+				result = joy_device_removed(&event.jdevice);
+				break;
 #endif
 			case SDL_JOYBUTTONDOWN:
 			case SDL_JOYBUTTONUP:

@@ -152,6 +152,41 @@ window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *)
 }
 
 #if SDL_MAJOR_VERSION == 3
+window_event_result gc_button_handler(const SDL_GamepadButtonEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result gc_axis_handler(const SDL_GamepadAxisEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result gc_axisbutton_handler(const SDL_GamepadAxisEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result gc_device_added(const SDL_GamepadDeviceEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result gc_device_removed(const SDL_GamepadDeviceEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result joy_device_added(const SDL_JoyDeviceEvent *)
+{
+	return window_event_result::ignored;
+}
+
+window_event_result joy_device_removed(const SDL_JoyDeviceEvent *)
+{
+	return window_event_result::ignored;
+}
+
 void gr_handle_window_event(const SDL_Event &)
 {}
 #else

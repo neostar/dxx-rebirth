@@ -70,7 +70,15 @@ window_event_result joy_axisbutton_handler(const SDL_JoyAxisEvent *jae);
 #endif
 
 #if DXX_MAX_JOYSTICKS
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION == 3
+/* SDL3 opens a joystick that is not a gamepad from its
+ * SDL_EVENT_JOYSTICK_ADDED, plugged in at start or later, and closes it
+ * from its SDL_EVENT_JOYSTICK_REMOVED.
+ */
+window_event_result joy_device_added(const SDL_JoyDeviceEvent *jde);
+window_event_result joy_device_removed(const SDL_JoyDeviceEvent *jde);
+#endif
+#if SDL_MAJOR_VERSION >= 2
 
 window_event_result gc_button_handler(const SDL_ControllerButtonEvent *cbe);
 window_event_result gc_axis_handler(const SDL_ControllerAxisEvent *cae);

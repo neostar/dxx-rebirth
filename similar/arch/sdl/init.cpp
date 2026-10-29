@@ -39,7 +39,7 @@ static void arch_close(void)
 	if (!CGameArg.CtlNoJoystick)
 	{
 		joy_close();
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 		gamecontroller_close();
 #endif
 	}
@@ -135,7 +135,7 @@ arch_atexit arch_init()
 	if (!CGameArg.CtlNoJoystick)
 	{
 		joy_init();
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 		gamecontroller_init();
 #endif
 	}

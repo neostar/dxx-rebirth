@@ -251,7 +251,7 @@ void new_player_config()
 	PlayerCfg.PitchLockFlags = 0;
 	PlayerCfg.KeySettings = DefaultKeySettings;
 	const auto game_controller_found{
-#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION >= 2
 		num_controllers
 #else
 		false
@@ -260,7 +260,7 @@ void new_player_config()
 	PlayerCfg.ControlType = game_controller_found
 		? CONTROL_USING_JOYSTICK  // Enable joystick by default for SDL2 GameController
 		: 0; // Assume keyboard
-#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION == 2
+#if DXX_MAX_JOYSTICKS && SDL_MAJOR_VERSION >= 2
 	if (game_controller_found)
 		PlayerCfg.KeySettings.Joystick = DefaultKeySettingsGameController;
 #endif

@@ -492,3 +492,22 @@ BOOST_AUTO_TEST_CASE(controls_report_what_the_sdl2_build_reports)
 		                .label = std::string{r.label}});
 	BOOST_TEST(rows == want, boost::test_tools::per_element());
 }
+
+/* Test that a stick plugged in after a gamepad is labelled as the second device, "J2", in the
+ * controls menu's stick labels: SDL2's device indices count gamepads, and so does the SDL3 build.
+ * The oracle cannot show it, since with a gamepad open the menu shows the gamepad's labels.
+ */
+BOOST_AUTO_TEST_CASE(a_stick_after_a_gamepad_is_labelled_as_the_second_device)
+{
+	const sdl_joysticks sdl;
+	const auto pad{virtual_joystick::attach(gamepad_shape)};
+	BOOST_REQUIRE_MESSAGE(pad.has_value(), "attach: " << SDL_GetError());
+	const auto stick{virtual_joystick::attach(stick_shape)};
+	BOOST_REQUIRE_MESSAGE(stick.has_value(), "attach: " << SDL_GetError());
+	sdl_joysticks::start_game();
+	::dcx::event_poll();
+	BOOST_REQUIRE(::dcx::joybutton_text.size() != 0);
+	BOOST_TEST(std::string_view{::dcx::joybutton_text[0].data()} == "J2 B1");
+	BOOST_REQUIRE(::dcx::joyaxis_text.size() != 0);
+	BOOST_TEST(std::string_view{::dcx::joyaxis_text[0].data()} == "J2 A1");
+}
