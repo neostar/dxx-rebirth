@@ -17,8 +17,10 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <optional>
 #include <ostream>
 #include <span>
+#include <string_view>
 #include <vector>
 
 // clang-format off
@@ -39,6 +41,9 @@
 #include "common/sdl/display.h"
 #include "tools/dev/upstream_end.h"
 // clang-format on
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/input_script.h"
+#endif
 
 namespace {
 
@@ -518,6 +523,8 @@ namespace dcx {
 
 /* event.cpp's harness_push_text, which the harness build defines. */
 bool harness_push_text(bool down, SDL_Keycode key);
+/* event.cpp's harness_mouse_event, which the harness build defines. */
+SDL_Event harness_mouse_event(const input_event &e);
 
 }
 
@@ -553,5 +560,28 @@ BOOST_AUTO_TEST_CASE(harness_text_outlives_the_function_that_pushed_it)
 			ascii.push_back(e.ascii);
 	const std::vector<unsigned> expected{'a'};
 	BOOST_TEST(ascii == expected, boost::test_tools::per_element());
+}
+/* Test that the harness's events for a script's mouse lines reach the game as the script says:
+ * the move's whole pixels, the button down and up, and a step of the wheel up.
+ */
+BOOST_AUTO_TEST_CASE(harness_mouse_lines_reach_the_game)
+{
+	const sdl_events sdl;
+	const auto parsed{dcx::parse_input_script(
+	    "0 mouse_move 3 -2\n0 mouse_down left\n0 mouse_up left\n0 wheel 1\n1 end\n",
+	    [](std::string_view) { return std::optional<dcx::input_key>{}; })};
+	BOOST_REQUIRE(parsed.has_value());
+	for (const auto &e : parsed.value())
+		if (e.action != dcx::input_action::end)
+		{
+			auto event{dcx::harness_mouse_event(e)};
+			BOOST_REQUIRE(SDL_PushEvent(&event));
+		}
+	dcx::event_poll();
+	const std::array<int, 3> expected_motion{3, -2, Z_SENSITIVITY};
+	BOOST_TEST(moved() == expected_motion, boost::test_tools::per_element());
+	const std::vector<unsigned> expected_down{static_cast<unsigned>(dcx::mbtn::left), z_up};
+	BOOST_TEST(buttons_down() == expected_down, boost::test_tools::per_element());
+	BOOST_TEST(count_of(event_type::mouse_button_up) == 2u);
 }
 #endif

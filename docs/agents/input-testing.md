@@ -232,7 +232,7 @@ first run documents current behaviour and fixes the contract before the port cha
 2. **Grow the input script past keys, and record real sessions into it. Tickets #43, #44
    and #18.** #92 is compile-level renames and stubs, so it keeps only the SDL3 branch of
    `harness_push_input`, as a rename (#42 carries it too). #43 adds `mouse_move`,
-   `mouse_button` and `wheel` to `input_script.h`; #44 adds `joy_attach`, `joy_detach`,
+   `mouse_down`, `mouse_up` and `wheel` to `input_script.h`; #44 adds `joy_attach`, `joy_detach`,
    `joy_axis` and `joy_button`. #18 ("Trace recording in the game") gets the recorder and its
    replay under `r1.sh`: one 60-second session on the owner's Mac replays windowless and silent,
    and SDL2-on-Linux and SDL3 frame hashes are compared. The recorder stores what the game

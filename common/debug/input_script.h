@@ -29,6 +29,13 @@ enum class input_action : std::uint8_t
 {
 	key_down,
 	key_up,
+	/* Relative mouse motion of x, y. */
+	mouse_move,
+	/* A mouse button, SDL's number `button`, goes down or comes up. */
+	mouse_down,
+	mouse_up,
+	/* y steps of the wheel, positive away from the user. */
+	wheel,
 	/* End the run: the game exits with status 0, closing nothing, so a
 	 * scene ends at the same frame whatever screen it is on.
 	 */
@@ -50,14 +57,25 @@ enum class input_key : std::uint8_t
 {
 };
 
+/* A mouse button, SDL's number for it: 1 left, 2 middle, 3 right, up to
+ * 17, the buttons mouse_button_handler maps; 0 for the events of no button.
+ */
+enum class input_button : std::uint8_t
+{
+};
+
 /* One input event of an input script, due at harness tick `tick`.  `key`
- * is the key's code, 0 for end.
+ * is a key event's code, 0 for the others; `x` and `y` a mouse move's
+ * motion, `y` the wheel's steps; `button` a mouse button event's button.
  */
 struct input_event
 {
 	harness_tick tick;
 	input_action action;
 	input_key key;
+	std::int32_t x{0};
+	std::int32_t y{0};
+	input_button button{};
 	bool operator==(const input_event &) const = default;
 };
 
@@ -100,14 +118,62 @@ constexpr std::optional<harness_tick> parse_tick(const std::string_view word)
 	return harness_tick{tick};
 }
 
+/* The whole of `word` as a number of type T, or nothing. */
+template <typename T>
+[[nodiscard]]
+constexpr std::optional<T> parse_whole(const std::string_view word)
+{
+	T value{0};
+	const auto first{std::to_address(word.begin())};
+	const auto end{std::to_address(word.end())};
+	if (const auto [ptr, ec]{std::from_chars(first, end, value)}; ec != std::errc{} || ptr != end)
+		return std::nullopt;
+	return value;
+}
+
+/* A mouse_move's motion or the wheel's steps: a whole number from -32767 to
+ * 32767, so the game's sums of them stay far from overflow.
+ */
+[[nodiscard]]
+constexpr std::optional<std::int32_t> parse_amount(const std::string_view word)
+{
+	const auto amount{parse_whole<std::int32_t>(word)};
+	if (!amount || amount.value() < -32767 || amount.value() > 32767)
+		return std::nullopt;
+	return amount;
+}
+
+/* A mouse button: left, middle or right, or SDL's number from 1 to 17, the
+ * buttons mouse_button_handler maps.
+ */
+[[nodiscard]]
+constexpr std::optional<input_button> parse_button(const std::string_view word)
+{
+	if (word == "left")
+		return input_button{1};
+	if (word == "middle")
+		return input_button{2};
+	if (word == "right")
+		return input_button{3};
+	const auto button{parse_whole<std::uint8_t>(word)};
+	if (!button || button.value() < 1 || button.value() > 17)
+		return std::nullopt;
+	return input_button{button.value()};
+}
+
 }
 
 /* Parse an input script: one event per line,
  *
- *     <tick> down <key>     the key goes down at harness tick <tick>
- *     <tick> up <key>       the key comes up
- *     <tick> press <key>    down at <tick>, up at <tick> + 1
- *     <tick> end            the run ends
+ *     <tick> down <key>             the key goes down at harness tick <tick>
+ *     <tick> up <key>               the key comes up
+ *     <tick> press <key>            down at <tick>, up at <tick> + 1
+ *     <tick> mouse_move <dx> <dy>   relative mouse motion, whole numbers
+ *     <tick> mouse_down <button>    a mouse button goes down: left, middle,
+ *                                   right, or SDL's button number 1 to 17
+ *     <tick> mouse_up <button>      it comes up
+ *     <tick> wheel <steps>          wheel steps, positive away from the user
+ *     <tick> end                    the run ends
  *
  * with words separated by blanks, `#` starting a comment, blank lines
  * skipped, and ticks never going back from one line to the next.  Exactly
@@ -160,8 +226,58 @@ parse_input_script(std::string_view text, KeyOf &&key_of)
 			end_line = line_number;
 			continue;
 		}
+		if (action == "mouse_move")
+		{
+			const auto dx{input_script_detail::parse_amount(next_word(rest))};
+			const auto dy{input_script_detail::parse_amount(next_word(rest))};
+			if (!dx || !dy)
+				return fail("mouse_move needs two whole numbers from -32767 to 32767");
+			if (!next_word(rest).empty())
+				return fail("mouse_move takes two numbers");
+			events.push_back({.tick = tick.value(),
+			                  .action = input_action::mouse_move,
+			                  .key = {},
+			                  .x = dx.value(),
+			                  .y = dy.value(),
+			                  .button = {}});
+			continue;
+		}
+		if (action == "mouse_down" || action == "mouse_up")
+		{
+			const auto button{input_script_detail::parse_button(next_word(rest))};
+			if (!button)
+				return fail(std::string{action} +
+				            " needs a button: left, middle, right or 1 to 17");
+			if (!next_word(rest).empty())
+				return fail("one button per line");
+			events.push_back({.tick = tick.value(),
+			                  .action = action == "mouse_down" ? input_action::mouse_down
+			                                                   : input_action::mouse_up,
+			                  .key = {},
+			                  .x = 0,
+			                  .y = 0,
+			                  .button = button.value()});
+			continue;
+		}
+		if (action == "wheel")
+		{
+			const auto steps{input_script_detail::parse_amount(next_word(rest))};
+			if (!steps || steps.value() == 0)
+				return fail("wheel needs a whole number of steps from -32767 to 32767, not 0");
+			if (!next_word(rest).empty())
+				return fail("wheel takes one number");
+			events.push_back({.tick = tick.value(),
+			                  .action = input_action::wheel,
+			                  .key = {},
+			                  .x = 0,
+			                  .y = steps.value(),
+			                  .button = {}});
+			continue;
+		}
 		if (action != "down" && action != "up" && action != "press")
-			return fail("expected down, up, press or end, not \"" + std::string{action} + '"');
+			return fail(
+			    "expected down, up, press, mouse_move, mouse_down, mouse_up, wheel or end, not \"" +
+			    std::string{action} + '"');
 		const auto name{next_word(rest)};
 		if (name.empty())
 			return fail(std::string{action} + " needs a key name");

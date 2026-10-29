@@ -24,6 +24,7 @@ namespace {
 
 using dcx::harness_tick;
 using dcx::input_action;
+using dcx::input_button;
 using dcx::input_event;
 using dcx::input_key;
 
@@ -114,6 +115,60 @@ BOOST_AUTO_TEST_CASE(events_at_one_tick_keep_script_order)
 	want.insert(want.end(), ups.begin(), ups.end());
 	want.push_back({.tick = harness_tick{2}, .action = input_action::end, .key = {}});
 	BOOST_TEST(parsed(text) == want);
+}
+
+/* Test that the mouse lines become events at their ticks: a relative move, a button down and up
+ * by name or SDL number, and wheel steps.
+ */
+BOOST_AUTO_TEST_CASE(mouse_lines_become_events)
+{
+	const std::vector<input_event> want{
+	    {.tick = harness_tick{1}, .action = input_action::mouse_move, .key = {}, .x = 5, .y = -3},
+	    {.tick = harness_tick{2},
+		 .action = input_action::mouse_down,
+		 .key = {},
+		 .x = 0,
+		 .y = 0,
+		 .button = input_button{1}},
+	    {.tick = harness_tick{3},
+		 .action = input_action::mouse_up,
+		 .key = {},
+		 .x = 0,
+		 .y = 0,
+		 .button = input_button{3}},
+	    {.tick = harness_tick{3}, .action = input_action::wheel, .key = {}, .x = 0, .y = -2},
+	    {.tick = harness_tick{4},
+		 .action = input_action::mouse_down,
+		 .key = {},
+		 .x = 0,
+		 .y = 0,
+		 .button = input_button{17}},
+	    {.tick = harness_tick{5}, .action = input_action::end, .key = {}},
+	};
+	BOOST_TEST(parsed("1 mouse_move 5 -3\n2 mouse_down left\n3 mouse_up right\n3 wheel -2\n"
+	                  "4 mouse_down 17\n5 end\n") == want);
+}
+
+/* Test that a malformed mouse line is rejected with its line number: a mouse_move needs two whole
+ * numbers from -32767 to 32767, a button its name or a number from 1 to 17, a wheel line a
+ * whole number of steps other than 0.
+ */
+BOOST_AUTO_TEST_CASE(malformed_mouse_lines_are_rejected)
+{
+	BOOST_TEST(error_line("1 mouse_move 5\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_move a 1\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_move 1 2 3\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_move 1.5 2\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_move 1 32768\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_down\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_down 0\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_down 18\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_up thumb\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_up left right\n2 end") == 1);
+	BOOST_TEST(error_line("1 wheel 0\n2 end") == 1);
+	BOOST_TEST(error_line("1 wheel\n2 end") == 1);
+	BOOST_TEST(error_line("1 wheel 1 2\n2 end") == 1);
+	BOOST_TEST(error_line("1 mouse_move -32767 32767\n1 wheel -1\n2 end") == 0);
 }
 
 /* Test that a malformed line is rejected with its 1-based line number. */

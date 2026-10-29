@@ -62,8 +62,9 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   line per presented frame, `<frame> <w>x<h> <FNV-1a 64 of its RGB pixels>`, in sections headed
   `# demo playback <demo file>`, `# scene <name>` or `# no demo` that each count frames from 0, so
   a demo's or a scene's frames line up across runs. `DXX_DBG_INPUT_SCRIPT=path` plays the
-  **input script** of a scene: timed key presses, one per line (`common/debug/input_script.h`),
-  timed in **harness ticks** (calls of `event_process`) and pushed as SDL events; while it plays,
+  **input script** of a scene: timed key presses and mouse moves, buttons and wheel steps, one per
+  line (`common/debug/input_script.h`), timed in **harness ticks** (calls of `event_process`) and
+  pushed as SDL events; while it plays,
   the harness clock replaces the wall clock (each `timer_update` advances it 1/fps of
   `DXX_DBG_FIXED_FRAMETIME`, which it needs), so timed screens repeat too, and its `end` line
   ends the run. `DXX_DBG_HIDDEN=1` creates the window hidden, so nothing shows on screen;

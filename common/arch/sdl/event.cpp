@@ -118,6 +118,59 @@ bool harness_push_text(const bool down, const SDL_Keycode key)
 }
 #endif
 
+#if SDL_MAJOR_VERSION >= 2
+/* The SDL event of a script's mouse line, as the platform would send it.  Not in the anonymous
+ * namespace: the test calls it (common/sdl/unittest/event_poll.cpp).  SDL 1.2 has no wheel
+ * event: an SDL 1.2 build refuses mouse lines.
+ */
+SDL_Event harness_mouse_event(const input_event &e);
+SDL_Event harness_mouse_event(const input_event &e)
+{
+	SDL_Event event{};
+	switch (e.action)
+	{
+		case input_action::mouse_move:
+			event.motion.type = SDL_MOUSEMOTION;
+#if SDL_MAJOR_VERSION == 3
+			event.motion.xrel = static_cast<float>(e.x);
+			event.motion.yrel = static_cast<float>(e.y);
+#else
+			event.motion.xrel = e.x;
+			event.motion.yrel = e.y;
+#endif
+			break;
+		case input_action::mouse_down:
+		case input_action::mouse_up:
+		{
+			const bool down{e.action == input_action::mouse_down};
+			event.button.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+			event.button.button = std::to_underlying(e.button);
+			event.button.clicks = 1;
+#if SDL_MAJOR_VERSION == 3
+			event.button.down = down;
+#else
+			event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
+#endif
+			break;
+		}
+		case input_action::wheel:
+			event.wheel.type = SDL_MOUSEWHEEL;
+			event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+#if SDL_MAJOR_VERSION == 3
+			event.wheel.integer_y = e.y;
+			event.wheel.y = static_cast<float>(e.y);
+#else
+			event.wheel.y = e.y;
+			event.wheel.preciseY = static_cast<float>(e.y);
+#endif
+			break;
+		default:
+			break;
+	}
+	return event;
+}
+#endif
+
 namespace {
 
 /* Push the events of the input script DXX_DBG_INPUT_SCRIPT names
@@ -139,6 +192,21 @@ void harness_push_input()
 			con_printf(CON_NORMAL, "DXX_DBG_INPUT_SCRIPT: the script ends the run at tick %u", std::to_underlying(e.tick));
 			fflush(nullptr);
 			_Exit(0);
+		}
+		if (e.action != input_action::key_down && e.action != input_action::key_up)
+		{
+#if SDL_MAJOR_VERSION >= 2
+			auto event{harness_mouse_event(e)};
+#if SDL_MAJOR_VERSION == 3
+			if (!SDL_PushEvent(&event))
+#else
+			if (SDL_PushEvent(&event) < 0)
+#endif
+				UserError("DXX_DBG_INPUT_SCRIPT: pushing an event failed: %s", SDL_GetError());
+			continue;
+#else
+			UserError_puts("DXX_DBG_INPUT_SCRIPT: mouse lines need an SDL 2 or SDL 3 build");
+#endif
 		}
 		SDL_Event event{};
 		const bool down{e.action == input_action::key_down};
