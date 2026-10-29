@@ -5143,6 +5143,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-load-pump', (
 			'common/sdl/unittest/load_pump.cpp',
 			)),
+		RuntimeTest('test-window-coords', (
+			'common/sdl/unittest/window_coords.cpp',
+			), use_default_libs=True),
 		*((RuntimeTest('test-macos-defaults', (
 			'common/sdl/unittest/macos_defaults.mm',
 			'common/sdl/macos_defaults.mm',

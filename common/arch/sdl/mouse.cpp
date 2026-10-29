@@ -21,6 +21,9 @@
 #if SDL_MAJOR_VERSION >= 2
 #include "common/sdl/mouse_input.h"
 #endif
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/window_coords.h"
+#endif
 
 #include "maths.h"
 #include "timer.h"
@@ -239,18 +242,34 @@ void mouse_flush()	// clears all mice events...
 std::tuple<int, int, int> mouse_get_pos()
 {
 	//event_poll();		// Have to assume this is called in event_process, because event_poll can cause a window to close (depending on what the user does)
+#if SDL_MAJOR_VERSION == 3
+	/* The cursor is in window coordinates; menus hit-test in pixels. */
+	const auto [x, y]{sdl::window_to_pixels(g_pRebirthSDLMainWindow, {.x = Mouse.x, .y = Mouse.y})};
+	return {
+		x,
+		y,
+		Mouse.z,
+	};
+#else
 	return {
 		Mouse.x,
 		Mouse.y,
 		Mouse.z,
 	};
+#endif
 }
 
 window_event_result mouse_in_window(window *wind)
 {
 	auto &canv = wind->w_canv;
+#if SDL_MAJOR_VERSION == 3
+	const auto [x, y, z]{mouse_get_pos()};
+	return	(static_cast<unsigned>(x) - canv.cv_bitmap.bm_x <= canv.cv_bitmap.bm_w) &&
+			(static_cast<unsigned>(y) - canv.cv_bitmap.bm_y <= canv.cv_bitmap.bm_h) ? window_event_result::handled : window_event_result::ignored;
+#else
 	return	(static_cast<unsigned>(Mouse.x) - canv.cv_bitmap.bm_x <= canv.cv_bitmap.bm_w) &&
 			(static_cast<unsigned>(Mouse.y) - canv.cv_bitmap.bm_y <= canv.cv_bitmap.bm_h) ? window_event_result::handled : window_event_result::ignored;
+#endif
 }
 
 #if 0
