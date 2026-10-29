@@ -20,9 +20,6 @@
 #include "console.h"
 #include "dxxerror.h"
 #include "event.h"
-#if SDL_MAJOR_VERSION == 3
-#include "key.h"
-#endif
 #include "d_underlying_value.h"
 
 namespace dcx {
@@ -73,15 +70,7 @@ mixin_trackable_window::~mixin_trackable_window()
 int window_close(window *wind)
 {
 	if (wind == window_get_front())
-	{
 		wind->send_event(d_event{event_type::window_deactivated});	// Deactivate first
-#if SDL_MAJOR_VERSION == 3
-		/* Whatever the window's event_handler does with its deactivation or its close (a menu
-		 * that overrides it for window_close skips newmenu's), its text input ends with it.
-		 */
-		key_text_input_close();
-#endif
-	}
 
 	const auto result = wind->send_event(d_event{event_type::window_close});
 	if (result == window_event_result::handled)

@@ -5339,11 +5339,6 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-text-input', (
 			'common/sdl/unittest/text_input.cpp',
 			), use_default_libs=True),
-		RuntimeTest('test-window-text-input', (
-			'common/sdl/unittest/window_text_input.cpp',
-			'common/arch/sdl/window.cpp',
-			'common/arch/sdl/key.cpp',
-			), use_default_libs=True),
 		RuntimeTest('test-sdl-assertion-exit', (
 			'common/sdl/unittest/assertion_exit.cpp',
 			'common/sdl/assertion_exit.cpp',

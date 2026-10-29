@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -122,5 +123,28 @@ class event_text_copies
 	event_text_copies &operator=(event_text_copies &&) = delete;
 	~event_text_copies() = default;
 };
+
+/* What the game window does to text input (#42): the in-game chat (multi.cpp) opens it, and
+ * the game window hosts the chat, so it closes it when it closes, chat open or not; and it
+ * reopens it when it comes back to the front with the chat open, since a popup's menu closed it
+ * as it deactivated the game window (newmenu's window_deactivated).  true opens, false closes,
+ * nullopt leaves it.
+ */
+enum class game_window_change : std::uint8_t
+{
+	activated,
+	closed,
+};
+
+[[nodiscard]]
+constexpr std::optional<bool> game_window_text_input(const game_window_change change,
+                                                     const bool chat_open)
+{
+	if (change == game_window_change::closed)
+		return false;
+	if (chat_open)
+		return true;
+	return std::nullopt;
+}
 
 }

@@ -8,6 +8,7 @@
 #include "common/sdl/text_input.h"
 
 #include <array>
+#include <optional>
 #include <string>
 
 #define BOOST_TEST_DYN_LINK
@@ -160,4 +161,28 @@ BOOST_AUTO_TEST_CASE(event_text_survives_the_memory_it_came_from)
 	second = {'Y', '\0'};
 	BOOST_TEST(std::string{events[0].text.text} == "ab");
 	BOOST_TEST(std::string{events[2].text.text} == "c");
+}
+
+/* Test that closing the game window closes text input, also with the chat open: no window
+ * behind it hosts the chat.
+ */
+BOOST_AUTO_TEST_CASE(closing_the_game_window_closes_text_input_with_the_chat_open)
+{
+	using dcx::sdl::game_window_change;
+	BOOST_TEST((dcx::sdl::game_window_text_input(game_window_change::closed, true) ==
+	            std::optional<bool>{false}));
+	BOOST_TEST((dcx::sdl::game_window_text_input(game_window_change::closed, false) ==
+	            std::optional<bool>{false}));
+}
+
+/* Test that the game window, active again after a popup's menu closed text input under the
+ * chat (newmenu's window_deactivated), reopens it while the chat is open, and leaves it alone
+ * otherwise.
+ */
+BOOST_AUTO_TEST_CASE(game_window_reopens_text_input_for_an_open_chat)
+{
+	using dcx::sdl::game_window_change;
+	BOOST_TEST((dcx::sdl::game_window_text_input(game_window_change::activated, true) ==
+	            std::optional<bool>{true}));
+	BOOST_TEST(!dcx::sdl::game_window_text_input(game_window_change::activated, false));
 }

@@ -122,6 +122,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #if SDL_MAJOR_VERSION == 3
 #include "common/sdl/display.h"
 #include "common/sdl/frame_pacer_sdl.h"
+#include "common/sdl/text_input.h"
 #endif
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/frame_time_harness.h"
@@ -1818,6 +1819,25 @@ game_window *game_setup()
 	return game_wind;
 }
 
+#if SDL_MAJOR_VERSION == 3
+namespace {
+
+/* Open or close text input for the chat the game window hosts (sdl::game_window_text_input). */
+void update_chat_text_input(const sdl::game_window_change change)
+{
+	const bool chat_open{multi_sending_message[Player_num] != msgsend_state::none || multi_defining_message != multi_macro_message_index::None};
+	if (const auto open{sdl::game_window_text_input(change, chat_open)})
+	{
+		if (open.value())
+			key_text_input_open();
+		else
+			key_text_input_close();
+	}
+}
+
+}
+#endif
+
 // Event handler for the game
 window_event_result game_window::event_handler(const d_event &event)
 {
@@ -1842,6 +1862,9 @@ window_event_result game_window::event_handler(const d_event &event)
 			}
 			
 			reset_cockpit();
+#if SDL_MAJOR_VERSION == 3
+			update_chat_text_input(sdl::game_window_change::activated);
+#endif
 			break;
 
 		case event_type::window_deactivated:
@@ -1911,6 +1934,9 @@ window_event_result game_window::event_handler(const d_event &event)
 				show_menus();
 			event_toggle_focus(0);
 			key_toggle_repeat(1);
+#if SDL_MAJOR_VERSION == 3
+			update_chat_text_input(sdl::game_window_change::closed);
+#endif
 			Game_wind = nullptr;
 			return window_event_result::ignored;
 
