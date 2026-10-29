@@ -9,7 +9,8 @@
  * pushes events with SDL_PushEvent and calls event_poll, which pumps and drains them through
  * process_event_batch as the game does, and standard_handler, the game's last-resort handler,
  * is a recorder.  With no window open (window_get_front is null), every event the game would
- * send reaches it.  The mouse, joystick and window handlers event.cpp calls are stubs.
+ * send reaches it.  The mouse handlers are the game's own (mouse.cpp, #43); the joystick and
+ * window handlers event.cpp calls are stubs.
  */
 
 #include <SDL3/SDL.h>
@@ -45,6 +46,9 @@ struct seen
 	unsigned key;
 	/* What key_ascii returned when the key reached the handler. */
 	unsigned ascii;
+	/* A mouse button event's button; a mouse motion's deltas. */
+	unsigned button;
+	std::array<int, 3> delta;
 };
 std::vector<seen> seen_events;
 /* The memory a later text event points to, which the handler of an earlier key overwrites. */
@@ -106,25 +110,6 @@ window_event_result window::send_event(const d_event &, const char *, unsigned)
 	return window_event_result::ignored;
 }
 
-void mouse_enable_cursor()
-{}
-
-void mouse_disable_cursor()
-{}
-
-void mouse_cursor_autohide()
-{}
-
-window_event_result mouse_button_handler(const SDL_MouseButtonEvent *)
-{
-	return window_event_result::ignored;
-}
-
-window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *)
-{
-	return window_event_result::ignored;
-}
-
 window_event_result joy_button_handler(const SDL_JoyButtonEvent *)
 {
 	return window_event_result::ignored;
@@ -156,8 +141,15 @@ window_event_result standard_handler(const d_event &event)
 	const bool is_key{event.type == event_type::key_command ||
 	                  event.type == event_type::key_release};
 	const bool is_press{event.type == event_type::key_command};
-	seen_events.push_back({event.type, is_key ? static_cast<unsigned>(event_key_get(event)) : 0u,
-	                       is_press ? key_ascii() : 0u});
+	const bool is_button{event.type == event_type::mouse_button_down ||
+	                     event.type == event_type::mouse_button_up};
+	seen_events.push_back(
+	    {.type = event.type,
+		 .key = is_key ? static_cast<unsigned>(event_key_get(event)) : 0u,
+		 .ascii = is_press ? key_ascii() : 0u,
+		 .button = is_button ? static_cast<unsigned>(event_mouse_get_button(event)) : 0u,
+		 .delta = event.type == event_type::mouse_moved ? event_mouse_get_delta(event)
+		                                                : std::array<int, 3>{}});
 	if (is_press && on_key_command)
 		on_key_command();
 	return window_event_result::handled;
@@ -190,6 +182,7 @@ struct sdl_events
 		seen_events.clear();
 		on_key_command = nullptr;
 		dcx::key_flush();
+		dcx::mouse_init();
 	}
 	sdl_events(const sdl_events &) = delete;
 	sdl_events &operator=(const sdl_events &) = delete;
@@ -401,6 +394,47 @@ BOOST_AUTO_TEST_CASE(a_key_queued_after_the_field_opened_gives_only_its_text)
 	dcx::event_poll();
 	const std::vector<press> expected{{KEY_A, 255}};
 	BOOST_TEST(presses() == expected, boost::test_tools::per_element());
+}
+
+namespace {
+
+void push_motion(const float dx, const float dy)
+{
+	SDL_Event e{};
+	e.motion.type = SDL_EVENT_MOUSE_MOTION;
+	e.motion.xrel = dx;
+	e.motion.yrel = dy;
+	BOOST_REQUIRE(SDL_PushEvent(&e));
+}
+
+/* The sum of the mouse deltas event_poll sent. */
+std::array<int, 3> moved()
+{
+	std::array<int, 3> sum{};
+	for (const auto &e : seen_events)
+		if (e.type == event_type::mouse_moved)
+			for (std::size_t i{0}; i != sum.size(); ++i)
+				sum.at(i) += e.delta.at(i);
+	return sum;
+}
+
+}
+
+/* Test that SDL3's sub-pixel mouse motion reaches the game as whole pixels that add up, and
+ * moves the game's cursor by them: five moves of 0.4 are two pixels, not five truncated zeros.
+ */
+BOOST_AUTO_TEST_CASE(sub_pixel_motion_adds_up_to_whole_pixels_in_the_game)
+{
+	const sdl_events sdl;
+	const auto [x0, y0, z0]{dcx::mouse_get_pos()};
+	for (int i{0}; i != 5; ++i)
+		push_motion(0.4f, -0.6f);
+	dcx::event_poll();
+	const std::array<int, 3> expected{2, -3, 0};
+	BOOST_TEST(moved() == expected, boost::test_tools::per_element());
+	const auto [x1, y1, z1]{dcx::mouse_get_pos()};
+	BOOST_TEST(x1 - x0 == 2);
+	BOOST_TEST(y1 - y0 == -3);
 }
 
 #if DXX_USE_DBG_HARNESS

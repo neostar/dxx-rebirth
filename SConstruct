@@ -5331,6 +5331,7 @@ class DXXArchive(DXXCommon):
 			'common/sdl/unittest/event_poll.cpp',
 			'common/arch/sdl/event.cpp',
 			'common/arch/sdl/key.cpp',
+			'common/arch/sdl/mouse.cpp',
 			), use_default_libs=True),
 		RuntimeTest('test-text-input', (
 			'common/sdl/unittest/text_input.cpp',

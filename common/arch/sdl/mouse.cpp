@@ -15,6 +15,9 @@
 #if SDL_MAJOR_VERSION == 3
 #include "common/sdl/dxx-sdl.h"
 #endif
+#if SDL_MAJOR_VERSION >= 2
+#include "common/sdl/mouse_input.h"
+#endif
 
 #include "maths.h"
 #include "timer.h"
@@ -35,6 +38,10 @@ struct flushable_mouseinfo
 {
 	int    delta_x, delta_y, delta_z;
 	int z;
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3's float motion in whole pixels, its fractions carried. */
+	sdl::motion_accumulator motion;
+#endif
 };
 
 struct mouseinfo : flushable_mouseinfo
@@ -170,9 +177,7 @@ window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *const mme)
 {
 	Mouse.cursor_time = timer_query();
 #if SDL_MAJOR_VERSION == 3
-	/* Whole pixels only: the fraction accumulator is #43's. */
-	const auto xrel{static_cast<Sint32>(mme->xrel)};
-	const auto yrel{static_cast<Sint32>(mme->yrel)};
+	const auto [xrel, yrel]{Mouse.motion.take(mme->xrel, mme->yrel)};
 	Mouse.x += xrel;
 	Mouse.y += yrel;
 	const d_event_mouse_moved event{event_type::mouse_moved, xrel, yrel, 0};
@@ -196,8 +201,12 @@ void mouse_flush()	// clears all mice events...
 #if SDL_MAJOR_VERSION == 3
 	float x{}, y{};
 	SDL_GetMouseState(&x, &y); // necessary because polling only gives us the delta.
-	Mouse.x = static_cast<int>(x);
-	Mouse.y = static_cast<int>(y);
+	/* The flush emptied the accumulator: the position's fraction stays in it,
+	 * and the motion that follows adds to it.
+	 */
+	const auto [px, py]{Mouse.motion.take(x, y)};
+	Mouse.x = px;
+	Mouse.y = py;
 #else
 	SDL_GetMouseState(&Mouse.x, &Mouse.y); // necessary because polling only gives us the delta.
 #endif
