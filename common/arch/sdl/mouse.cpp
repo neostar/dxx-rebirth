@@ -12,6 +12,9 @@
 
 #include <string.h>
 #include <SDL.h>
+#if SDL_MAJOR_VERSION >= 2
+#include <cstdlib>
+#endif
 #if SDL_MAJOR_VERSION == 3
 #include "common/sdl/dxx-sdl.h"
 #endif
@@ -172,6 +175,26 @@ window_event_result mouse_button_handler(const SDL_MouseButtonEvent *const mbe)
 
 	return highest_result;
 }
+
+#if SDL_MAJOR_VERSION >= 2
+/* SDL2 and SDL3 report the wheel as its own event, not as buttons 4 and 5
+ * as SDL1 did: send a z_up or z_down press and release per step.
+ */
+window_event_result mouse_wheel_handler(const SDL_MouseWheelEvent *const mwe)
+{
+	const auto steps{sdl::wheel_steps(*mwe)};
+	const auto button{steps > 0 ? mbtn::z_up : mbtn::z_down};
+	window_event_result highest_result{window_event_result::ignored};
+	Mouse.cursor_time = timer_query();
+	for (auto n{std::abs(steps)}; n > 0 && highest_result != window_event_result::deleted; --n)
+	{
+		highest_result = std::max(maybe_send_z_move(button), highest_result);
+		highest_result = std::max(send_singleclick(true, button), highest_result);
+		highest_result = std::max(send_singleclick(false, button), highest_result);
+	}
+	return highest_result;
+}
+#endif
 
 window_event_result mouse_motion_handler(const SDL_MouseMotionEvent *const mme)
 {

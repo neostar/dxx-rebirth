@@ -37,4 +37,7 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
 - SDL knowledge stays spread over about 35 files.
 - When upstream changes an SDL2 branch, its SDL3 twin can go stale without a conflict; the lint
   and the R12 tests catch it.
-- SDL2 has no mouse-wheel handling today; adding it is a deliberate R8 exception.
+- SDL2 had no mouse-wheel handling; #43 added it, a deliberate R8 exception: the `SDL_MOUSEWHEEL`
+  case in `event.cpp` is a `>= 2` arm, so SDL2 builds also send a `z_up` or `z_down` press per
+  wheel step (`mouse_wheel_handler`), and their preprocessed `event.cpp` and `mouse.cpp`, and
+  every file that includes `mouse.h` (the handler's declaration), differ from upstream's there. The fields come from the pinned SDL2 and sdl2-compat `SDL_events.h`.

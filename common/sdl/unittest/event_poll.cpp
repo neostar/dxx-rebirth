@@ -14,6 +14,7 @@
  */
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <ostream>
@@ -435,6 +436,77 @@ BOOST_AUTO_TEST_CASE(sub_pixel_motion_adds_up_to_whole_pixels_in_the_game)
 	const auto [x1, y1, z1]{dcx::mouse_get_pos()};
 	BOOST_TEST(x1 - x0 == 2);
 	BOOST_TEST(y1 - y0 == -3);
+}
+
+namespace {
+
+void push_wheel(const int ticks, const float amount, const SDL_MouseWheelDirection direction)
+{
+	SDL_Event e{};
+	e.wheel.type = SDL_EVENT_MOUSE_WHEEL;
+	e.wheel.integer_y = ticks;
+	e.wheel.y = amount;
+	e.wheel.direction = direction;
+	BOOST_REQUIRE(SDL_PushEvent(&e));
+}
+
+/* The mouse buttons that went down, in order. */
+std::vector<unsigned> buttons_down()
+{
+	std::vector<unsigned> v;
+	for (const auto &e : seen_events)
+		if (e.type == event_type::mouse_button_down)
+			v.push_back(e.button);
+	return v;
+}
+
+unsigned count_of(const event_type type)
+{
+	return static_cast<unsigned>(
+	    std::ranges::count(seen_events, type, [](const seen &e) { return e.type; }));
+}
+
+constexpr auto z_up{static_cast<unsigned>(dcx::mbtn::z_up)};
+constexpr auto z_down{static_cast<unsigned>(dcx::mbtn::z_down)};
+
+}
+
+/* Test that a notched wheel sends one z_up or z_down per click, each a press and release, and
+ * moves the game's z by one step each.
+ */
+BOOST_AUTO_TEST_CASE(notched_wheel_sends_one_z_step_per_click)
+{
+	const sdl_events sdl;
+	push_wheel(2, 2.f, SDL_MOUSEWHEEL_NORMAL);
+	push_wheel(-1, -1.f, SDL_MOUSEWHEEL_NORMAL);
+	dcx::event_poll();
+	const std::vector<unsigned> expected{z_up, z_up, z_down};
+	BOOST_TEST(buttons_down() == expected, boost::test_tools::per_element());
+	BOOST_TEST(count_of(event_type::mouse_button_up) == 3u);
+	BOOST_TEST(moved()[2] == Z_SENSITIVITY);
+	BOOST_TEST(std::get<2>(dcx::mouse_get_pos()) == Z_SENSITIVITY);
+}
+
+/* Test that a precise trackpad's fractions send nothing until SDL completes a tick. */
+BOOST_AUTO_TEST_CASE(precise_trackpad_sends_a_step_per_whole_tick)
+{
+	const sdl_events sdl;
+	push_wheel(0, 0.4f, SDL_MOUSEWHEEL_NORMAL);
+	push_wheel(0, 0.4f, SDL_MOUSEWHEEL_NORMAL);
+	push_wheel(1, 0.4f, SDL_MOUSEWHEEL_NORMAL);
+	dcx::event_poll();
+	const std::vector<unsigned> expected{z_up};
+	BOOST_TEST(buttons_down() == expected, boost::test_tools::per_element());
+}
+
+/* Test that a flipped event, natural scrolling, sends the step of the physical wheel. */
+BOOST_AUTO_TEST_CASE(flipped_wheel_sends_the_physical_direction)
+{
+	const sdl_events sdl;
+	push_wheel(-1, -1.f, SDL_MOUSEWHEEL_FLIPPED);
+	dcx::event_poll();
+	const std::vector<unsigned> expected{z_up};
+	BOOST_TEST(buttons_down() == expected, boost::test_tools::per_element());
 }
 
 #if DXX_USE_DBG_HARNESS

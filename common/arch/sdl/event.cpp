@@ -273,6 +273,13 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 					continue;
 				result = mouse_motion_handler(&event.motion);
 				break;
+#if SDL_MAJOR_VERSION >= 2
+			case SDL_MOUSEWHEEL:
+				if (CGameArg.CtlNoMouse)
+					continue;
+				result = mouse_wheel_handler(&event.wheel);
+				break;
+#endif
 #if DXX_MAX_JOYSTICKS
 #if SDL_MAJOR_VERSION == 2
 #if DXX_MAX_BUTTONS_PER_JOYSTICK
