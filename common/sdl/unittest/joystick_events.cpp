@@ -85,12 +85,26 @@ struct seen
 };
 std::vector<seen> seen_events;
 
+/* The text of the gamecontrollerdb.txt the game finds through PhysicsFS; none when empty. */
+std::string controller_db;
+
 }
 
-/* The game's PhysicsFS is not started: no gamecontrollerdb.txt. */
-std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *)
+/* The game's PhysicsFS is not started: the test hands gamecontroller_init its controller
+ * database, if it set one.
+ */
+std::pair<RWops_ptr, PHYSFS_ErrorCode> PHYSFSRWOPS_openRead(const char *const name)
 {
-	return {nullptr, PHYSFS_ERR_NOT_FOUND};
+	if (controller_db.empty() || std::string_view{name} != "gamecontrollerdb.txt")
+		return {nullptr, PHYSFS_ERR_NOT_FOUND};
+#if SDL_MAJOR_VERSION == 2
+	return {
+	    RWops_ptr{SDL_RWFromConstMem(controller_db.data(), static_cast<int>(controller_db.size()))},
+	    PHYSFS_ERR_OK};
+#elif SDL_MAJOR_VERSION == 3
+	return {RWops_ptr{SDL_IOFromConstMem(controller_db.data(), controller_db.size())},
+	        PHYSFS_ERR_OK};
+#endif
 }
 
 int cmd_queue_process()
@@ -263,6 +277,7 @@ struct sdl_joysticks
 		BOOST_REQUIRE(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD));
 #endif
 		seen_events.clear();
+		controller_db.clear();
 	}
 	/* Start the game's joystick and gamepad code, as arch_init does, and take the events of the
 	 * devices plugged in at start.
@@ -653,5 +668,53 @@ BOOST_AUTO_TEST_CASE(a_stick_plugged_in_later_is_appended_and_gets_its_numbers_b
 	/* One stick's numbers: 32 buttons, a hat's 4 and 3 axes' 6, though two were plugged in. */
 	BOOST_TEST(::dcx::joybutton_text.size() == 42u);
 	BOOST_TEST(::dcx::joyaxis_text.size() == 3u);
+}
+#endif
+
+#if SDL_MAJOR_VERSION == 3
+namespace {
+
+/* A stick's buttons and axes as a gamepad, in gamecontrollerdb.txt's form, for `platform`. */
+std::string stick_as_gamepad(const SDL_JoystickID id, const std::string_view platform)
+{
+	std::array<char, 33> guid{};
+	SDL_GUIDToString(SDL_GetJoystickGUIDForID(id), guid.data(), static_cast<int>(guid.size()));
+	return std::string{guid.data()} +
+	       ",DXX mapped stick,a:b0,b:b1,x:b2,y:b3,leftx:a0,lefty:a1,platform:" +
+	       std::string{platform} + ",\n";
+}
+
+}
+
+/* Test that gamecontrollerdb.txt still loads on SDL3 (SDL_AddGamepadMappingsFromIO), and that a
+ * line for another platform is dropped without an error, as SDL documents: a mapping for the
+ * running platform makes a flight stick a gamepad, whose button 0 is A, number 0; one for
+ * another platform leaves it a stick, whose button 0 is "J1 B1" (docs/agents/sdl-input.md,
+ * "Platform-only hints and their defaults").
+ */
+BOOST_AUTO_TEST_CASE(the_controller_database_maps_only_the_running_platform)
+{
+	for (const bool this_platform : {true, false})
+	{
+		BOOST_TEST_CONTEXT((this_platform ? "this platform" : "another platform"))
+		{
+			const sdl_joysticks sdl;
+			auto stick{virtual_joystick::attach(stick_shape)};
+			BOOST_REQUIRE(stick.has_value());
+			const std::string_view platform{SDL_GetPlatform()};
+			controller_db =
+			    stick_as_gamepad(stick.value().instance_id(), this_platform         ? platform
+				                                              : platform == "Linux" ? "Mac OS X"
+				                                                                    : "Linux");
+			scene_recorder recorder{"db"};
+			recorder.step("start", sdl_joysticks::start_game);
+			recorder.step("b0 down", [&] { BOOST_TEST(stick->set_button(0, true)); });
+			BOOST_TEST(::dcx::num_controllers == (this_platform ? 1 : 0));
+			BOOST_REQUIRE(!recorder.rows.empty());
+			const auto &pressed{recorder.rows.back()};
+			BOOST_TEST(pressed.number == 0u);
+			BOOST_TEST(pressed.label == (this_platform ? "A" : "J1 B1"));
+		}
+	}
 }
 #endif
