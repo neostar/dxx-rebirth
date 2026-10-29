@@ -1,0 +1,64 @@
+# S5: a new pilot moves the main menu's choice down with the wheel, turns on the mouse in the
+# Controls menu, starts level 1 with the briefing skipped, turns the ship by mouse to the right
+# and up, fires with the left button and steps the wheel (#43).  The menu step shows on screen,
+# so SDL2 and SDL3 logs that match cover the wheel.
+# Format: common/debug/input_script.h.  Run: docs/agents/game-data.md.
+140 wheel -1	# the main menu's choice moves down one
+150 press O	# Options
+160 press ENTER
+190 press C	# Controls
+200 press ENTER
+230 press UP	# from Customize Keyboard to Use mouse
+250 press SPC	# Use mouse on
+280 press ESC
+300 press ESC
+330 press N	# New game
+340 press ENTER
+390 press ENTER	# start at level 1
+440 press ENTER	# difficulty: the default
+490 press ESC	# skip the briefing
+650 mouse_move 20 0
+651 mouse_move 20 0
+652 mouse_move 20 0
+653 mouse_move 20 0
+654 mouse_move 20 0
+655 mouse_move 20 0
+656 mouse_move 20 0
+657 mouse_move 20 0
+658 mouse_move 20 0
+659 mouse_move 20 0
+660 mouse_move 20 0
+661 mouse_move 20 0
+662 mouse_move 20 0
+663 mouse_move 20 0
+664 mouse_move 20 0
+665 mouse_move 20 0
+666 mouse_move 20 0
+667 mouse_move 20 0
+668 mouse_move 20 0
+669 mouse_move 20 0
+670 mouse_move 20 0
+671 mouse_move 20 0
+672 mouse_move 20 0
+673 mouse_move 20 0
+674 mouse_move 20 0
+675 mouse_move 20 0
+676 mouse_move 20 0
+677 mouse_move 20 0
+678 mouse_move 20 0
+679 mouse_move 20 0
+690 mouse_move 0 -15
+691 mouse_move 0 -15
+692 mouse_move 0 -15
+693 mouse_move 0 -15
+694 mouse_move 0 -15
+695 mouse_move 0 -15
+696 mouse_move 0 -15
+697 mouse_move 0 -15
+698 mouse_move 0 -15
+699 mouse_move 0 -15
+710 mouse_down left
+715 mouse_up left
+730 wheel 1
+750 wheel -1
+780 end

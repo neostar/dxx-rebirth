@@ -102,7 +102,9 @@ DXX_DBG_TRACE=$PWD/traces/local/s2.rtr DXX_DBG_TRACE_FRAMES=0-1600 \
 
 ## Playing a scene, invisibly
 
-The scripted scenes S1, S3 and S4 (`GLOSSARY.md`, input script) are in `common/debug/scenes/`.
+The scripted scenes S1, S3 and S4 (`GLOSSARY.md`, input script) are in `common/debug/scenes/`,
+with S5 (`s5-mouse-turn.txt`, #43), which moves a menu choice with the wheel and turns the ship
+by mouse; `r1.sh` plays S1-S4 only.
 A `dbg_harness=1` build plays one with no window on screen and writes its frames to a
 `# scene <script name>` section of the frame hash log:
 

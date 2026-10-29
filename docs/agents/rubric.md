@@ -23,5 +23,5 @@ decisions; the original plan is archived, frozen, in `docs/history/2026-10-20-po
 | R15 | Licensed data never committed | No hog, pig, dem, trace or golden made from licensed data in git | `check.sh`'s `guard` step (pre-commit), `docs/agents/game-data.md` |
 | R16 | Fully playable (sdl3 + sdlgpu, macOS; R16w: the Windows build under CrossOver) | Owner's checklist: D1 and D2 menus, new game, save and load, demo, briefings with voice, every graphics option (#54), all movies, all music sources (SC-55, OPL3, MIDI, CD jukebox), gamepad, fullscreen toggle, Retina and Studio Display | The signed-off checklist, before release (#54) |
 
-The scenes S1-S4 and how `r1.sh` plays them: `docs/agents/game-data.md`. S5 (renderer switch)
-went with R13.
+The scenes S1-S5, and how `r1.sh` plays S1-S4: `docs/agents/game-data.md`. S5 is the mouse
+scene (#43), whose SDL2 and SDL3 logs match for R12.
