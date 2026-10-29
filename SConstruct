@@ -5024,6 +5024,8 @@ class DXXCommon(LazyObjectConstructor):
 		top_builddir = env.Dir(user_settings.builddir)
 		builddir = top_builddir.Dir(self.srcdir)
 		library = env.Library(builddir.File(f'{env["LIBPREFIX"]}{self.srcdir}{env["LIBSUFFIX"]}'), self.get_library_objects())
+		# The game's own tests (DXXProgram.game_object_tests) link it too.
+		self.runtime_test_library = library
 		env_LIBS = env.get('LIBS')
 		check_commands = []
 		# The `check` target will try to run programs in the list
@@ -6099,8 +6101,45 @@ class DXXProgram(DXXCommon):
 			# that it picks up the latest timestamp.
 			Depends(versid_obj, objects)
 		objects.append(versid_obj)
+		if user_settings.register_runtime_test_link_targets and (user_settings.sdl2 or user_settings.sdl3):
+			self._register_game_object_tests(objects, static_archive_construction)
 		# finally building program...
 		return env.Program(target=exe_target, source = objects)
+
+	# Tests that link some of the game's own objects, as the game compiles
+	# them, beside their test sources, compiled for this game, and the
+	# common library; `check` runs them.  SDL2 and SDL3 builds only.
+	@dataclass(eq=False)
+	class GameObjectTest:
+		target: str
+		test_sources: tuple[str, ...]
+		game_sources: tuple[str, ...]
+	game_object_tests: tuple[GameObjectTest, ...] = ()
+
+	def _register_game_object_tests(self, objects, archive, _check_action = [['$DXX_TEST_RUNNER', '$SOURCE']]):
+		if not self.game_object_tests:
+			return
+		env = self.env
+		library = getattr(archive, 'runtime_test_library', None)
+		if library is None:
+			return
+		game_objects = {str(node_list[0].sources[0]): node_list for node_list in objects}
+		top_builddir = env.Dir(self.user_settings.builddir)
+		OBJSUFFIX = env['OBJSUFFIX']
+		LIBS = list(env.get('LIBS') or ())
+		LIBS.extend(('boost_unit_test_framework', library))
+		runnable = self.user_settings._enumerated_build_platform == self.user_settings._enumerated_host_platform
+		for test in self.game_object_tests:
+			sources = [env.StaticObject(target=self.builddir.File(f'{self._apply_target_name(s)}{OBJSUFFIX}'), source=s) for s in test.test_sources]
+			sources.extend(game_objects[s] for s in test.game_sources)
+			program = env.Program(target=self.builddir.File(os.path.join(self.srcdir, test.target)), source=sources, LIBS=LIBS)
+			if not runnable:
+				continue
+			run_test_program = env.Command(target='${SOURCE}.check', source=program, action=_check_action)
+			env.AlwaysBuild(run_test_program)
+			env.NoClean(run_test_program)
+			env.Ignore(self.builddir, run_test_program)
+			env.Alias(f'{top_builddir!s}/check', run_test_program)
 
 	def _show_build_failure_summary():
 		build_failures = SCons.Script.GetBuildFailures()
@@ -6284,6 +6323,17 @@ class D2XProgram(DXXProgram):
 	target = srcdir
 	shortname: typing.Final[str] = 'd2x'
 	env_CPPDEFINES: typing.Final[tuple] = ('DXX_BUILD_DESCENT', 2),
+	# A pilot file the SDL2 build wrote, read by the D2X SDL2 and SDL3 builds (#44).
+	game_object_tests = (
+		DXXProgram.GameObjectTest('test-pilot-file', (
+			'common/sdl/unittest/pilot_file.cpp',
+			), (
+			'similar/main/playsave.cpp',
+			'similar/main/kconfig.cpp',
+			'common/misc/physfsx.cpp',
+			'common/misc/ignorecase.cpp',
+			)),
+		)
 
 	# general source files
 	def get_objects_common(self,
