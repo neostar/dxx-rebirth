@@ -242,3 +242,35 @@ BOOST_AUTO_TEST_CASE(no_device_before_the_first_bind)
 	const dcx::harness_front front{report, std::nullopt};
 	BOOST_CHECK_THROW((void)front.get(), std::logic_error);
 }
+
+/* Test that a texture the trace format cannot hold, in range, ends the run
+ * through the game's report, naming the trace and the limit, rather than
+ * throwing through the game.
+ */
+BOOST_AUTO_TEST_CASE(texture_over_the_limit_fails_the_run)
+{
+	const temp_file file{"test-trace-harness-limit"};
+	const std::string path{file.path.string()};
+	fake_device inner;
+	dcx::harness_front front{
+	    report, dcx::trace_request{.path = path.c_str(),
+		                           .frames_text = "0-1",
+		                           .frames = render::frame_range{.first = 0, .last = 1}}};
+	front.bind(inner, [] { return screen; });
+	const std::uint32_t side{render::trace::max_texture_side + 1};
+	const std::vector<std::uint8_t> rgba(std::size_t{side} * 4, 255);
+	const render::texture_image big{{.size = {.width = side, .height = 1},
+	                                 .format = render::texture_format::rgba8,
+	                                 .filter = render::filter::nearest,
+	                                 .anisotropic = false,
+	                                 .has_transparency = false},
+	                                rgba};
+	BOOST_CHECK_EXCEPTION(front.get().texture({3}, &big), harness_failure,
+	                      [&path](const harness_failure &e) {
+		                      return std::string_view{e.what()} ==
+							         "DXX_DBG_TRACE=\"" + path +
+							             "\": trace::writer: texture side over "
+							             "max_texture_side: the trace format cannot hold it";
+	                      });
+	BOOST_TEST(inner.textures == 1u);
+}

@@ -14,6 +14,8 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -40,7 +42,7 @@ class fake_device final : public render::device
 	unsigned clears{0};
 	unsigned presents{0};
 	unsigned textures{0};
-	fake_device() : device{render::caps{}}
+	explicit fake_device(const render::caps &c = {}) : device{c}
 	{}
 	void draw(const render::draw_call &) override
 	{
@@ -274,4 +276,84 @@ BOOST_AUTO_TEST_CASE(release_after_teardown_touches_no_device)
 	 */
 	BOOST_REQUIRE(front == nullptr);
 	render::release_texture(front, {5});
+}
+
+namespace {
+
+/* A recorder whose target size and stops the test sets and reads. */
+struct watched_recording
+{
+	render::extent size{target};
+	std::vector<std::uint8_t> bytes;
+	std::vector<std::pair<render::stop_reason, std::string>> stops;
+	render::recording_device recorder;
+	watched_recording(render::device &inner, const render::frame_range range)
+	    : recorder{inner, range, [this] { return size; },
+		           [this](const std::span<const std::uint8_t> b) {
+		               bytes.insert(bytes.end(), b.begin(), b.end());
+	               },
+		           [this](const render::stop_reason r, const std::string_view why) {
+		               stops.emplace_back(r, why);
+	               }}
+	{}
+	[[nodiscard]]
+	std::vector<std::uint32_t> presented() const
+	{
+		auto r{trace::read_all(bytes)};
+		BOOST_REQUIRE(r.has_value());
+		return presented_frames(r.value());
+	}
+};
+
+/* An opaque image width texels wide and 1 high. */
+struct wide_image
+{
+	std::vector<std::uint8_t> rgba;
+	render::texture_image image;
+	explicit wide_image(const std::uint32_t width)
+	    : rgba(std::size_t{width} * 4, 255), image{{.size = {.width = width, .height = 1},
+		                                            .format = render::texture_format::rgba8,
+		                                            .filter = render::filter::nearest,
+		                                            .anisotropic = false,
+		                                            .has_transparency = false},
+		                                           rgba}
+	{}
+};
+
+}
+
+/* Test that a texture over the trace format's limit, given in range, ends
+ * the recording with its reason instead of throwing through the game; the
+ * frames before it stay in the trace and the device still gets it.
+ */
+BOOST_AUTO_TEST_CASE(oversized_texture_in_range_ends_the_recording)
+{
+	fake_device inner;
+	watched_recording rec{inner, {.first = 0, .last = 3}};
+	play(rec.recorder, 1);
+	const wide_image big{trace::max_texture_side + 1};
+	BOOST_CHECK_NO_THROW(rec.recorder.texture({7}, &big.image));
+	play(rec.recorder, 1);
+	BOOST_TEST(inner.textures == 1u);
+	BOOST_TEST(rec.presented() == (std::vector<std::uint32_t>{0}),
+	           boost::test_tools::per_element());
+	BOOST_REQUIRE(rec.stops.size() == 1u);
+	BOOST_TEST((rec.stops.front().first == render::stop_reason::trace_limit));
+	BOOST_TEST(rec.recorder.finished());
+}
+
+/* Test that a texture over the limit given before the range ends the
+ * recording when the range starts, where the trace would lead with it.
+ */
+BOOST_AUTO_TEST_CASE(oversized_texture_before_the_range_ends_it_at_its_start)
+{
+	fake_device inner;
+	watched_recording rec{inner, {.first = 1, .last = 3}};
+	const wide_image big{trace::max_texture_side + 1};
+	rec.recorder.texture({7}, &big.image);
+	BOOST_CHECK_NO_THROW(play(rec.recorder, 3));
+	BOOST_TEST(inner.presents == 3u);
+	BOOST_TEST(rec.bytes.empty());
+	BOOST_REQUIRE(rec.stops.size() == 1u);
+	BOOST_TEST((rec.stops.front().first == render::stop_reason::trace_limit));
 }

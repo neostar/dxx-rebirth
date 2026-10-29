@@ -15,6 +15,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace dcx {
@@ -56,6 +57,20 @@ class trace_file
 			fail_run(report_,
 			         "DXX_DBG_TRACE=\"" + path_ + "\": write failed: " + std::strerror(errno));
 	}
+	/* The recording ended early: a call the format cannot hold ends the
+	 * run, as an exception through the game would have, with a crash
+	 * report.
+	 */
+	void stopped(const render::stop_reason r, const std::string_view why) const
+	{
+		switch (r)
+		{
+		case render::stop_reason::trace_limit:
+			fail_run(report_, "DXX_DBG_TRACE=\"" + path_ + "\": " + std::string{why} +
+			                      ": the trace format cannot hold it");
+			return;
+		}
+	}
 };
 
 }
@@ -91,7 +106,10 @@ void harness_front::bind(render::device &inner, render::target_size target)
 		report_.note(started.c_str());
 		recorder_ = std::make_unique<render::recording_device>(
 		    inner, frames, std::move(target),
-		    [file](const std::span<const std::uint8_t> bytes) { file->write(bytes); });
+		    [file](const std::span<const std::uint8_t> bytes) { file->write(bytes); },
+		    [file](const render::stop_reason r, const std::string_view why) {
+			    file->stopped(r, why);
+		    });
 	}
 	front_ = &render::front_device(inner, recorder_.get());
 }

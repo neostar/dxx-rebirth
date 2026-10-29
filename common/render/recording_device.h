@@ -21,6 +21,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string_view>
 
 #include "common/render/device.h"
 #include "common/render/render_device.h"
@@ -49,6 +50,21 @@ using trace_out = std::function<void(std::span<const std::uint8_t>)>;
 /* The size of the render target now, read when the recording starts. */
 using target_size = std::function<extent()>;
 
+/* Why a recording ended before its last frame. */
+enum class stop_reason : std::uint8_t
+{
+	/* A call the trace format cannot hold: a texture side over
+	 * trace::max_texture_side, a draw over its vertex limit.
+	 */
+	trace_limit,
+};
+
+/* Told why a recording ended early, and the detail: the harness ends the
+ * run for a trace_limit (harness_front).  The trace keeps the frames
+ * before; every call still reaches the device.
+ */
+using trace_stop = std::function<void(stop_reason, std::string_view)>;
+
 /* Passes every call on to the inner device and records the calls of the
  * frames in range.  Until the range starts it keeps a copy of every slot's
  * image, so that the trace starts with the textures its draws sample.
@@ -61,6 +77,7 @@ class recording_device final : public device
 	frame_range range_;
 	target_size target_;
 	trace_out out_;
+	trace_stop stop_;
 	/* The index of the frame being drawn. */
 	std::uint32_t frame_{0};
 	/* Each slot's image, by slot index, until the recording starts. */
@@ -71,12 +88,21 @@ class recording_device final : public device
 	bool done_{false};
 	/* Records the frame starting now when it is in range. */
 	void start_if_due();
+	/* Runs write, a call to the writer, and ends the recording with a
+	 * trace_limit when the writer refuses it, so that no exception passes
+	 * through the game.
+	 */
+	template <typename F>
+	void guarded(F &&write);
+	/* Ends the recording before its last frame and tells stop_ why. */
+	void stop(stop_reason r, std::string_view why);
 
   public:
 	/* Throws std::invalid_argument for a range whose last frame comes
 	 * before its first.
 	 */
-	recording_device(device &inner, frame_range range, target_size target, trace_out out);
+	recording_device(device &inner, frame_range range, target_size target, trace_out out,
+	                 trace_stop stop = {});
 	/* Passes the calls from now on to inner, a device that took the
 	 * textures of the one before (a new GL context).
 	 */

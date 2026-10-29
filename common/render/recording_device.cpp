@@ -7,15 +7,17 @@
 
 #include "common/render/recording_device.h"
 
+#include <exception>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace dcx::render {
 
 recording_device::recording_device(device &inner, const frame_range range, target_size target,
-                                   trace_out out)
+                                   trace_out out, trace_stop stop)
     : device{inner.caps()}, inner_{&inner}, range_{range}, target_{std::move(target)},
-      out_{std::move(out)}
+      out_{std::move(out)}, stop_{std::move(stop)}
 {
 	if (range.last < range.first)
 		throw std::invalid_argument("recording_device: last frame before the first");
@@ -26,24 +28,52 @@ void recording_device::start_if_due()
 {
 	if (frame_ != range_.first || writer_ || done_)
 		return;
-	writer_.emplace(target_());
-	for (const auto &[index, t] : textures_)
-		writer_->write(t);
+	guarded([this] {
+		writer_.emplace(target_());
+		for (const auto &[index, t] : textures_)
+			writer_->write(t);
+	});
 	textures_.clear();
+}
+
+template <typename F>
+void recording_device::guarded(F &&write)
+{
+	try
+	{
+		write();
+	}
+	catch (const std::length_error &e)
+	{
+		stop(stop_reason::trace_limit, e.what());
+	}
+	catch (const std::invalid_argument &e)
+	{
+		stop(stop_reason::trace_limit, e.what());
+	}
+}
+
+void recording_device::stop(const stop_reason r, const std::string_view why)
+{
+	writer_.reset();
+	textures_.clear();
+	done_ = true;
+	if (stop_)
+		stop_(r, why);
 }
 
 void recording_device::draw(const draw_call &call)
 {
 	inner_->draw(call);
 	if (writer_)
-		writer_->draw(call);
+		guarded([&] { writer_->draw(call); });
 }
 
 void recording_device::texture(const texture_slot slot, const texture_image *const image)
 {
 	inner_->texture(slot, image);
 	if (writer_)
-		writer_->texture(slot, image);
+		guarded([&] { writer_->texture(slot, image); });
 	else if (done_)
 		return;
 	else if (!image)
