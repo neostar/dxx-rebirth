@@ -1,0 +1,91 @@
+/*
+ * This file is part of the DXX-Rebirth project <https://github.com/dxx-rebirth/dxx-rebirth/>.
+ * It is copyright by its individual contributors, as recorded in the
+ * project's Git history.  See COPYING.txt at the top level for license
+ * terms and a link to the Git history.
+ */
+
+/*
+ * Trace recording (#18): a decorator around the render device that passes
+ * every call on and writes the calls of a chosen frame range as a trace
+ * (trace.h), so any game run can be replayed without the game by rtrace
+ * and rtrace-gpu.  Recording is off unless the front end makes a
+ * recorder.
+ */
+
+#pragma once
+
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <span>
+
+#include "common/render/device.h"
+#include "common/render/render_device.h"
+#include "common/render/trace.h"
+
+namespace dcx::render {
+
+/* The frames a recording keeps, first to last inclusive, numbered by
+ * presents from the start of the run, 0 first.  The frame hash log counts
+ * from 0 again in each section, so a frame's number here is its place
+ * among the log's frame lines, its section headers left out.
+ */
+struct frame_range
+{
+	std::uint32_t first;
+	std::uint32_t last;
+	constexpr bool operator==(const frame_range &) const = default;
+};
+
+/* Where a recorder puts its trace: each call appends the bytes written
+ * since the last, the header with the first frame's.  It is called once
+ * per recorded frame, at its present.
+ */
+using trace_out = std::function<void(std::span<const std::uint8_t>)>;
+
+/* The size of the render target now, read when the recording starts. */
+using target_size = std::function<extent()>;
+
+/* Passes every call on to the inner device and records the calls of the
+ * frames in range.
+ * Reads, eye selection and region copies are passed on unrecorded: the
+ * trace format holds none of them.
+ */
+class recording_device final : public device
+{
+	device *inner_;
+	frame_range range_;
+	target_size target_;
+	trace_out out_;
+	/* The index of the frame being drawn. */
+	std::uint32_t frame_{0};
+	/* While recording. */
+	std::optional<trace::writer> writer_;
+	/* Once the last frame in range is handed out. */
+	bool done_{false};
+	/* Records the frame starting now when it is in range. */
+	void start_if_due();
+
+  public:
+	/* Throws std::invalid_argument for a range whose last frame comes
+	 * before its first.
+	 */
+	recording_device(device &inner, frame_range range, target_size target, trace_out out);
+	/* Whether the last frame in range was recorded and handed out. */
+	[[nodiscard]]
+	bool finished() const
+	{
+		return done_;
+	}
+	void draw(const draw_call &call) override;
+	void texture(texture_slot slot, const texture_image *image) override;
+	void clear(clear_targets targets) override;
+	void present() override;
+	void read_pixels(read_source source, const read_rect &rect, pixel_format format,
+	                 std::span<std::uint8_t> pixels) override;
+	void select_eye(eye e) override;
+	void copy_region(const copy_rect &rect, bool from_left_eye) override;
+};
+
+}

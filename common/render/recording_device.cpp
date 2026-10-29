@@ -1,0 +1,87 @@
+/*
+ * This file is part of the DXX-Rebirth project <https://github.com/dxx-rebirth/dxx-rebirth/>.
+ * It is copyright by its individual contributors, as recorded in the
+ * project's Git history.  See COPYING.txt at the top level for license
+ * terms and a link to the Git history.
+ */
+
+#include "common/render/recording_device.h"
+
+#include <stdexcept>
+#include <utility>
+
+namespace dcx::render {
+
+recording_device::recording_device(device &inner, const frame_range range, target_size target,
+                                   trace_out out)
+    : device{inner.caps()}, inner_{&inner}, range_{range}, target_{std::move(target)},
+      out_{std::move(out)}
+{
+	if (range.last < range.first)
+		throw std::invalid_argument("recording_device: last frame before the first");
+	start_if_due();
+}
+
+void recording_device::start_if_due()
+{
+	if (frame_ != range_.first || writer_ || done_)
+		return;
+	writer_.emplace(target_());
+}
+
+void recording_device::draw(const draw_call &call)
+{
+	inner_->draw(call);
+	if (writer_)
+		writer_->draw(call);
+}
+
+void recording_device::texture(const texture_slot slot, const texture_image *const image)
+{
+	inner_->texture(slot, image);
+	if (writer_)
+		writer_->texture(slot, image);
+}
+
+void recording_device::clear(const clear_targets targets)
+{
+	inner_->clear(targets);
+	if (writer_ && (targets.color || targets.depth))
+		writer_->clear({.color = targets.color, .depth = targets.depth});
+}
+
+void recording_device::present()
+{
+	inner_->present();
+	if (writer_)
+	{
+		writer_->present({.frame = frame_});
+		const auto bytes{writer_->take()};
+		out_(bytes);
+		if (frame_ == range_.last)
+		{
+			writer_.reset();
+			done_ = true;
+		}
+	}
+	++frame_;
+	start_if_due();
+}
+
+void recording_device::read_pixels(const read_source source, const read_rect &rect,
+                                   const pixel_format format, const std::span<std::uint8_t> pixels)
+{
+	inner_->read_pixels(source, rect, format, pixels);
+}
+
+void recording_device::select_eye(const eye e)
+{
+	inner_->select_eye(e);
+}
+
+void recording_device::copy_region(const copy_rect &rect, const bool from_left_eye)
+{
+	inner_->copy_region(rect, from_left_eye);
+}
+
+}
