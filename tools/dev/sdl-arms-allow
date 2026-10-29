@@ -20,7 +20,7 @@ similar/arch/sdl/init.cpp 2 -- SDL3 branches come with #44 (gamepad)
 similar/main/game.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/gamecntl.cpp 1 -- SDL3 branches come with #44 (gamepad)
 similar/main/inferno.cpp 1 -- the chain nests in the SDL2 version report, whose SDL3 arm is beside it
-similar/main/kconfig.cpp 10 -- SDL3 branches come with #42-#44 (keyboard, mouse, gamepad)
+similar/main/kconfig.cpp 10 -- SDL3 branches come with #44 (gamepad)
 similar/main/menu.cpp 1 -- SDL3 branches come with #46 (music options)
 similar/main/playsave.cpp 2 -- SDL3 branches come with #44 (gamepad)
 similar/main/titles.cpp 1 -- SDL3 branches come with #44 (gamepad)
