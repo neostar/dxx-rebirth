@@ -527,7 +527,7 @@ namespace {
 [[gnu::noinline]]
 void clobber_the_stack()
 {
-	std::array<volatile char, 16384> junk;
+	std::array<volatile char, 16384> junk{};
 	for (auto &c : junk)
 		c = 'Z';
 }
