@@ -357,3 +357,36 @@ BOOST_AUTO_TEST_CASE(oversized_texture_before_the_range_ends_it_at_its_start)
 	BOOST_REQUIRE(rec.stops.size() == 1u);
 	BOOST_TEST((rec.stops.front().first == render::stop_reason::trace_limit));
 }
+
+/* Test that a recorder rebound around a new device (a new GL context, as a
+ * stereo mode change makes) reports that device's caps, not the first's.
+ */
+BOOST_AUTO_TEST_CASE(rebind_takes_the_new_devices_caps)
+{
+	fake_device first;
+	recording rec{first, {.first = 0, .last = 0}};
+	fake_device stereo{{.anisotropic = true, .quad_buffer_stereo = true, .copy_region = true}};
+	const render::device &front{render::front_device(stereo, &rec.recorder)};
+	BOOST_TEST((front.caps() == stereo.caps()));
+}
+
+/* Test that a render target resized in mid-recording ends the recording
+ * with its reason, the frame drawn at the new size left out: the trace has
+ * one target size, in its header.  Every frame still reaches the device.
+ */
+BOOST_AUTO_TEST_CASE(target_resized_in_range_ends_the_recording)
+{
+	fake_device inner;
+	watched_recording rec{inner, {.first = 0, .last = 3}};
+	play(rec.recorder, 1);
+	rec.size = {.width = 32, .height = 32};
+	play(rec.recorder, 2);
+	BOOST_TEST(inner.presents == 3u);
+	BOOST_TEST(rec.presented() == (std::vector<std::uint32_t>{0}),
+	           boost::test_tools::per_element());
+	BOOST_REQUIRE(rec.stops.size() == 1u);
+	BOOST_TEST((rec.stops.front().first == render::stop_reason::target_resized));
+	BOOST_TEST(rec.stops.front().second ==
+	           "the render target changed from 64x32 to 32x32 at frame 1");
+	BOOST_TEST(rec.recorder.finished());
+}

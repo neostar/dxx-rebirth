@@ -107,6 +107,15 @@ class device
 	{
 		return caps_;
 	}
+
+  protected:
+	/* For a decorator: takes the caps of from, the device it now passes
+	 * its calls to.
+	 */
+	void take_caps(const device &from)
+	{
+		caps_ = from.caps_;
+	}
 };
 
 }

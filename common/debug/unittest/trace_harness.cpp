@@ -274,3 +274,28 @@ BOOST_AUTO_TEST_CASE(texture_over_the_limit_fails_the_run)
 	                      });
 	BOOST_TEST(inner.textures == 1u);
 }
+
+/* Test that a screen resized in mid-recording (a mode change) ends the
+ * recording with a logged reason, and the run goes on.
+ */
+BOOST_AUTO_TEST_CASE(screen_resized_ends_the_recording_with_a_note)
+{
+	const temp_file file{"test-trace-harness-resized"};
+	const std::string path{file.path.string()};
+	static render::extent size;
+	size = screen;
+	notes.clear();
+	fake_device inner;
+	dcx::harness_front front{
+	    report, dcx::trace_request{.path = path.c_str(),
+		                           .frames_text = "0-3",
+		                           .frames = render::frame_range{.first = 0, .last = 3}}};
+	front.bind(inner, [] { return size; });
+	front.get().present();
+	size = {.width = 64, .height = 64};
+	BOOST_CHECK_NO_THROW(front.get().present());
+	BOOST_TEST(inner.presents == 2u);
+	BOOST_REQUIRE(notes.size() == 2u);
+	BOOST_TEST(notes.back() == "DXX_DBG_TRACE: recording ended: the render target changed from "
+	                           "32x16 to 64x64 at frame 1");
+}

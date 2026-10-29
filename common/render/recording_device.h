@@ -57,10 +57,14 @@ enum class stop_reason : std::uint8_t
 	 * trace::max_texture_side, a draw over its vertex limit.
 	 */
 	trace_limit,
+	/* The render target changed size in range (a mode change): a trace
+	 * has one size, in its header.
+	 */
+	target_resized,
 };
 
 /* Told why a recording ended early, and the detail: the harness ends the
- * run for a trace_limit (harness_front).  The trace keeps the frames
+ * run for a trace_limit and logs a target_resized (harness_front).  The trace keeps the frames
  * before; every call still reaches the device.
  */
 using trace_stop = std::function<void(stop_reason, std::string_view)>;
@@ -84,6 +88,8 @@ class recording_device final : public device
 	std::map<std::uint32_t, trace::texture> textures_;
 	/* While recording. */
 	std::optional<trace::writer> writer_;
+	/* The size in the trace's header, read when the recording started. */
+	extent recorded_target_{};
 	/* Once the last frame in range is handed out. */
 	bool done_{false};
 	/* Records the frame starting now when it is in range. */
@@ -104,11 +110,12 @@ class recording_device final : public device
 	recording_device(device &inner, frame_range range, target_size target, trace_out out,
 	                 trace_stop stop = {});
 	/* Passes the calls from now on to inner, a device that took the
-	 * textures of the one before (a new GL context).
+	 * textures of the one before (a new GL context), and reports its caps.
 	 */
 	void rebind(device &inner)
 	{
 		inner_ = &inner;
+		take_caps(inner);
 	}
 	/* Whether the last frame in range was recorded and handed out. */
 	[[nodiscard]]

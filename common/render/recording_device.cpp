@@ -9,6 +9,7 @@
 
 #include <exception>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -29,7 +30,8 @@ void recording_device::start_if_due()
 	if (frame_ != range_.first || writer_ || done_)
 		return;
 	guarded([this] {
-		writer_.emplace(target_());
+		recorded_target_ = target_();
+		writer_.emplace(recorded_target_);
 		for (const auto &[index, t] : textures_)
 			writer_->write(t);
 	});
@@ -104,11 +106,20 @@ void recording_device::present()
 	{
 		writer_->present({.frame = frame_});
 		const auto bytes{writer_->take()};
-		out_(bytes);
-		if (frame_ == range_.last)
+		if (const auto now{target_()}; now != recorded_target_)
+			/* The frame drawn at the new size is left out. */
+			stop(stop_reason::target_resized,
+			     "the render target changed from " + std::to_string(recorded_target_.width) + 'x' +
+			         std::to_string(recorded_target_.height) + " to " + std::to_string(now.width) +
+			         'x' + std::to_string(now.height) + " at frame " + std::to_string(frame_));
+		else
 		{
-			writer_.reset();
-			done_ = true;
+			out_(bytes);
+			if (frame_ == range_.last)
+			{
+				writer_.reset();
+				done_ = true;
+			}
 		}
 	}
 	++frame_;

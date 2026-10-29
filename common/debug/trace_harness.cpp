@@ -69,6 +69,9 @@ class trace_file
 			fail_run(report_, "DXX_DBG_TRACE=\"" + path_ + "\": " + std::string{why} +
 			                      ": the trace format cannot hold it");
 			return;
+		case render::stop_reason::target_resized:
+			report_.note(("DXX_DBG_TRACE: recording ended: " + std::string{why}).c_str());
+			return;
 		}
 	}
 };
