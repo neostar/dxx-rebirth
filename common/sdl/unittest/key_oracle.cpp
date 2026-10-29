@@ -7,10 +7,10 @@
 
 /* The SDL2 oracle for the key table (#42, R12).  One program for both SDL versions: it presses
  * the key SDL's default keymap puts on every scancode and records the game key code and key_ascii
- * each gives.  Built with SDL2 (test-key-sdl2, in the reference container: Linux, SDL 2.30.0) with
- * DXX_KEY_TABLE_PRINT=1, it prints the rows that key_oracle_sdl2.inc holds; built with SDL3
- * (test-key-oracle-sdl3) it compares its own rows with that file.  The seam is key_handler, which
- * takes the SDL event; event_send is a recorder.
+ * each gives.  Built with SDL2 (test-key-oracle-sdl2, in the reference container: Linux,
+ * SDL 2.30.0) with DXX_KEY_TABLE_PRINT=1, it prints the rows that key_oracle_sdl2.inc holds; built
+ * with SDL3 (test-key-oracle-sdl3) it compares its own rows with that file.  The seam is
+ * key_handler, which takes the SDL event; event_send is a recorder.
  */
 
 /* dxxsconf.h first: it defines the feature macros that the C library headers SDL.h pulls in would
@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(print_the_key_table)
 namespace {
 
 /* What SDL2's default keymap did in the game, row by row: the SDL2 build's output
- * (DXX_KEY_TABLE_PRINT=1 test-key-sdl2), made in the reference container on Linux with
+ * (DXX_KEY_TABLE_PRINT=1 test-key-oracle-sdl2), made in the reference container on Linux with
  * SDL 2.30.0.  No licensed data.
  */
 const std::array sdl2_table{
