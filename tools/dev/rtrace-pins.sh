@@ -27,3 +27,7 @@ alpha=$root/common/render/rtrace/synthetic/alpha.rtr
 expected_lines=('0 64x48 a5d12a818955d06e' '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 14d868bc00457065' '4 64x48 96e0fb1fb76d65bd')
 expected_lines_metal=('0 64x48 c523f67cb3e03eb2' '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903')
 lines_rtr=$root/common/render/rtrace/synthetic/lines.rtr
+# The oversize trace (#18): viewports past the target, which SDL_GPU clamps
+# to GL's pixels.
+expected_oversize=('0 64x48 d7b92cb41fbcf729' '1 64x48 dbd8d0810c396d39')
+oversize=$root/common/render/rtrace/synthetic/oversize.rtr

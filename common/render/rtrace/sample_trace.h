@@ -13,7 +13,8 @@
  * flash.rtr, the blend modes and the red and negative palette flashes (#30);
  * and walls.rtr, lit walls in perspective, depth-tested and culled (#28);
  * and alpha.rtr, the alpha test at the thresholds 0.02 and 0.8 (#29); and
- * lines.rtr, lines, points and strips (#32).
+ * lines.rtr, lines, points and strips (#32); and oversize.rtr, viewports
+ * reaching past the target (#18).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -662,4 +663,32 @@ inline std::vector<std::uint8_t> depth_band_trace()
 	return w.take();
 }
 
+/* The oversize trace's bytes (#18): GL viewports reaching past the target,
+ * which SDL_GPU's debug mode asserts on and the SDL_GPU device clamps
+ * (fit_viewport), keeping each pixel inside where GL puts it.  Frame 0, a
+ * quad in four corner colours, its viewport (32, -24, 64x48) past the
+ * right and bottom edges.  Frame 1, the same quad, its viewport
+ * (-32, 24, 64x48) past the left and top edges, then a quad whose viewport
+ * (64, 0, 16x16) holds no pixel of the target, which draws nothing.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> oversize_trace()
+{
+	trace::writer w{sample_target};
+	const auto quad{
+	    sample_quad({{{{1, 0, 0, 1}}, {{0, 1, 0, 1}}, {{0, 0, 1, 1}}, {{1, 1, 1, 1}}}}, 0)};
+	const auto in_viewport{[&quad](const int x, const int y, const extent size) {
+		auto call{sample_draw(topology::fan, quad)};
+		call.viewport = {.x = x, .y = y, .size = size};
+		return call;
+	}};
+	w.clear({.color = true, .depth = true});
+	w.draw(in_viewport(32, -24, sample_target));
+	w.present({.frame = 0});
+	w.clear({.color = true, .depth = true});
+	w.draw(in_viewport(-32, 24, sample_target));
+	w.draw(in_viewport(64, 0, {.width = 16, .height = 16}));
+	w.present({.frame = 1});
+	return w.take();
+}
 }

@@ -34,6 +34,8 @@ make_rtrace_repo()
 	printf 'a stand-in for the walls trace\n' > "$r/common/render/rtrace/synthetic/walls.rtr"
 	printf 'a stand-in for the alpha trace\n' > "$r/common/render/rtrace/synthetic/alpha.rtr"
 	printf 'a stand-in for the lines trace\n' > "$r/common/render/rtrace/synthetic/lines.rtr"
+	printf 'a stand-in for the oversize trace\n' \
+		> "$r/common/render/rtrace/synthetic/oversize.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$DEV_DIR/rtrace-pins.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -80,6 +82,10 @@ if [[ $1 == *alpha.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
 	exit 0
 fi
+if [[ $1 == *oversize.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_OVERSIZE0:-0 64x48 d7b92cb41fbcf729}" '1 64x48 dbd8d0810c396d39' > "$2"
+	exit 0
+fi
 if [[ $1 == *lines.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_LINES0:-0 64x48 c523f67cb3e03eb2}" '1 64x48 26915db7ed30cd45' '2 64x48 9000b78311b0898e' '3 64x48 73ce0ff774ec2268' '4 64x48 dc4a426ae6920903' > "$2"
 	exit 0
@@ -122,6 +128,10 @@ if [[ $1 == *walls.rtr ]]; then
 fi
 if [[ $1 == *alpha.rtr ]]; then
 	printf '%s\n' "${FAKE_ALPHA0:-0 64x48 184a14cee6aceb25}" '1 64x48 2eea67c587ee7f25' '2 64x48 891d9777e7a7e925' '3 64x48 a80644d0e3157625' '4 64x48 e2bd10483a9fad25' '5 64x48 af7964e69a3f7925' > "$2"
+	exit 0
+fi
+if [[ $1 == *oversize.rtr ]]; then
+	printf '%s\n' "${FAKE_OVERSIZE0:-0 64x48 d7b92cb41fbcf729}" '1 64x48 dbd8d0810c396d39' > "$2"
 	exit 0
 fi
 if [[ $1 == *lines.rtr ]]; then
@@ -386,6 +396,25 @@ test_lines_pins_are_gl_and_metal()
 		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the lines trace are not the pinned Metal ones:"
+	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+}
+
+# Test that rtrace or rtrace-gpu logging other lines than the oversize
+# trace's GL pins fails, naming the trace: SDL_GPU's clamped viewports draw
+# GL's pixels.
+test_oversize_pins_are_gls()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_OVERSIZE0='0 64x48 5555555555555555' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the oversize trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_OVERSIZE0='0 64x48 5555555555555555' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the oversize trace are not GL's:"
 	out=$(FAKE_GPU=1 "$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
 }
