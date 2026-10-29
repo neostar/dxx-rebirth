@@ -5300,12 +5300,19 @@ class DXXArchive(DXXCommon):
 			)),
 			)
 	sdl2_runtime_tests = (
+		# The mouse helpers read SDL2's or SDL3's wheel event; SDL 1.2 has none.
+		RuntimeTest('test-mouse-input', (
+			'common/sdl/unittest/mouse_input.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-key-oracle-sdl2', (
 			'common/sdl/unittest/key_oracle.cpp',
 			'common/arch/sdl/key.cpp',
 			), use_default_libs=True),
 		)
 	sdl3_runtime_tests = (
+		RuntimeTest('test-mouse-input', (
+			'common/sdl/unittest/mouse_input.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-frame-pacer-sdl', (
 			'common/sdl/unittest/frame_pacer_sdl.cpp',
 			), use_default_libs=True),
