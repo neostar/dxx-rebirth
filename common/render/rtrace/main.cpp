@@ -16,7 +16,11 @@
  * a wrapper such as tools/dev/leaks.sh keeps the program's stdout.
  * With RTRACE_FRAMES_DIR set to a directory, each frame's RGB pixels, top
  * row first, also go there as FRAME.rgb, for comparing frames pixel by
- * pixel (rtrace-gpu writes the same).
+ * pixel (rtrace-gpu writes the same).  The lines hash each frame's rows top
+ * first; the game's frame hash log hashes GL's readback, bottom row first,
+ * so with RTRACE_GAME_LOG set to a file the same lines with the
+ * bottom-first hash also go there, to compare with the game's log line by
+ * line (docs/agents/game-data.md).
  *
  * Exit status 0 when every record replayed and at least one frame was
  * presented, 1 on an unreadable or malformed trace, a trace without a

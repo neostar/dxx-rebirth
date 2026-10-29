@@ -91,6 +91,11 @@ DXX_DBG_TRACE=$PWD/traces/local/s2.rtr DXX_DBG_TRACE_FRAMES=0-1600 \
 - Replay it with `rtrace` (GL) and `rtrace-gpu` (SDL_GPU) through `no-window.sh`; with
   `RTRACE_FRAMES_DIR=<dir>` each also writes every frame's RGB pixels, top row first, to
   `<dir>/<frame>.rgb`, for comparing frames pixel by pixel.
+- A replay's log never equals the game's frame hash log as written: rtrace hashes rows top first,
+  the game hashes GL's readback bottom first. With `RTRACE_GAME_LOG=<file>` the replay also
+  writes its lines with the bottom-first hash, which compare with the game's log line by line:
+  drop the log's `#` section headers, take its lines FIRST to LAST, and compare the size and hash
+  columns (a section's frame numbers restart at 0).
 
 ## Playing a scene, invisibly
 

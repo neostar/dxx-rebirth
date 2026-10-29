@@ -27,6 +27,7 @@
 
 #include "common/debug/frame_hash.h"
 #include "common/render/device.h"
+#include "common/render/readback.h"
 #include "common/render/replay.h"
 #include "common/render/trace.h"
 
@@ -62,10 +63,20 @@ void write_frame(const std::string_view dir, const render::replayed_frame &f)
 		throw std::runtime_error{"cannot write " + file};
 }
 
+/* The hash of f's rows bottom first, as the game's frame hash log hashes
+ * GL's readback.
+ */
+std::uint64_t bottom_first_hash(const render::replayed_frame &f)
+{
+	std::vector<std::uint8_t> flipped{f.rgb};
+	render::flip_rows(flipped, std::size_t{f.size.width} * 3);
+	return dcx::frame_hash(std::as_bytes(std::span{flipped}));
+}
+
 }
 
 int replay_file(const std::string_view path, std::ostream &log, const device_host &host,
-                const std::string_view name, const std::string_view frames_dir)
+                const std::string_view name, const replay_outputs &outputs)
 {
 	std::ifstream in{std::string{path}, std::ios::binary};
 	if (!in)
@@ -100,14 +111,14 @@ int replay_file(const std::string_view path, std::ostream &log, const device_hos
 	host(h.value().target, [&](render::device &d) {
 		done = render::replay(r, d, [&](const render::replayed_frame &f) {
 			++frames;
-			if (!frames_dir.empty())
-				write_frame(frames_dir, f);
-			const auto line{
-			    dcx::frame_hash_line(dcx::frame_index{f.frame},
-				                     {.width = static_cast<std::uint16_t>(f.size.width),
-				                      .height = static_cast<std::uint16_t>(f.size.height)},
-				                     f.hash)};
-			log << line;
+			if (!outputs.frames_dir.empty())
+				write_frame(outputs.frames_dir, f);
+			const dcx::frame_size size{.width = static_cast<std::uint16_t>(f.size.width),
+			                           .height = static_cast<std::uint16_t>(f.size.height)};
+			log << dcx::frame_hash_line(dcx::frame_index{f.frame}, size, f.hash);
+			if (outputs.game_log)
+				*outputs.game_log << dcx::frame_hash_line(dcx::frame_index{f.frame}, size,
+				                                          bottom_first_hash(f));
 		});
 	});
 	if (!done)
@@ -121,7 +132,7 @@ int replay_file(const std::string_view path, std::ostream &log, const device_hos
 		std::cerr << name << ": " << path << ": no frame presented\n";
 		return 1;
 	}
-	if (!log.flush())
+	if (!log.flush() || (outputs.game_log && !outputs.game_log->flush()))
 	{
 		std::cerr << name << ": cannot write the frame hashes\n";
 		return 1;
@@ -139,23 +150,48 @@ int run(const int argc, char **const argv, const char *const name, const device_
 		return 2;
 	}
 	const char *const dir_env{std::getenv("RTRACE_FRAMES_DIR")};
-	const std::string_view frames_dir{dir_env ? dir_env : ""};
+	const char *const game_env{std::getenv("RTRACE_GAME_LOG")};
 	try
 	{
-		if (args.size() == 2)
-			return replay_file(args[1], std::cout, host, name, frames_dir);
-		std::ofstream log{args[2], std::ios::binary | std::ios::trunc};
-		if (!log)
+		std::ofstream game_log;
+		if (game_env && *game_env)
 		{
-			std::cerr << name << ": cannot create " << args[2] << '\n';
-			return 1;
+			game_log.open(game_env, std::ios::binary | std::ios::trunc);
+			if (!game_log)
+			{
+				std::cerr << name << ": cannot create " << game_env << '\n';
+				return 1;
+			}
 		}
-		const int rc{replay_file(args[1], log, host, name, frames_dir)};
-		log.close();
-		if (rc == 0 && !log)
+		const replay_outputs outputs{.frames_dir = dir_env ? dir_env : "",
+		                             .game_log = game_log.is_open() ? &game_log : nullptr};
+		int rc{0};
+		if (args.size() == 2)
+			rc = replay_file(args[1], std::cout, host, name, outputs);
+		else
 		{
-			std::cerr << name << ": cannot write " << args[2] << '\n';
-			return 1;
+			std::ofstream log{args[2], std::ios::binary | std::ios::trunc};
+			if (!log)
+			{
+				std::cerr << name << ": cannot create " << args[2] << '\n';
+				return 1;
+			}
+			rc = replay_file(args[1], log, host, name, outputs);
+			log.close();
+			if (rc == 0 && !log)
+			{
+				std::cerr << name << ": cannot write " << args[2] << '\n';
+				return 1;
+			}
+		}
+		if (game_log.is_open())
+		{
+			game_log.close();
+			if (rc == 0 && !game_log)
+			{
+				std::cerr << name << ": cannot write " << game_env << '\n';
+				return 1;
+			}
 		}
 		return rc;
 	}

@@ -76,7 +76,10 @@ struct clear
 /* The end of a frame: everything recorded since the last present is one
  * frame.  frame is the game's index of it, its present's place in the run
  * from 0 (recording_device.h's frame_range), so a replay of a part of a
- * game can compare its frames with the frame hash log's lines.
+ * game can compare its frames with the frame hash log's lines.  rtrace's
+ * lines hash rows top first, the log's bottom first (GL's readback): only
+ * rtrace's game-order lines (RTRACE_GAME_LOG, rtrace/replay_file.h) equal
+ * the log's.
  */
 struct present
 {

@@ -1146,7 +1146,8 @@ BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 	BOOST_REQUIRE(render::rtrace::replay_file(args[1], none_log, host, "test-rtrace", {}) == 0);
 	BOOST_TEST(std::filesystem::is_empty(dir));
 	std::ostringstream log;
-	BOOST_REQUIRE(render::rtrace::replay_file(args[1], log, host, "test-rtrace", dir.string()) ==
+	BOOST_REQUIRE(render::rtrace::replay_file(args[1], log, host, "test-rtrace",
+	                                          {.frames_dir = dir.string(), .game_log = nullptr}) ==
 	              0);
 	BOOST_TEST(log.str() == none_log.str());
 	/* The sample's two frames, 0 and 1, by their log lines. */
@@ -1166,5 +1167,63 @@ BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 		BOOST_TEST(hex.str() == hash);
 	}
 	BOOST_TEST(count == 2u);
+	std::filesystem::remove_all(dir);
+}
+
+/* Test that a replay given a game log writes there each frame's line with
+ * the hash of its rows bottom first, the order the game's frame hash log
+ * reads GL's pixels in, so the two compare line by line; its own log keeps
+ * rtrace's top-first hash.  The expected hashes flip each frame's written
+ * pixels here, row by row.
+ */
+BOOST_AUTO_TEST_CASE(replay_logs_the_games_bottom_first_hashes)
+{
+	const auto &suite{boost::unit_test::framework::master_test_suite()};
+	BOOST_REQUIRE(suite.argc == 7);
+	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
+	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
+	const auto dir{std::filesystem::temp_directory_path() /
+	               ("test-rtrace-game-log-" + std::to_string(::getpid()))};
+	std::filesystem::remove_all(dir);
+	BOOST_REQUIRE(std::filesystem::create_directory(dir));
+	const render::rtrace::device_host host{
+	    [](const render::extent t, const std::function<void(render::device &)> &use) {
+		    render::rtrace::gl_host h{t};
+		    use(h.device());
+	    }};
+	std::ostringstream log, game_log;
+	BOOST_REQUIRE(
+	    render::rtrace::replay_file(args[1], log, host, "test-rtrace",
+		                            {.frames_dir = dir.string(), .game_log = &game_log}) == 0);
+	std::istringstream lines{log.str()}, game_lines{game_log.str()};
+	std::string frame, size, hash, game_frame, game_size, game_hash;
+	unsigned count{0};
+	while (lines >> frame >> size >> hash)
+	{
+		BOOST_REQUIRE(game_lines >> game_frame >> game_size >> game_hash);
+		++count;
+		BOOST_TEST(game_frame == frame);
+		BOOST_TEST(game_size == size);
+		std::ifstream in{dir / (frame + ".rgb"), std::ios::binary};
+		const bytes rgb{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+		const std::size_t row{std::size_t{target.width} * 3};
+		BOOST_REQUIRE(rgb.size() == row * target.height);
+		bytes flipped;
+		for (std::size_t y{target.height}; y != 0; --y)
+			for (std::size_t i{0}; i != row; ++i)
+				flipped.push_back(rgb.at((y - 1) * row + i));
+		const auto hex{[](const std::uint64_t h) {
+			std::ostringstream o;
+			o << std::hex << std::setw(16) << std::setfill('0') << h;
+			return o.str();
+		}};
+		BOOST_TEST(hash == hex(dcx::frame_hash(std::as_bytes(std::span{rgb}))));
+		BOOST_TEST(game_hash == hex(dcx::frame_hash(std::as_bytes(std::span{flipped}))));
+	}
+	BOOST_TEST(count == 2u);
+	/* The sample's frame 0, a shaded triangle, is no mirror image of itself. */
+	BOOST_TEST(game_log.str() != log.str());
+	std::string extra;
+	BOOST_TEST(!(game_lines >> extra));
 	std::filesystem::remove_all(dir);
 }
