@@ -156,6 +156,13 @@ sdl2-compat/README.md https://raw.githubusercontent.com/libsdl-org/sdl2-compat/r
 sdl3/src/joystick/SDL_steam_virtual_gamepad.c https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/joystick/SDL_steam_virtual_gamepad.c 295638b98658caadefb86ca35945c9cf9ba32298d57614c1e88936d29be2742a
 sdl3/src/video/cocoa/SDL_cocoakeyboard.m https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.18/src/video/cocoa/SDL_cocoakeyboard.m 617a6fd31a7f9823832b6c44fe04bb64ea5b53a5e143c377a990aee462a6b05c
 sdl2-compat/SDL_gamecontroller.h https://raw.githubusercontent.com/libsdl-org/sdl2-compat/release-2.32.74/include/SDL2/SDL_gamecontroller.h 7059c368800744690a524b4adc0389d199ea94973274e4e5b5875f25a0913edd
+# Mouse wheel (#43): the SDL2 SDL_MouseWheelEvent fields (y, direction, preciseY
+# from 2.0.18) and how SDL2 and sdl2-compat fill y with whole ticks.
+sdl2/SDL_events-2.30.0.h https://raw.githubusercontent.com/libsdl-org/SDL/release-2.30.0/include/SDL_events.h d1ca0802da17f26395219e7ea668518b18bb26d1e64a93324c18210c528cc2b3
+sdl2/SDL_events-2.32.10.h https://raw.githubusercontent.com/libsdl-org/SDL/release-2.32.10/include/SDL_events.h ceb7bc717342e652e2c432fd1dd08a5508575cea6bd8615fb4ddea63c071ddc4
+sdl2/src/events/SDL_mouse-2.30.0.c https://raw.githubusercontent.com/libsdl-org/SDL/release-2.30.0/src/events/SDL_mouse.c 2b9bc09572c60f208ba5aad653f66097ecaf928847d0f2f6b7129e4d7d9c6d42
+sdl2-compat/SDL_events.h https://raw.githubusercontent.com/libsdl-org/sdl2-compat/release-2.32.74/include/SDL2/SDL_events.h ac7dfea6592854ce6a97077f8f8a4d555d561d9e99894105d71af199499c1813
+sdl2-compat/src/sdl2_compat.c https://raw.githubusercontent.com/libsdl-org/sdl2-compat/release-2.32.74/src/sdl2_compat.c c1d90e83cacacf0f9a5c028603c306cb0c421af4d8764b1cdea65aa43121e4d4
 # Testing research (#78): docs/agents/testing-games-sources.md cites these.
 testing/fifoci-about-view.html https://raw.githubusercontent.com/dolphin-emu/fifoci/1cf03c9059aa5f1bb5c3c2d9aa7dcb2d44b3ce02/fifoci/frontend/templates/about-view.html 786941683e6debce760bb1c6eb9b259d0d952a4633a84108d65779ec52dafd86
 testing/fifoci-runner-main.py https://raw.githubusercontent.com/dolphin-emu/fifoci/1cf03c9059aa5f1bb5c3c2d9aa7dcb2d44b3ce02/fifoci/runner/__main__.py 99e5ac2fe4af14685b356eddaeeef8a1b1dd4eb4d7c924e094b25aa7668aa863
