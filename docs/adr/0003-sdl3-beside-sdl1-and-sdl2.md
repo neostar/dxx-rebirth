@@ -2,6 +2,7 @@
 
 Date: 2026-10-20. Status: accepted.
 Amended 2026-10-23 (owner, decided 2026-10-22): the renderer is chosen at startup, not switched at run time.
+Amended 2026-10-29 (owner, #42 N3): the SDL1.2/SDL2 guarantee is unchanged compiled code.
 
 ## Context
 
@@ -33,11 +34,19 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
 
 ## Consequences
 
-- SDL1.2/SDL2 preprocessed output stays identical, so R8 is checkable by diff.
+- SDL1.2/SDL2 compiled code stays unchanged; check R8 by comparing object code or disassembly
+  before and after. A no-op inline helper in a `dcx` header is allowed, so shared upstream call
+  sites need no `#if`: `key_text_input_open` and `key_text_input_close` (`common/include/key.h`)
+  are empty on SDL1.2/SDL2 and called from `newmenu.cpp` and `multi.cpp`. Includes and forward
+  declarations only SDL3 needs go under the version guard.
+- "Unchanged" ignores source line numbers: a line added to or removed from an upstream file shifts
+  the `__LINE__` and `std::source_location` constants in its error and check reports, and a
+  comparison treats an instruction or string that differs only in such a line number as equal.
 - SDL knowledge stays spread over about 35 files.
 - When upstream changes an SDL2 branch, its SDL3 twin can go stale without a conflict; the lint
   and the R12 tests catch it.
 - SDL2 had no mouse-wheel handling; #43 added it, a deliberate R8 exception: the `SDL_MOUSEWHEEL`
   case in `event.cpp` is a `>= 2` arm, so SDL2 builds also send a `z_up` or `z_down` press per
-  wheel step (`mouse_wheel_handler`), and their preprocessed `event.cpp` and `mouse.cpp`, and
-  every file that includes `mouse.h` (the handler's declaration), differ from upstream's there. The fields come from the pinned SDL2 and sdl2-compat `SDL_events.h`.
+  wheel step (`mouse_wheel_handler`), and their compiled `event.cpp` and `mouse.cpp` differ from
+  upstream's there; `mouse.h` declares the handler for SDL2 too. The fields come from the pinned
+  SDL2 and sdl2-compat `SDL_events.h`.
