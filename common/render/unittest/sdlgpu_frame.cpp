@@ -867,3 +867,95 @@ BOOST_AUTO_TEST_CASE(viewport_wholly_outside_the_target_is_dropped)
 	BOOST_TEST(c.viewport_sets == 0u);
 	BOOST_TEST(f.viewport_fixes().dropped == 1u);
 }
+
+/* Test that a viewport past the target's left edge runs clamped with the
+ * part of the change that moves x: on the 64x48 target the GL viewport
+ * (-32, 0, 64x48) covers x -32 to 32, the part inside x 0-32.  Model x
+ * 0.75 lay at window x 16, the middle of the clamped viewport (ndc 0);
+ * x 1 at its right edge (1).  y is untouched.
+ */
+BOOST_AUTO_TEST_CASE(viewport_past_the_left_edge_keeps_its_pixels)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.viewport = {.x = -32, .y = 0, .size = target};
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const auto &d{c.draws.front()};
+	BOOST_TEST((
+	    d.viewport ==
+	    sdlgpu::gpu_viewport{.x = 0, .y = 0, .w = 32, .h = 48, .min_depth = 0.5f, .max_depth = 1}));
+	const auto &p{d.vertex.projection};
+	BOOST_TEST(ndc_of(p, 0.75f, 0.5f)[0] == 0.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 1.f, 0.5f)[0] == 1.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.75f, 0.5f)[1] == 0.f, boost::test_tools::tolerance(1e-6f));
+}
+
+/* Test that a viewport past the target's top edge runs clamped with the
+ * part of the change that moves y, which SDL_GPU counts down from the top:
+ * the GL viewport (0, 24, 64x48) covers GL rows 24-72, the part inside
+ * rows 24-48, from the top y 0-24.  Model y 0.25 lay at GL row 36, the
+ * middle of the clamped viewport (ndc 0); y 0.5 at row 48, its top (1);
+ * y 0 at row 24, its bottom (-1).
+ */
+BOOST_AUTO_TEST_CASE(viewport_past_the_top_edge_keeps_its_pixels)
+{
+	sdlgpu::frame f{target};
+	quad q;
+	q.call.viewport = {.x = 0, .y = 24, .size = target};
+	f.draw(q.call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const auto &d{c.draws.front()};
+	BOOST_TEST((
+	    d.viewport ==
+	    sdlgpu::gpu_viewport{.x = 0, .y = 0, .w = 64, .h = 24, .min_depth = 0.5f, .max_depth = 1}));
+	const auto &p{d.vertex.projection};
+	BOOST_TEST(ndc_of(p, 0.5f, 0.25f)[1] == 0.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.5f, 0.5f)[1] == 1.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.5f, 0.f)[1] == -1.f, boost::test_tools::tolerance(1e-6f));
+	BOOST_TEST(ndc_of(p, 0.5f, 0.25f)[0] == 0.f, boost::test_tools::tolerance(1e-6f));
+}
+
+/* Test that a line drawn in a clamped viewport keeps GL's width: ADR 2's
+ * corner step (pixels * w / viewport) takes the whole viewport, before
+ * refit scales the projection to the part inside; a step taken from the
+ * part would draw it twice as thick here.  The 1-pixel horizontal line at
+ * model y 0.75 of the GL viewport (32, -24, 64x48) spans, through the
+ * pushed projection on the clamped viewport (32, 24, 32x24), 1 pixel of
+ * rows.
+ */
+BOOST_AUTO_TEST_CASE(line_in_a_clamped_viewport_keeps_its_width)
+{
+	sdlgpu::frame f{target};
+	const std::array<render::vertex, 2> line{{
+	    {.pos = {{0.1f, 0.75f, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = no_uv},
+	    {.pos = {{0.4f, 0.75f, 0}}, .rgba = {{1, 1, 1, 1}}, .uv = no_uv},
+	}};
+	const render::draw_call call{
+	    .topology = render::topology::lines,
+	    .vertices = line,
+	    .texture = render::texture_slot::none,
+	    .state = {},
+	    .viewport = {.x = 32, .y = -24, .size = {.width = 64, .height = 48}},
+	    .transforms = {.projection = render::screen_ortho, .modelview = render::identity{}}};
+	f.draw(call);
+	counting_commands c;
+	BOOST_TEST(f.encode(c, none));
+	BOOST_REQUIRE(c.draws.size() == 1u);
+	const auto &d{c.draws.front()};
+	BOOST_REQUIRE(!c.uploaded.empty());
+	float top{1e9f};
+	float bottom{-1e9f};
+	for (const auto &v : c.uploaded)
+	{
+		const float ndc_y{ndc_of(d.vertex.projection, v.pos[0], v.pos[1])[1]};
+		const float row{d.viewport.y + (1 - ndc_y) / 2 * d.viewport.h};
+		top = std::min(top, row);
+		bottom = std::max(bottom, row);
+	}
+	BOOST_TEST(bottom - top == 1.f, boost::test_tools::tolerance(1e-4f));
+}
