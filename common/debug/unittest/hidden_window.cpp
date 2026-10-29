@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth hidden window
@@ -63,6 +64,26 @@ BOOST_AUTO_TEST_CASE(hidden_run_never_grabs)
 	BOOST_TEST(dcx::harness_allows_grab({.value = nullptr, .window = dcx::harness_window::shown}));
 	BOOST_TEST(!dcx::harness_allows_grab({.value = "1", .window = dcx::harness_window::hidden}));
 	BOOST_TEST(!dcx::harness_allows_grab({.value = "yes", .window = std::nullopt}));
+}
+
+/* Test that a run that asked to be hidden turns off exactly SDL's joystick backends that open real
+ * devices on the Mac (HIDAPI, IOKit, the GameController framework), with any value, so it never
+ * opens the owner's controller; a shown run leaves them on.  SDL's virtual driver is not among
+ * them.
+ */
+BOOST_AUTO_TEST_CASE(hidden_run_turns_off_real_joysticks)
+{
+	const std::vector<std::string_view> off{"SDL_JOYSTICK_HIDAPI", "SDL_JOYSTICK_IOKIT",
+	                                        "SDL_JOYSTICK_MFI"};
+	const auto hints_for{[](const dcx::harness_hidden &h) {
+		const auto names{dcx::harness_joystick_hints_off(h)};
+		return std::vector<std::string_view>{names.begin(), names.end()};
+	}};
+	BOOST_TEST(hints_for({.value = "1", .window = dcx::harness_window::hidden}) == off,
+	           boost::test_tools::per_element());
+	BOOST_TEST(hints_for({.value = "yes", .window = std::nullopt}) == off,
+	           boost::test_tools::per_element());
+	BOOST_TEST(hints_for({.value = nullptr, .window = dcx::harness_window::shown}).empty());
 }
 
 /* Test that a run which asked to be hidden, with any DXX_DBG_HIDDEN value, reports a message on

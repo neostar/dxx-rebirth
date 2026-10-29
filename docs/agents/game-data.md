@@ -129,11 +129,15 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
   per frame, and the frame loop calls it until a frame is due: scene logs compare only between
   runs at the same `-maxfps` and VSync. Real-time timeouts count calls too and collapse, to about
   30 calls at 30 (the MIDI reset in `hmp.cpp`, the timeouts of `net_udp.cpp`).
-- A script's `joy_attach` lines plug virtual joysticks into SDL's virtual driver, never a real
-  device; the game still opens any real controller plugged into the Mac. Keep real ones out of a
-  run with `SDL_JOYSTICK_HIDAPI=0 SDL_JOYSTICK_IOKIT=0 SDL_JOYSTICK_MFI=0` (SDL reads hints from
-  the environment), and set `SDL_ASSERT=ignore` so an SDL assertion logs instead of opening a
-  dialog: fail a run whose output holds `Assertion`.
+- A script's `joy_attach` lines plug virtual joysticks into SDL's virtual driver. A hidden run
+  opens no real controller: the harness sets `SDL_JOYSTICK_HIDAPI`, `SDL_JOYSTICK_IOKIT` and
+  `SDL_JOYSTICK_MFI` to 0 before `SDL_Init` (`common/debug/harness_joysticks.h`), and `run.sh`
+  exports the same three for every binary. Set `SDL_ASSERT=ignore` so an SDL assertion logs
+  instead of opening a dialog: fail a run whose output holds `Assertion`.
+- On SDL3 a pad plugged in at tick 0 opens at the first `event_poll`, so a pilot that `-pilot`
+  creates before any frame (harness builds with `-notitles` only) gets the keyboard's defaults
+  where SDL2 gives the pad's. S6 plugs its pad in during the titles; release builds create pilots
+  in the menus, after the pad is open.
 - The `end` line exits with `_Exit(0)`: no `atexit` handlers or static destructors run, and
   LeakSanitizer prints no report, so ASan scene runs do not check leaks.
 - To write a scene, play a draft script with `press PRSCR` lines and look at the screenshots in

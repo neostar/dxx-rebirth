@@ -25,11 +25,18 @@
 # SDL_VIDEO_HIGHDPI_DISABLED=1 renders at 1x on Retina: a bare dev binary
 # has no Info.plist with NSHighResolutionCapable=false, so the game's
 # SDL_WINDOW_ALLOW_HIGHDPI would otherwise draw into a quarter of the window.
+#
+# SDL_JOYSTICK_HIDAPI, SDL_JOYSTICK_IOKIT and SDL_JOYSTICK_MFI are 0, set
+# over the caller's: SDL reads hints from the environment, so a run opens
+# only SDL's virtual joysticks, never the owner's controller.  The debug
+# harness turns them off itself in a hidden run (hidden_window.h); this
+# covers every other binary and build.
 set -u
 dev_dir=$(cd "$(dirname "$0")" && pwd)
 source "$dev_dir/env.sh"
 [[ $# -gt 0 ]] || { echo "usage: $0 BINARY [ARG...]" >&2; exit 2; }
 export SDL_VIDEO_HIGHDPI_DISABLED=1
+export SDL_JOYSTICK_HIDAPI=0 SDL_JOYSTICK_IOKIT=0 SDL_JOYSTICK_MFI=0
 bin=$1
 [[ $bin == */* ]] || bin=$(command -v "$bin") || { echo "run.sh: $1: not found" >&2; exit 1; }
 

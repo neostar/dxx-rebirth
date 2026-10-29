@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -66,6 +67,30 @@ constexpr bool harness_hidden_requested(const harness_hidden &hidden)
 constexpr bool harness_allows_grab(const harness_hidden &hidden)
 {
 	return !harness_hidden_requested(hidden);
+}
+
+/* SDL's joystick backends that open real devices on the Mac: HIDAPI, IOKit
+ * and the GameController framework.  Their hint names are the same in SDL2
+ * (sdl2-compat passes them on) and SDL3.  SDL's virtual driver, which input
+ * scripts attach to, is not among them.
+ */
+inline constexpr std::array<const char *, 3> harness_real_joystick_hints{{
+    "SDL_JOYSTICK_HIDAPI",
+    "SDL_JOYSTICK_IOKIT",
+    "SDL_JOYSTICK_MFI",
+}};
+
+/* The hints the harness sets to "0" before SDL_Init: a run that asked to be
+ * hidden, with any value, turns the real backends off, so it never opens
+ * the owner's controller (opening one changes a HIDAPI pad's LEDs and
+ * report mode, and its input would reach the game); a shown run sets none.
+ */
+[[nodiscard]]
+constexpr std::span<const char *const> harness_joystick_hints_off(const harness_hidden &hidden)
+{
+	if (harness_hidden_requested(hidden))
+		return harness_real_joystick_hints;
+	return {};
 }
 
 /* Where the debug harness sends a message that would open a message box. */

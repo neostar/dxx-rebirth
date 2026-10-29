@@ -28,6 +28,18 @@ test_runs_binary_with_dev_environment()
 	assert_contains "$out" "hidpi=1"
 }
 
+# Test that a run gets SDL's real joystick backends off, whatever the
+# caller's environment held: SDL reads hints from the environment, so the
+# binary opens only virtual joysticks (game-data.md).
+test_turns_off_real_joysticks()
+{
+	local out
+	out=$(SDL_JOYSTICK_HIDAPI=1 SDL_JOYSTICK_IOKIT=1 SDL_JOYSTICK_MFI=1 \
+		"$RUN" /bin/sh -c 'echo "hidapi=${SDL_JOYSTICK_HIDAPI-} iokit=${SDL_JOYSTICK_IOKIT-} mfi=${SDL_JOYSTICK_MFI-}"' 2>&1)
+	assert_eq "$?" 0 "$out"
+	assert_contains "$out" "hidapi=0 iokit=0 mfi=0"
+}
+
 # Test that the binary taking focus fails the run.
 test_focus_change_fails()
 {

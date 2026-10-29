@@ -22,6 +22,9 @@
 #include "vers_id.h"
 #include "common/sdl/sdl_init.h"
 #endif
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/harness_joysticks.h"
+#endif
 
 #if DXX_USE_SDLIMAGE
 #include <SDL_image.h>
@@ -71,6 +74,9 @@ arch_atexit arch_init()
 {
 	int t;
 
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+	dcx::harness_turn_off_real_joysticks();
+#endif
 #if SDL_MAJOR_VERSION == 3
 	/* The identifier is the bundle identifier of common/arch/cocoa/Info.plist
 	 * and, on Wayland, the application id.
