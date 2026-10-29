@@ -57,6 +57,17 @@ constexpr bool harness_hidden_requested(const harness_hidden &hidden)
 	return hidden.value != nullptr;
 }
 
+/* Whether the game may grab the mouse and keyboard and turn on relative
+ * mouse mode (event_change_focus): never in a run that asked to be
+ * hidden, with any value, so a hidden run cannot take the owner's real
+ * cursor, whatever focus SDL gives its window.
+ */
+[[nodiscard]]
+constexpr bool harness_allows_grab(const harness_hidden &hidden)
+{
+	return !harness_hidden_requested(hidden);
+}
+
 /* Where the debug harness sends a message that would open a message box. */
 enum class harness_report : std::uint8_t
 {

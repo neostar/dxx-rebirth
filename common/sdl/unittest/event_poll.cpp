@@ -18,6 +18,7 @@
 #include <array>
 #include <functional>
 #include <ostream>
+#include <span>
 #include <vector>
 
 // clang-format off
@@ -94,6 +95,9 @@ void UserError(const char *, ...)
 
 #undef con_printf
 void con_printf(const con_priority_wrapper, const char *, ...)
+{}
+
+void con_puts(const con_priority_wrapper, std::span<const char>)
 {}
 
 window *window_get_front()

@@ -32,6 +32,8 @@
 #include "common/sdl/text_input.h"
 #endif
 #if DXX_USE_DBG_HARNESS
+#include <utility>
+#include "common/debug/hidden_window.h"
 #include "common/debug/input_script_harness.h"
 #include "console.h"
 #include "dxxerror.h"
@@ -438,7 +440,19 @@ namespace {
 template <bool activate_focus>
 static void event_change_focus()
 {
+#if DXX_USE_DBG_HARNESS
+	/* A hidden run never takes the owner's real cursor. */
+	static const bool harness_grab{harness_allows_grab(read_harness_hidden())};
+	if (activate_focus && !harness_grab)
+	{
+		static bool reported;
+		if (!std::exchange(reported, true))
+			con_puts(CON_NORMAL, "DXX_DBG_HIDDEN: the mouse and keyboard stay ungrabbed");
+	}
+	const auto enable_grab = activate_focus && harness_grab && CGameCfg.Grabinput && likely(!CGameArg.DbgForbidConsoleGrab);
+#else
 	const auto enable_grab = activate_focus && CGameCfg.Grabinput && likely(!CGameArg.DbgForbidConsoleGrab);
+#endif
 #if SDL_MAJOR_VERSION == 1
 	SDL_WM_GrabInput(enable_grab ? SDL_GRAB_ON : SDL_GRAB_OFF);
 #elif SDL_MAJOR_VERSION == 2

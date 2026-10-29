@@ -54,6 +54,17 @@ BOOST_AUTO_TEST_CASE(any_value_is_a_request)
 	BOOST_TEST(dcx::harness_hidden_requested({.value = "", .window = std::nullopt}));
 }
 
+/* Test that a hidden run never grabs the mouse or keyboard, nor turns on relative mouse mode,
+ * whatever its DXX_DBG_HIDDEN value: it must never take the owner's real cursor.  Only a run
+ * with the variable unset keeps the game's grab.
+ */
+BOOST_AUTO_TEST_CASE(hidden_run_never_grabs)
+{
+	BOOST_TEST(dcx::harness_allows_grab({.value = nullptr, .window = dcx::harness_window::shown}));
+	BOOST_TEST(!dcx::harness_allows_grab({.value = "1", .window = dcx::harness_window::hidden}));
+	BOOST_TEST(!dcx::harness_allows_grab({.value = "yes", .window = std::nullopt}));
+}
+
 /* Test that a run which asked to be hidden, with any DXX_DBG_HIDDEN value, reports a message on
  * stderr rather than in a message box, and that an unset variable keeps the message box.
  */
