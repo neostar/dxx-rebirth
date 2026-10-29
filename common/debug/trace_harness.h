@@ -22,7 +22,9 @@
 #include <string_view>
 #include <system_error>
 
+#include "common/render/device.h"
 #include "common/render/recording_device.h"
+#include "common/render/render_device.h"
 
 namespace dcx {
 
@@ -78,5 +80,51 @@ inline std::optional<trace_request> read_harness_trace()
 	                     .frames_text = frames ? frames : "",
 	                     .frames = frames ? parse_frame_range(frames) : std::nullopt};
 }
+
+/* How a harness run reports, given by the game (device_front.h): fail ends
+ * the run with the message (UserError) and does not return; note logs a
+ * line.
+ */
+struct harness_report
+{
+	void (*fail)(const char *message);
+	void (*note)(const char *message);
+};
+
+/* The device the front end draws through in a dbg_harness build
+ * (common/render/device_front.h): with a trace asked for, a recorder
+ * around the device of now, else that device itself.  At exit it is
+ * destroyed before the device (declared after it), nulling its pointer
+ * first, so the texture releases that later static destructors make (the
+ * fonts') reach no device.
+ */
+class harness_front
+{
+	harness_report report_;
+	/* The trace asked for, until the first bind makes its recorder. */
+	std::optional<trace_request> request_;
+	std::unique_ptr<render::recording_device> recorder_;
+	render::device *front_{nullptr};
+	/* Declared last, so destroyed first: front_ is null before the
+	 * recorder goes.
+	 */
+	render::front_reset reset_{front_};
+
+  public:
+	harness_front(harness_report report, std::optional<trace_request> request);
+	/* Draws through inner from now on.  The first bind makes the recorder
+	 * of the trace asked for, its header of the size target gives when
+	 * the range starts; a malformed range or a file that cannot be written
+	 * fails the run.
+	 */
+	void bind(render::device &inner, render::target_size target);
+	/* The device the front end draws through; throws std::logic_error
+	 * before the first bind.
+	 */
+	[[nodiscard]]
+	render::device &get() const;
+	/* Releases slot's image through the front device, once there is one. */
+	void release_texture(render::texture_slot slot) const;
+};
 
 }

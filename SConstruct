@@ -5155,6 +5155,9 @@ class DXXArchive(DXXCommon):
 			)),
 		RuntimeTest('test-trace-harness', (
 			'common/debug/unittest/trace_harness.cpp',
+			'common/debug/trace_harness.cpp',
+			'common/render/recording_device.cpp',
+			'common/render/trace.cpp',
 			)),
 		RuntimeTest('test-harness-pilot', (
 			'common/debug/unittest/harness_pilot.cpp',
