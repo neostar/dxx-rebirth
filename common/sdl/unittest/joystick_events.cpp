@@ -511,3 +511,147 @@ BOOST_AUTO_TEST_CASE(a_stick_after_a_gamepad_is_labelled_as_the_second_device)
 	BOOST_REQUIRE(::dcx::joyaxis_text.size() != 0);
 	BOOST_TEST(std::string_view{::dcx::joyaxis_text[0].data()} == "J2 A1");
 }
+
+namespace {
+
+/* What reached the game at a harness tick. */
+struct seen_at
+{
+	unsigned tick;
+	seen event;
+};
+
+void push_key(const SDL_Keycode sym, const bool down)
+{
+	SDL_Event e{};
+#if SDL_MAJOR_VERSION == 2
+	e.key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+	e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+	e.key.keysym.sym = sym;
+	BOOST_REQUIRE(SDL_PushEvent(&e) >= 0);
+#elif SDL_MAJOR_VERSION == 3
+	e.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+	e.key.down = down;
+	e.key.key = sym;
+	BOOST_REQUIRE(SDL_PushEvent(&e));
+#endif
+}
+
+/* Play an input script as the debug harness does: at each tick, its key and joystick lines, then
+ * one event_poll.  `devices` holds the script's virtual joysticks; `at_tick` runs after each
+ * tick's poll.
+ */
+std::vector<seen_at> play_script(const std::string_view text,
+                                 ::dcx::sdl::virtual_joystick_slots &devices,
+                                 const std::function<void(unsigned)> &at_tick)
+{
+	auto parsed{::dcx::parse_input_script(text, [](const std::string_view name) {
+		return ::dcx::input_key_named(::dcx::key_properties, name);
+	})};
+	if (!parsed.has_value())
+		BOOST_FAIL("line " << parsed.error().line << ": " << parsed.error().message);
+	::dcx::input_script_player player{std::move(parsed).value()};
+	std::vector<seen_at> seen_ticks;
+	for (unsigned tick{0};; ++tick)
+	{
+		seen_events.clear();
+		for (const auto &e : player.next_tick())
+		{
+			if (e.action == ::dcx::input_action::end)
+				return seen_ticks;
+			if (e.action == ::dcx::input_action::key_down ||
+			    e.action == ::dcx::input_action::key_up)
+				push_key(::dcx::input_key_entry(::dcx::key_properties, e.key).sym,
+				         e.action == ::dcx::input_action::key_down);
+			else
+				BOOST_REQUIRE_MESSAGE(devices.play(e), "tick " << tick << ": " << SDL_GetError());
+		}
+		::dcx::event_poll();
+		for (const auto &e : seen_events)
+			seen_ticks.push_back({.tick = tick, .event = e});
+		at_tick(tick);
+	}
+}
+
+bool reached(const std::vector<seen_at> &s, const unsigned tick, const event_type type,
+             const unsigned number)
+{
+	return std::ranges::any_of(s, [&](const seen_at &e) {
+		return e.tick == tick && e.event.type == type && e.event.number == number;
+	});
+}
+
+}
+
+/* Test Xbox XR-115's case on virtual gamepads (docs/agents/input-testing.md, section 5): the
+ * gamepad in play is unplugged at a seeded tick and plugged in again.  The game does not crash,
+ * the keyboard still works while the pad is gone, a second pad plugged in meanwhile drives the
+ * game, and once the first pad is back, with a new instance ID, its button reaches the game as
+ * the same number, so its bindings act again.
+ */
+BOOST_AUTO_TEST_CASE(a_gamepad_unplugged_and_plugged_in_again_works_again)
+{
+	// NOLINTNEXTLINE(bugprone-random-generator-seed): a fixed seed replays the same ticks
+	std::minstd_rand seeds{44};
+	for (int run{0}; run < 5; ++run)
+	{
+		const unsigned seed{static_cast<unsigned>(seeds())};
+		const unsigned gone{5 + seed % 11};
+		BOOST_TEST_CONTEXT("seed " << seed << ", unplugged at tick " << gone)
+		{
+			const sdl_joysticks sdl;
+			sdl_joysticks::start_game();
+			const auto at{[gone](const unsigned after) { return std::to_string(gone + after); }};
+			const std::string script{
+			    "0 joy_attach 0 gamepad\n2 joy_button 0 0 down\n3 joy_button 0 0 up\n" + at(0) +
+			    " joy_detach 0\n" + at(1) + " press ESC\n" + at(3) + " joy_attach 1 gamepad\n" +
+			    at(4) + " joy_button 1 3 down\n" + at(5) + " joy_button 1 3 up\n" + at(6) +
+			    " joy_attach 0 gamepad\n" + at(7) + " joy_button 0 0 down\n" + at(8) +
+			    " joy_button 0 0 up\n" + at(9) + " end\n"};
+			::dcx::sdl::virtual_joystick_slots devices;
+			std::optional<SDL_JoystickID> first_id, second_id;
+			int controllers_while_gone{-1};
+			const auto s{play_script(script, devices, [&](const unsigned tick) {
+				if (tick == 0 && devices[0])
+					first_id = devices[0]->instance_id();
+				if (tick == gone + 2)
+					controllers_while_gone = ::dcx::num_controllers;
+				if (tick == gone + 6 && devices[0])
+					second_id = devices[0]->instance_id();
+			})};
+			BOOST_TEST(reached(s, 2, event_type::joystick_button_down, 0));
+			BOOST_TEST(controllers_while_gone == 0);
+			BOOST_TEST(reached(s, gone + 1, event_type::key_command, KEY_ESC));
+			BOOST_TEST(reached(s, gone + 4, event_type::joystick_button_down, 3));
+			BOOST_TEST(reached(s, gone + 7, event_type::joystick_button_down, 0));
+			BOOST_TEST(::dcx::num_controllers == 2);
+			BOOST_REQUIRE(first_id.has_value());
+			BOOST_REQUIRE(second_id.has_value());
+			BOOST_TEST(first_id.value() != second_id.value());
+		}
+	}
+}
+
+#if SDL_MAJOR_VERSION == 3
+/* Test that on SDL3 a flight stick plugged in after start is opened, appended after the
+ * numbers already given out, and that a stick plugged in again takes back the numbers a stick of
+ * its shape left, so that no live binding moves and its bindings act again
+ * (docs/agents/sdl-input.md, "Hot-plug").  SDL2 opened sticks only at start.
+ */
+BOOST_AUTO_TEST_CASE(a_stick_plugged_in_later_is_appended_and_gets_its_numbers_back)
+{
+	const sdl_joysticks sdl;
+	sdl_joysticks::start_game();
+	::dcx::sdl::virtual_joystick_slots devices;
+	const auto s{play_script("0 joy_attach 0 stick\n1 joy_button 0 0 down\n2 joy_attach 1 gamepad\n"
+	                         "3 joy_detach 0\n4 joy_attach 2 stick\n5 joy_button 2 0 down\n"
+	                         "6 joy_detach 2\n7 joy_attach 0 stick\n8 joy_button 0 1 down\n9 end\n",
+	                         devices, [](unsigned) {})};
+	BOOST_TEST(reached(s, 1, event_type::joystick_button_down, 0));
+	BOOST_TEST(reached(s, 5, event_type::joystick_button_down, 0));
+	BOOST_TEST(reached(s, 8, event_type::joystick_button_down, 1));
+	/* One stick's numbers: 32 buttons, a hat's 4 and 3 axes' 6, though two were plugged in. */
+	BOOST_TEST(::dcx::joybutton_text.size() == 42u);
+	BOOST_TEST(::dcx::joyaxis_text.size() == 3u);
+}
+#endif
