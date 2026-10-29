@@ -201,7 +201,7 @@ struct textured_quad
 std::array<std::uint8_t, 3> column(const std::span<const std::uint8_t> rgb, const std::uint32_t x)
 {
 	const std::size_t i{(std::size_t{target.height / 2} * target.width + x) * 3};
-	return {rgb[i], rgb[i + 1], rgb[i + 2]};
+	return {{rgb[i], rgb[i + 1], rgb[i + 2]}};
 }
 
 }
@@ -1012,7 +1012,7 @@ std::array<std::uint8_t, 3> pixel_at(const std::span<const std::uint8_t> rgb, co
                                      const std::uint32_t y)
 {
 	const std::size_t i{(std::size_t{y} * target.width + x) * 3};
-	return {rgb[i], rgb[i + 1], rgb[i + 2]};
+	return {{rgb[i], rgb[i + 1], rgb[i + 2]}};
 }
 
 constexpr std::array<std::uint8_t, 3> red_rgb{{255, 0, 0}}, green_rgb{{0, 255, 0}},
