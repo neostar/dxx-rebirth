@@ -179,6 +179,7 @@ Fixes to upstream code that upstream would want too are kept as separate, minima
 can be offered upstream, named by subject (see Commits):
 `` `SConstruct`: discard make_unique results in configure tests `` and
 `` `OPTIMIZER_HIDE_VARIABLE`: use a memory operand clang accepts on arm64 ``.
+Offering them as a PR: `upstream-prs.md`.
 
 ## Fork rules defined elsewhere
 

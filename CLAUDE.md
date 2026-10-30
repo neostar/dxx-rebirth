@@ -31,6 +31,7 @@ Shaders: HLSL in `shaders/hlsl/`, generated headers committed in `shaders/genera
 
 Issues live in GitHub Issues on the fork neostar/dxx-rebirth, never upstream. See `docs/agents/issue-tracker.md`.
 Orchestrating the work (briefs, reviews, merges): `docs/agents/orchestrating.md`.
+Upstream PRs to dxx-rebirth/dxx-rebirth (PR text, review replies): `docs/agents/upstream-prs.md`.
 
 ### Triage labels
 
