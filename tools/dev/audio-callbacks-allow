@@ -1,0 +1,5 @@
+# Audio callback registrations a file may keep, for tools/dev/check_audio_callbacks.py
+# (docs/agents/sdl-audio.md area 4, rule 3):
+#   <path> <count> -- <reason>
+# <count> is the file's registrations of any kind.  A slice that removes one lowers the
+# count or drops the entry.

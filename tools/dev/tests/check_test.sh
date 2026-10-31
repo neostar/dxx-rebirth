@@ -25,7 +25,7 @@ make_dev_repo()
 	cp "$DEV_DIR"/*.sh "$r/tools/dev/"
 	cp "$DEV_DIR/repo-config" "$DEV_DIR/toolchain.pins" "$DEV_DIR/known-failures" \
 		"$DEV_DIR/requirements.lock" "$DEV_DIR/commit-size-exclude" "$DEV_DIR/commit-size-allow" "$DEV_DIR/gpu-programs" \
-		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$DEV_DIR/check_gl_calls.py" "$r/tools/dev/"
+		"$DEV_DIR/gpu_debug_mode.py" "$DEV_DIR/gpu_wrapper.py" "$DEV_DIR/check_sdl_arms.py" "$DEV_DIR/check_audio_callbacks.py" "$DEV_DIR/check_gl_calls.py" "$r/tools/dev/"
 	# The real allowlist names upstream files the throwaway repository lacks.
 	: > "$r/tools/dev/sdl-arms-allow"
 	# Nor does it hold the GL calls the real lists allow, or any source but

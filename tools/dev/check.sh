@@ -601,6 +601,14 @@ step_sdl_arms()
 	python3 "$dev_dir/check_sdl_arms.py" "$root"
 }
 
+# The game runs no code of its own on SDL's or SDL3_mixer's mixing thread
+# (sdl-audio.md area 4, rule 3), which TSan cannot see: fail on an audio
+# callback registered in fork code outside the tests (check_audio_callbacks.py).
+step_audio_callbacks()
+{
+	python3 "$dev_dir/check_audio_callbacks.py" "$root"
+}
+
 # GL stays behind the render device (ADR 2): the text pass (--fast) counts the
 # GL calls in every C and C++ source outside the GL adapter and the platform
 # code, and the clang pass (full) lists them with clang-query on every
@@ -819,12 +827,12 @@ step_sdl3_link()
 
 pre_commit_steps=(repo_config guard staged secrets gitleaks_allow)
 fast_steps=(repo_config doctor guard format staged secrets gitleaks_allow shellcheck stale_hashes
-	workflows commit_sizes test_git gpu_gate sdl_arms gl_text shell_tests)
+	workflows commit_sizes test_git gpu_gate sdl_arms audio_callbacks gl_text shell_tests)
 full_steps=(secrets_history shaders unit_tests kconfig leaks gpu_tests tidy sanitizer_tests gl_calls
 	sdl3_link)
 # The merge gate's steps (ADR 6), with r1 and the gate_beside steps run
 # beside them (the budget is wall-clock: see gate_beside's use below).
-gate_steps=(repo_config doctor guard gitleaks_allow new_secrets gpu_gate sdl_arms unit_tests
+gate_steps=(repo_config doctor guard gitleaks_allow new_secrets gpu_gate sdl_arms audio_callbacks unit_tests
 	sanitizer_tests leaks changed_format)
 gate_beside=(sdl3_games)
 tools_steps=(shellcheck stale_hashes test_git shell_tests)
