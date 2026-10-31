@@ -12,6 +12,7 @@
 
 #include "common/debug/input_recorder.h"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -306,4 +307,20 @@ BOOST_AUTO_TEST_CASE(summary_counts_lines_and_comments)
 	recorder.end(harness_tick{2});
 	BOOST_TEST(recorder.summary() ==
 	           "recorded 1 input event over ticks 0-2; 1 not recorded (comments in the file)");
+}
+
+/* Test that pacing waits until the tick's wall-clock time. */
+BOOST_AUTO_TEST_CASE(pacing_waits_until_the_ticks_wall_time)
+{
+	using namespace std::chrono_literals;
+	/* 1/30 s is 2184 fix, 33325195 ns. */
+	constexpr std::int32_t step{2184};
+	BOOST_TEST(dcx::harness_pace_wait(harness_tick{0}, step, 0ns).count() == 0);
+	BOOST_TEST(dcx::harness_pace_wait(harness_tick{30}, step, 0ns).count() == 999755859);
+	BOOST_TEST(dcx::harness_pace_wait(harness_tick{30}, step, 999ms).count() == 755859);
+	/* Late: no wait, and no catching up beyond the tick's time. */
+	BOOST_TEST(dcx::harness_pace_wait(harness_tick{30}, step, 2s).count() == 0);
+	/* The last tick of a long run does not overflow: 2^32 ticks of 1/30 s. */
+	BOOST_TEST(dcx::harness_pace_wait(harness_tick{4294967295u}, step, 0ns).count() ==
+	           143130623966674804);
 }

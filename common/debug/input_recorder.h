@@ -16,8 +16,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <optional>
 #include <string>
@@ -270,5 +273,58 @@ class input_recorder
 		       std::to_string(unrecorded_) + " not recorded (comments in the file)";
 	}
 };
+
+/* How long a live recording waits before harness tick `tick` so that its
+ * ticks keep the wall clock's pace: tick n is due `n` harness clock steps
+ * of `step` (`fix`, 1/65536 s) after the first, and `elapsed` has passed
+ * since it.  A late tick waits for nothing, and nothing catches up: the
+ * game's time is the harness clock's either way.
+ */
+[[nodiscard]]
+constexpr std::chrono::nanoseconds harness_pace_wait(const harness_tick tick,
+                                                     const std::int32_t step,
+                                                     const std::chrono::nanoseconds elapsed)
+{
+	/* At most 2^32 ticks of at most 2^16: 48 bits of fix, whose seconds and
+	 * fraction are turned to nanoseconds apart so no product overflows.
+	 */
+	const auto due_fix{std::int64_t{std::to_underlying(tick)} * std::int64_t{step}};
+	constexpr std::int64_t fix_per_second{65536};
+	constexpr std::int64_t ns_in_a_second{1'000'000'000};
+	const std::chrono::nanoseconds due{(due_fix / fix_per_second) * ns_in_a_second +
+	                                   (due_fix % fix_per_second) * ns_in_a_second /
+	                                       fix_per_second};
+	return std::max(due - elapsed, std::chrono::nanoseconds{0});
+}
+
+/* DXX_DBG_RECORD_INPUT: the file the input is recorded to; nullptr when
+ * unset or empty, which records nothing.
+ */
+[[nodiscard]]
+inline const char *read_harness_record_path()
+{
+	const char *const path{std::getenv("DXX_DBG_RECORD_INPUT")};
+	return path && *path ? path : nullptr;
+}
+
+/* DXX_DBG_RECORD_INPUT_TICKS as the harness read it. */
+struct harness_record_ticks
+{
+	/* The variable's value; nullptr when it is unset. */
+	const char *value{nullptr};
+	/* The tick the recording ends the run at, as a script's end line does;
+	 * nullopt when unset (the run ends as the player ends it) or not a tick.
+	 */
+	std::optional<harness_tick> end{};
+};
+
+[[nodiscard]]
+inline harness_record_ticks read_harness_record_ticks()
+{
+	const char *const value{std::getenv("DXX_DBG_RECORD_INPUT_TICKS")};
+	if (!value)
+		return {};
+	return {.value = value, .end = input_script_detail::parse_tick(value)};
+}
 
 }
