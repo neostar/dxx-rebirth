@@ -202,6 +202,10 @@ const sound_function_table_t *sound_function_pointers_t::operator->()
 void digi_select_system()
 {
 #if DXX_USE_SDLMIXER
+#if SDL_MAJOR_VERSION == 3
+	if (CGameArg.SndMixerMethodGiven)
+		con_puts(CON_NORMAL, "SDL3 resamples in SDL_mixer: -sdlmixer-resampler is ignored");
+#endif
 	if (!CGameArg.SndDisableSdlMixer)
 	{
 #if SDL_MAJOR_VERSION == 3
@@ -215,7 +219,16 @@ void digi_select_system()
 		return;
 	}
 #endif
+#if SDL_MAJOR_VERSION == 3
+	/* SDL3 has no plain SDL audio: digi_audio.cpp forwards to SDL3_mixer. */
+#if DXX_USE_SDLMIXER
+	con_puts(CON_NORMAL, "SDL3 has no plain SDL audio: -nosdlmixer plays on SDL_mixer");
+#else
+	con_puts(CON_NORMAL, "SDL3 has no plain SDL audio and this build no SDL_mixer");
+#endif
+#else
 	con_puts(CON_NORMAL,"Using plain old SDL audio");
+#endif
 		fptr = digi_audio_table;
 }
 

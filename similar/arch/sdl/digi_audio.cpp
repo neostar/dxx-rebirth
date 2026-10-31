@@ -26,22 +26,73 @@
 #include "piggy.h"
 
 #if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
 #include "console.h"
+#if DXX_USE_SDLMIXER
+#include "digi_mixer.h"
+#endif
 
 /* The plain SDL audio backend (SDL_OpenAudio, an audio callback and
- * SDL_LockAudio) is gone in SDL3, which has audio streams on devices.  Until
- * #45 decides whether to port it, every entry point does nothing and the
- * init reports failure as a device that would not open does: the game runs
- * with no sound (SndNoSound) and no audio device is opened.
+ * SDL_LockAudio) is gone in SDL3, which has audio streams on devices.  With
+ * SDL3_mixer built in, its entry points are the mixer's (digi_mixer.cpp), so
+ * -nosdlmixer plays the effects there too; without it, the init fails as a
+ * device that would not open does and the game runs silent (SndNoSound).
  */
 namespace dsx {
 
+#if DXX_USE_SDLMIXER
 int digi_audio_init()
 {
-	static dcx::sdl::link_stub stub{"the plain SDL audio backend", "#45"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	return digi_mixer_init();
+}
+
+void digi_audio_close()
+{
+	digi_mixer_close();
+}
+
+void digi_audio_stop_all_channels()
+{
+	digi_mixer_stop_all_channels();
+}
+
+sound_channel digi_audio_start_sound(const sound_effect soundnum, const fix volume, const sound_pan pan, const int looping, const int loop_start, const int loop_end, sound_object *const soundobj)
+{
+	return digi_mixer_start_sound(soundnum, volume, pan, looping, loop_start, loop_end, soundobj);
+}
+
+int digi_audio_is_channel_playing(const sound_channel channel)
+{
+	return digi_mixer_is_channel_playing(channel);
+}
+
+void digi_audio_set_channel_volume(const sound_channel channel, const int volume)
+{
+	digi_mixer_set_channel_volume(channel, volume);
+}
+
+void digi_audio_set_channel_pan(const sound_channel channel, const sound_pan pan)
+{
+	digi_mixer_set_channel_pan(channel, pan);
+}
+
+void digi_audio_stop_sound(const sound_channel channel)
+{
+	digi_mixer_stop_sound(channel);
+}
+
+void digi_audio_end_sound(const sound_channel channel)
+{
+	digi_mixer_end_sound(channel);
+}
+
+void digi_audio_set_digi_volume(const int dvolume)
+{
+	digi_mixer_set_digi_volume(dvolume);
+}
+#else
+int digi_audio_init()
+{
+	con_puts(CON_URGENT, "This SDL3 build has no SDL3_mixer: playing without sound");
 	CGameArg.SndNoSound = 1;
 	return 1;
 }
@@ -83,6 +134,7 @@ void digi_audio_end_sound(sound_channel)
 void digi_audio_set_digi_volume(int)
 {
 }
+#endif
 
 }
 #else

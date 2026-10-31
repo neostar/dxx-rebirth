@@ -286,6 +286,9 @@ static void ReadCmdArgs(Inilist &ini, Arglist &&Args)
 		else if (!strncmp(p, "-sdlmixer-resampler=", 20))
 		{
 #if DXX_USE_SDLMIXER
+#if SDL_MAJOR_VERSION == 3
+			CGameArg.SndMixerMethodGiven = true;
+#endif
 #if DXX_FEATURE_EXTERNAL_RESAMPLER_SDL_NATIVE
 			if (!strcmp(&p[20], "sdl-native"))
 				CGameArg.SndMixerMethod = digi_mixer_method::sdl_native;

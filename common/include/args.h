@@ -60,6 +60,9 @@ enum SyncGLMethod : uint8_t {
 #include "dxxsconf.h"
 #include "dsx-ns.h"
 #include "pack.h"
+#if DXX_USE_SDLMIXER
+#include <SDL_version.h>
+#endif
 
 namespace dcx {
 
@@ -88,6 +91,12 @@ struct CArg : prohibit_void_ptr<>
 #if DXX_USE_SDLMIXER
 	bool SndDisableSdlMixer;
 	digi_mixer_method SndMixerMethod;
+#if SDL_MAJOR_VERSION == 3
+	/* -sdlmixer-resampler= was given: SDL3_mixer resamples, so the
+	 * digi_mixer_method has nothing to choose (digi_select_system says so).
+	 */
+	bool SndMixerMethodGiven;
+#endif
 #else
 	static constexpr std::true_type SndDisableSdlMixer{};
 #endif
