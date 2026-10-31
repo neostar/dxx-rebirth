@@ -59,8 +59,8 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #if DXX_USE_SDLMIXER
 #include <SDL_mixer.h>
 #endif
-#if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
+#if SDL_MAJOR_VERSION == 3 && DXX_USE_SDLMIXER
+#include "digi_mixer.h"
 #endif
 #include "mission.h"
 #include "mouse.h"
@@ -672,7 +672,7 @@ struct briefing : window
 #endif
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
 #if SDL_MAJOR_VERSION == 3
-	/* SDL3_mixer has no Mix_Chunk (#45). */
+	/* The voice plays on SDL3_mixer's voice track (digi_mixer.cpp). */
 #else
 	Mix_Chunk *briefing_audio{nullptr};
 #endif
@@ -695,18 +695,36 @@ struct briefing : window
 
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
 #if SDL_MAJOR_VERSION == 3
-/* SDL3_mixer has no Mix_Chunk or Mix_PlayChannel: the briefing voice-over
- * stays silent until #45 ports it.
+/* SDL3_mixer has no Mix_Chunk or Mix_PlayChannel: the voice-over plays on
+ * the effect mixer's voice track (digi_mixer.cpp).  Ducking the music while
+ * it plays is the music's (#46).
  */
 static void briefing_audio_stop(briefing *)
 {
+	digi_mixer_stop_voice();
 }
 
-static void briefing_audio_play(briefing *, const char *)
+static void briefing_audio_play(briefing *br, const char *filename)
 {
-	static dcx::sdl::link_stub stub{"the briefing voice-over", "#45"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	briefing_audio_stop(br);
+	RAIIPHYSFS_File fp{PHYSFS_openRead(filename)};
+	if (!fp)
+	{
+		con_printf(CON_NORMAL, "D1X: briefing audio <%s> not found", filename);
+		return;
+	}
+	const auto len{PHYSFS_fileLength(fp)};
+	if (len <= 0)
+		return;
+	std::vector<uint8_t> buf(static_cast<std::size_t>(len));
+	if (PHYSFSX_readBytes(fp, buf.data(), len) != len)
+		return;
+	if (!digi_mixer_play_voice(buf))
+	{
+		con_printf(CON_NORMAL, "D1X: briefing audio <%s> failed to load: %s", filename, SDL_GetError());
+		return;
+	}
+	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s>", filename);
 }
 #else
 static void briefing_audio_stop(briefing *br)
