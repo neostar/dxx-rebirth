@@ -225,6 +225,48 @@ BOOST_AUTO_TEST_CASE(one_shot_ends_and_looping_plays_on)
 	BOOST_TEST(mixer.playing(loop.value()));
 }
 
+/* Test that the volume scales every effect track and the voice. */
+BOOST_AUTO_TEST_CASE(volume_scales_effects_and_voice)
+{
+	auto mixer{make_mixer()};
+	const auto effect{make_effect(mixer.mixer(), 8192)};
+	mixer.set_volume(dcx::sdl::effect_volume_gain(0x8000));
+	BOOST_REQUIRE(mixer.start(effect.get(), {.left = 1.0f, .right = 0.0f}, true, 64).has_value());
+	mixer.play_voice(make_effect(mixer.mixer(), 8192));
+	mixer.commit_frame();
+	BOOST_TEST(mixer.voice_playing());
+	const auto m{means(generate(mixer.mixer(), 512))};
+	/* Effect left alone at 0.5; the voice at unit stereo gains on both. */
+	BOOST_TEST(near(m.left, 0.5f * effect_value * 2));
+	BOOST_TEST(near(m.right, 0.5f * effect_value));
+	mixer.stop_voice();
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.voice_playing());
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).right, 0.0f));
+}
+
+/* Test that a voice started while another plays replaces it: the new
+ * voice's samples alone, whether it comes on its own or after stop_voice in
+ * the same frame, as each briefing page does (titles.cpp).
+ */
+BOOST_AUTO_TEST_CASE(a_new_voice_replaces_the_playing_one)
+{
+	auto mixer{make_mixer()};
+	mixer.play_voice(make_effect(mixer.mixer(), 8192));
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+	mixer.play_voice(make_effect(mixer.mixer(), 8192));
+	mixer.commit_frame();
+	const auto m{means(generate(mixer.mixer(), 512))};
+	BOOST_TEST(near(m.left, effect_value));
+	BOOST_TEST(near(m.right, effect_value));
+	mixer.stop_voice();
+	mixer.play_voice(make_effect(mixer.mixer(), 8192));
+	mixer.commit_frame();
+	BOOST_TEST(mixer.voice_playing());
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+}
+
 /* Test that an effect starts only on a track not playing, among the first
  * max_tracks of the 64, and none when all play.
  */
