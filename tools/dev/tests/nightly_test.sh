@@ -845,14 +845,41 @@ test_term_kills_a_run_that_does_not_end()
 	return 0
 }
 
-# Test that the TSan step, which has no tests to run until #45, is a SKIP
-# naming that ticket.
-test_tsan_skips_visibly()
+# Write a stand-in audio-thread test into directory $1, named $2, that
+# prints $3 and exits with status $4; print its path.
+fake_tsan_test()
 {
-	local out
-	out=$("$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1)
+	printf '#!/bin/sh\necho "%s"\nexit %s\n' "$3" "$4" > "$1/$2"
+	chmod +x "$1/$2"
+	printf '%s\n' "$1/$2"
+}
+
+# Test that the TSan step runs every audio-thread test and passes when each
+# passes clean, and that a race report, a failed run or a missing program
+# fails it, naming the test; it never skips.
+test_tsan_fails_on_a_race_or_a_failed_test()
+{
+	local d ok race bad out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	ok=$(fake_tsan_test "$d" ok '*** No errors detected' 0)
+	race=$(fake_tsan_test "$d" race 'WARNING: ThreadSanitizer: data race (pid=1)' 66)
+	bad=$(fake_tsan_test "$d" bad 'failure' 1)
+	out=$(DXX_NIGHTLY_TSAN_TESTS="$ok" "$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "SKIP tsan: no audio-thread tests yet; #45"
+	assert_contains "$out" "tsan: ok passed"
+	assert_not_contains "$out" "SKIP"
+	out=$(DXX_NIGHTLY_TSAN_TESTS="$ok $race" "$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tsan: race reported a data race"
+	out=$(DXX_NIGHTLY_TSAN_TESTS="$bad" "$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tsan: bad failed with status 1"
+	out=$(DXX_NIGHTLY_TSAN_TESTS="$d/missing" "$DEV_DIR/nightly.sh" --leg native --steps tsan 2>&1) \
+		&& rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "tsan: $d/missing: no such program"
 }
 
 # Test that without --leg both legs run, the container leg through
@@ -864,9 +891,11 @@ test_both_legs_run_and_log()
 	r=$(fork_repo) || die "fork_repo failed"
 	printf '#!/bin/sh\necho "container.sh $*"\nexit "${FAKE_CONTAINER_RC:-0}"\n' \
 		> "$r/tools/dev/container.sh"
+	export DXX_NIGHTLY_TSAN_TESTS
+	DXX_NIGHTLY_TSAN_TESTS=$(fake_tsan_test "$r" tsan-ok 'clean' 0)
 	out=$("$r/tools/dev/nightly.sh" --steps tsan --endurance 60 2>&1)
 	assert_eq "$?" 0 "$out"
-	assert_contains "$out" "SKIP tsan: no audio-thread tests yet"
+	assert_contains "$out" "tsan: tsan-ok passed"
 	assert_contains "$out" \
 		"container.sh run --clean tools/dev/nightly.sh --leg container --endurance 60 --steps tsan"
 	assert_contains "$(cat "$r/build/nightly/nightly.log")" "== nightly: container leg"
@@ -884,10 +913,12 @@ test_full_run_runs_first()
 	r=$(fork_repo) || die "fork_repo failed"
 	printf '#!/bin/sh\necho "container.sh $*"\n' > "$r/tools/dev/container.sh"
 	printf '#!/bin/sh\necho "ci.sh $*"\nexit "${FAKE_CI_RC:-0}"\n' > "$r/tools/dev/ci.sh"
+	export DXX_NIGHTLY_TSAN_TESTS
+	DXX_NIGHTLY_TSAN_TESTS=$(fake_tsan_test "$r" tsan-ok 'clean' 0)
 	out=$("$r/tools/dev/nightly.sh" --steps full_run,tsan 2>&1)
 	assert_eq "$?" 0 "$out"
 	assert_contains "$out" $'== nightly: full run (ci.sh --clean)\nci.sh --clean'
-	assert_contains "$out" "SKIP tsan"
+	assert_contains "$out" "tsan: tsan-ok passed"
 	assert_contains "$out" "container.sh run --clean tools/dev/nightly.sh --leg container --endurance 3600 --steps tsan"
 	assert_contains "$(cat "$r/build/nightly/nightly.log")" "ci.sh --clean"
 	out=$("$r/tools/dev/nightly.sh" --steps full_run 2>&1)

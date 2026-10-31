@@ -20,7 +20,8 @@
 #                   compilation database
 #   thread_safety   clang's -Wthread-safety on the same files, with SDL's
 #                   lock annotations on, proven on each kind of lock taken
-#   tsan            ThreadSanitizer on the audio-thread tests (none yet)
+#   tsan            ThreadSanitizer on the audio-thread tests (the SDL3
+#                   build's test-effect-mixer): a report fails it
 #   hardened_demo   D2 demo playback in the hardened debug-harness build,
 #                   windowless through run.sh; a hardening trap, a
 #                   sanitizer report, a crash report or an unclean end
@@ -39,14 +40,14 @@
 # --steps runs only the steps named (of the leg's); --endurance sets the
 # endurance run's length.  A missing input (the pinned clang-tidy, the D2
 # data in DXX_D2_DATA, a build) fails its step: a scheduled run must not
-# stay green on a step that checked nothing; only tsan, which waits on
-# #45, is a SKIP.
+# stay green on a step that checked nothing.
 # For the tests only: DXX_NIGHTLY_DATABASE names a compilation database to
 # analyse and DXX_NIGHTLY_GAME a game to run instead of building the
 # harness; DXX_NIGHTLY_WORK the demo runs' work directory;
 # DXX_NIGHTLY_DEMO_TIMEOUT how long a demo may take (600 s);
-# DXX_NIGHTLY_SAMPLE_INTERVAL the endurance run's sampling interval (10 s)
-# and DXX_NIGHTLY_TREND_ARGS rss_trend.py's options.
+# DXX_NIGHTLY_SAMPLE_INTERVAL the endurance run's sampling interval (10 s);
+# DXX_NIGHTLY_TREND_ARGS rss_trend.py's options; DXX_NIGHTLY_TSAN_TESTS the
+# programs the tsan step runs (space-separated) instead of building them.
 # Exit status 1 names the failed steps (or legs), 2 is a usage error.
 # TERM, INT or HUP ends the run (the demo run through run.sh, both legs)
 # leaving none of it running, with status 128 + the signal's number.
@@ -314,12 +315,47 @@ step_fanalyzer()
 }
 
 # ThreadSanitizer on the audio-thread tests, on the Mac (TSan fails under
-# Rosetta in the container): none exists yet, so a SKIP naming #45, the
-# first fork code with an audio thread, which adds them and this step's
-# build.  tools/dev/tests/gates_test.sh proves TSan reports a planted race.
+# Rosetta in the container): the SDL3 build's tests that run the game's
+# side of the audio on one thread and SDL3_mixer's mix on another, built
+# with -fsanitize=thread into build/nightly/tsan and run under
+# no-window.sh.  A failed build, a missing program, a failed run (TSan
+# exits 66 on a report) or a "WARNING: ThreadSanitizer" line fails it.
+# tools/dev/tests/gates_test.sh proves TSan reports a planted race.
+tsan_dir=build/nightly/tsan
+tsan_tests=(common/test-effect-mixer)
 step_tsan()
 {
-	echo "SKIP tsan: no audio-thread tests yet; #45 (sound effects on SDL3_mixer) adds them"
+	local progs=() p out rc=0 run_rc
+	if [[ -n ${DXX_NIGHTLY_TSAN_TESTS-} ]]; then
+		read -ra progs <<<"$DXX_NIGHTLY_TSAN_TESTS"
+	else
+		for p in "${tsan_tests[@]}"; do progs+=("$tsan_dir/$p"); done
+		(cd "$root" && "$dev_dir/build.sh" dev sdl3=1 "builddir=$tsan_dir" \
+			"compilation_database=$tsan_dir/compile_commands.json" \
+			"CXXFLAGS=-O1 -g -fsanitize=thread -fno-omit-frame-pointer" LINKFLAGS=-fsanitize=thread \
+			"${progs[@]}") || { echo "tsan: building the audio-thread tests failed"; return 1; }
+		progs=("${progs[@]/#/$root/}")
+	fi
+	[[ ${#progs[@]} -gt 0 ]] || { echo "tsan: no audio-thread test to run"; return 1; }
+	for p in "${progs[@]}"; do
+		if [[ ! -x $p ]]; then
+			echo "tsan: $p: no such program"
+			rc=1
+			continue
+		fi
+		out=$(TSAN_OPTIONS=abort_on_error=0 "$dev_dir/no-window.sh" "$p" 2>&1) && run_rc=0 || run_rc=$?
+		printf '%s\n' "$out"
+		if [[ $out == *"WARNING: ThreadSanitizer"* ]]; then
+			echo "tsan: ${p##*/} reported a data race"
+			rc=1
+		elif [[ $run_rc -ne 0 ]]; then
+			echo "tsan: ${p##*/} failed with status $run_rc"
+			rc=1
+		else
+			echo "tsan: ${p##*/} passed"
+		fi
+	done
+	return "$rc"
 }
 
 # The demo runs: the debug-harness game (DXX_NIGHTLY_GAME, else built),
