@@ -128,4 +128,79 @@ inline std::optional<std::string> soundfont_problem(const char *const path)
 	return std::nullopt;
 }
 
+/* A song as SDL3_mixer audio, or why it did not load. */
+struct music_load
+{
+	mix_audio_ptr audio;
+	std::string error;
+};
+
+/* Owns an SDL properties group. */
+class sdl_properties
+{
+  public:
+	sdl_properties() : id_{SDL_CreateProperties()}
+	{}
+	~sdl_properties()
+	{
+		if (id_ != 0)
+			SDL_DestroyProperties(id_);
+	}
+	sdl_properties(const sdl_properties &) = delete;
+	sdl_properties &operator=(const sdl_properties &) = delete;
+	sdl_properties(sdl_properties &&) = delete;
+	sdl_properties &operator=(sdl_properties &&) = delete;
+	[[nodiscard]]
+	SDL_PropertiesID get() const
+	{
+		return id_;
+	}
+
+  private:
+	SDL_PropertiesID id_;
+};
+
+/* Loads a whole music file held in memory (MIDI, Ogg Vorbis, FLAC, MP3) as
+ * a song for mixer m; SDL3_mixer copies the data, so the caller may free
+ * it.  MIDI plays through FluidSynth with the given SoundFont, which must be
+ * readable, and only when the build has a MIDI decoder.
+ */
+[[nodiscard]]
+inline music_load load_music(MIX_Mixer *const m, const std::span<const uint8_t> data,
+                             const char *const soundfont, const bool midi_decoder)
+{
+	const bool midi{data.size() >= midi_magic.size() &&
+	                std::ranges::equal(data.first(midi_magic.size()), midi_magic)};
+	if (midi)
+	{
+		if (!midi_decoder)
+			return {.audio = nullptr,
+			        .error =
+			            "this SDL3_mixer build lists no MIDI decoder (FLUIDSYNTH or TIMIDITY)"};
+		if (auto problem{soundfont_problem(soundfont)})
+			return {.audio = nullptr, .error = std::move(problem).value()};
+	}
+	const sdl_properties props;
+	const sdl_properties synth;
+	io_stream_ptr io{SDL_IOFromConstMem(data.data(), data.size())};
+	if (props.get() == 0 || synth.get() == 0 || !io)
+		return {.audio = nullptr, .error = SDL_GetError()};
+	/* MIX_LoadAudioWithProperties closes the stream, on failure too
+	 * (SDL_mixer.c:1173).
+	 */
+	SDL_SetPointerProperty(props.get(), MIX_PROP_AUDIO_LOAD_IOSTREAM_POINTER, io.release());
+	SDL_SetBooleanProperty(props.get(), MIX_PROP_AUDIO_LOAD_CLOSEIO_BOOLEAN, true);
+	SDL_SetPointerProperty(props.get(), MIX_PROP_AUDIO_LOAD_PREFERRED_MIXER_POINTER, m);
+	if (midi)
+	{
+		SDL_SetStringProperty(props.get(), fluidsynth_soundfont_path_property, soundfont);
+		SDL_SetFloatProperty(synth.get(), "synth.gain", fluidsynth_synth_gain);
+		SDL_SetNumberProperty(props.get(), fluidsynth_props_property, synth.get());
+	}
+	mix_audio_ptr audio{MIX_LoadAudioWithProperties(props.get())};
+	if (!audio)
+		return {.audio = nullptr, .error = SDL_GetError()};
+	return {.audio = std::move(audio), .error = {}};
+}
+
 }

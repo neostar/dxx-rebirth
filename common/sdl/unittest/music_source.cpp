@@ -68,6 +68,25 @@ struct temp_file
 /* The 12 bytes a SoundFont starts with: RIFF, a size, the form type sfbk. */
 const std::vector<uint8_t> sfbk_header{'R', 'I', 'F', 'F', 4, 0, 0, 0, 's', 'f', 'b', 'k'};
 
+/* A MIDI file of one empty track: header and an end-of-track event. */
+const std::vector<uint8_t> tiny_midi{
+    'M', 'T', 'h', 'd', 0,   0, 0, 6, 0, 0, 0,    1,    0,
+    96,  'M', 'T', 'r', 'k', 0, 0, 0, 4, 0, 0xff, 0x2f, 0,
+};
+
+/* A WAV file of 4 frames of U8 mono silence at 22050 Hz. */
+const std::vector<uint8_t> tiny_wav{
+    'R', 'I', 'F', 'F', 40,  0,   0,   0,   'W',  'A',  'V', 'E', 'f',  'm',  't',  ' ',
+    16,  0,   0,   0,   1,   0,   1,   0,   0x22, 0x56, 0,   0,   0x22, 0x56, 0,    0,
+    1,   0,   8,   0,   'd', 'a', 't', 'a', 4,    0,    0,   0,   0x80, 0x80, 0x80, 0x80,
+};
+
+dcx::sdl::mix_mixer_ptr make_mixer()
+{
+	const SDL_AudioSpec spec{.format = SDL_AUDIO_F32, .channels = 2, .freq = 48000};
+	return dcx::sdl::mix_mixer_ptr{MIX_CreateMixer(&spec)};
+}
+
 }
 
 BOOST_GLOBAL_FIXTURE(mixer_init);
@@ -140,4 +159,53 @@ BOOST_AUTO_TEST_CASE(midi_decoders_are_recognised)
 	BOOST_TEST(!dcx::sdl::has_midi_decoder(without));
 	BOOST_TEST(dcx::sdl::is_midi_decoder("TIMIDITY"));
 	BOOST_TEST(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+}
+
+/* Test that MIDI does not load without a usable SoundFont or a MIDI decoder,
+ * and says why, where SDL3_mixer alone would load it and play silence.
+ */
+BOOST_AUTO_TEST_CASE(midi_needs_a_soundfont_and_a_decoder)
+{
+	const auto mixer{make_mixer()};
+	BOOST_REQUIRE(mixer);
+	const auto missing{(std::filesystem::temp_directory_path() / "dxx-no-such.sf2").string()};
+	const auto no_font{dcx::sdl::load_music(mixer.get(), tiny_midi, missing.c_str(), true)};
+	BOOST_TEST(!no_font.audio);
+	BOOST_TEST(no_font.error.find("not readable") != std::string::npos);
+	const temp_file riff{"dxx-riff.sf2", sfbk_header};
+	const auto no_decoder{
+	    dcx::sdl::load_music(mixer.get(), tiny_midi, riff.path.string().c_str(), false)};
+	BOOST_TEST(!no_decoder.audio);
+	BOOST_TEST(no_decoder.error.find("no MIDI decoder") != std::string::npos);
+}
+
+/* Test that a song FluidSynth cannot start, a SoundFont with an sfbk header
+ * and no content, is reported at the commit that tried to start it, once,
+ * and does not count as playing or as ended.
+ */
+BOOST_AUTO_TEST_CASE(a_song_that_cannot_start_is_reported)
+{
+	dcx::sdl::effect_mixer mixer{make_mixer()};
+	BOOST_REQUIRE(mixer.usable());
+	BOOST_REQUIRE(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+	const temp_file font{"dxx-empty.sf2", sfbk_header};
+	auto loaded{dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
+	BOOST_REQUIRE(static_cast<bool>(loaded.audio));
+	mixer.play_music(std::move(loaded.audio), false);
+	mixer.commit_frame();
+	const auto failed{mixer.take_music_failed()};
+	BOOST_TEST(failed.has_value());
+	BOOST_TEST(!mixer.take_music_failed().has_value());
+	BOOST_TEST(!mixer.music_playing());
+	BOOST_TEST(!mixer.take_music_ended());
+}
+
+/* Test that a song in another format loads with no SoundFont at all. */
+BOOST_AUTO_TEST_CASE(other_formats_need_no_soundfont)
+{
+	const auto mixer{make_mixer()};
+	BOOST_REQUIRE(mixer);
+	const auto wav{dcx::sdl::load_music(mixer.get(), tiny_wav, nullptr, false)};
+	BOOST_TEST(static_cast<bool>(wav.audio));
+	BOOST_TEST(wav.error.empty());
 }
