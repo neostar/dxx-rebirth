@@ -143,6 +143,62 @@ DXX_DBG_HIDDEN=1 DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_FRAMEHASH=$PWD/traces/local/
 - To write a scene, play a draft script with `press PRSCR` lines and look at the screenshots in
   the home's `screenshots/`; they are derived from the licensed data and stay there.
 
+## Recording input, and replaying it
+
+A `dbg_harness=1` build records the input a run consumed into the input script `DXX_DBG_RECORD_INPUT`
+names (#99; `common/debug/input_recorder.h`, `common/sdl/harness_record.cpp`), which
+`DXX_DBG_INPUT_SCRIPT` replays; without the variable nothing records. The recorder takes each SDL event where `event_poll` hands it to the game, at that `event_process`
+call's harness tick, so the replay pushes it at the same tick. Recording needs
+`DXX_DBG_FIXED_FRAMETIME` and runs the harness clock, as a script does; with no script it paces the
+ticks to the wall clock (one tick per frame step), so a player plays at the real speed.
+`DXX_DBG_RECORD_INPUT_TICKS=N` ends the run at tick N, as a script's `end` line does (1800 is 60 s
+at 30); without it the recording ends where the run stops. At exit the run writes on stderr
+`DXX_DBG_RECORD_INPUT: recorded N input events over ticks 0-T; M not recorded`. A recording is
+licensed-data derived like a frame log (it replays a session of the data): keep it out of git.
+
+What a recording holds: keys, mouse motion, buttons and wheel, and the script's joystick lines when
+they reach the recorder as events (its tests write them). Not held: the events of a real joystick
+or gamepad (a real device is not one of the script's two virtual shapes, whose axis, button and
+hat counts the game's bindings read; SDL sends a joystick and a gamepad event for one gamepad
+action, so replaying both would act twice; a device plugged in at start has no attach to
+record), a quit (closing the window), and on SDL3 text other than a key's own character; each
+becomes a `# tick N: not recorded: ...` comment, and the replay differs from that tick on. Also not held: where the cursor is when a menu reads it
+(`mouse_flush`), Caps, Num and Scroll Lock (`key_flush` restores them from SDL's state), a window
+resize, and on SDL3 the fractions of mouse motion the game's accumulator carries across a
+`mouse_flush`. A joystick or gamepad plugged in at startup sends a device-added event the live run
+consumes and the replay never sends: disconnect controllers before recording. On SDL3 a key down
+that ends a 128-event batch, or comes just before the front window changes, gets its text in the
+next batch live, while the replay pushes both into one batch; such a session can differ there.
+
+The owner's session (the Mac, shown window, keyboard and mouse; use the keyboard in menus, the
+mouse in flight; keep the window's size and leave it open). This block is the owner's alone: it
+shows a window and takes the real keyboard and mouse. Agents record hidden through `run.sh` (last
+item below).
+
+```sh
+tools/dev/build.sh dev dbg_harness=1 builddir=build/r1 compilation_database=build/r1/compile_commands.json
+mkdir -p traces/local/rec && rm -rf traces/local/rec/home && mkdir traces/local/rec/home
+SDL_AUDIODRIVER=dummy SDL_AUDIO_DRIVER=dummy SDL_VIDEO_HIGHDPI_DISABLED=1 \
+  DXX_DBG_FIXED_FRAMETIME=30 DXX_DBG_RECORD_INPUT=$PWD/traces/local/rec/session.txt \
+  DXX_DBG_RECORD_INPUT_TICKS=1800 DXX_DBG_FRAMEHASH=$PWD/traces/local/rec/session.log \
+  D2X_REBIRTH_HOME=$PWD/traces/local/rec/home build/r1/d2x-rebirth/d2x-rebirth \
+  -hogdir "$DXX_D2_DATA" -window -pilot harness -nomovies -maxfps 60
+R1_FPS=60 tools/dev/r1.sh replay traces/local/rec/session.txt traces/local/rec/session.log
+```
+
+- The game closes itself after 60 s (tick 1800); the dummy audio driver keeps it silent and is
+  the driver the replay runs with.
+- `SDL_VIDEO_HIGHDPI_DISABLED=1` is what `run.sh` sets for the replay: without it a Retina Mac
+  renders at pixel density 2, which changes the frames and the cursor position menus read.
+- `r1.sh replay` builds the working tree in `build/r1`, plays the recording hidden through
+  `run.sh` with a fresh home at the one `-maxfps` in `R1_FPS`, and compares every frame with the
+  live run's log: `session.txt at 60 fps: N/N frames identical`, exit 0. Replay at the live run's
+  `-maxfps`, from the same fresh-home start (`-pilot harness`, no `descent.cfg`).
+- Agents record the same way, hidden through `run.sh`, with a script driving the run
+  (`DXX_DBG_INPUT_SCRIPT` beside `DXX_DBG_RECORD_INPUT`, which then records unpaced). The frame
+  hash log names its section after the recording's file, not the script's, so the replay's log
+  compares whole whatever the two files are called.
+
 ## Checking R1, invisibly
 
 `tools/dev/r1.sh` plays S1, S2, S3 and S4 hidden, as above, at `-maxfps` 60 and 200, and compares

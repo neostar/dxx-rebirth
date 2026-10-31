@@ -6,10 +6,15 @@
 #                                logs as the baseline
 #   r1.sh check [--base REV]     build the working tree, play the scenes,
 #                                compare them with REV's baseline
+#   r1.sh replay SCRIPT LOG      build the working tree, play the input
+#                                script SCRIPT (a recording, #99) and
+#                                compare its frames with LOG, the frame
+#                                hash log of the run it was recorded in
 #
 # REV defaults to the branch point, the merge-base of HEAD and
 # sdl-gpu-port.  check fails, before it builds, on a baseline of another
-# commit.
+# commit.  replay plays at one -maxfps, the recorded run's: R1_FPS holds
+# one value (default 60), and SCRIPT and LOG are files.
 #
 # Prints one "NAME: N/N frames identical" line per scene and fps, or the
 # first differing frame (section, frame index); exit 0 only when every
@@ -50,19 +55,33 @@ source "$dev_dir/env.sh"
 # (CLAUDE.md): an abort leaves a crash report.
 export ASAN_OPTIONS=$ASAN_OPTIONS:abort_on_error=0 UBSAN_OPTIONS=$UBSAN_OPTIONS:abort_on_error=0
 
-usage() { echo "usage: $0 capture|check [--base REV]" >&2; exit 2; }
+usage() { echo "usage: $0 capture|check [--base REV] | replay SCRIPT LOG" >&2; exit 2; }
 mode=${1-}
 shift || true
-base=
+base='' replay_script='' replay_log=''
 case $mode in
 capture|check) [[ $# -eq 0 ]] || { [[ $# -eq 2 && $1 == --base ]] && base=$2; } || usage ;;
+replay)
+	[[ $# -eq 2 ]] || usage
+	for f in "$1" "$2"; do
+		[[ -f $f ]] || { echo "r1.sh: $f is not a file" >&2; exit 2; }
+	done
+	replay_script=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") || exit 2
+	replay_log=$(cd "$(dirname "$2")" && pwd)/$(basename "$2") || exit 2
+	;;
 *) usage ;;
 esac
 data=${DXX_D2_DATA-}
 [[ -n $data && -f $data/DESCENT2.HOG ]] || { echo "r1.sh: DXX_D2_DATA must name the directory of DESCENT2.HOG" >&2; exit 2; }
 r1=${R1_DIR:-$root/traces/local/r1}
 mkdir -p "$r1" && r1=$(cd "$r1" && pwd)
-read -r -a fps_list <<<"${R1_FPS:-60 200}"
+if [[ $mode == replay ]]; then
+	read -r -a fps_list <<<"${R1_FPS:-60}"
+	[[ ${#fps_list[@]} -eq 1 ]] ||
+		{ echo "r1.sh: replay plays at the recorded run's one -maxfps; R1_FPS='${R1_FPS-}' holds ${#fps_list[@]}" >&2; exit 2; }
+else
+	read -r -a fps_list <<<"${R1_FPS:-60 200}"
+fi
 [[ ${R1_CFG-} != *$'\n'* ]] || { echo "r1.sh: R1_CFG holds a newline" >&2; exit 2; }
 read -r -a cfg_list <<<"${R1_CFG-}"
 for c in ${cfg_list[@]+"${cfg_list[@]}"}; do
@@ -88,8 +107,9 @@ demo_closed()
 	awk -v p="$demo_section" 'index($0, p) == 1 { d = 1; next } d && /^# / { f = 1 } END { exit !f }' "$1" 2>/dev/null
 }
 
-# Play scene $2 (a script name, or demo) at -maxfps $3 with binary $1 into
-# log $4.  A demo run ends by TERM once its first demo is whole.
+# Play scene $2 (a script name, an input script's absolute path, or demo)
+# at -maxfps $3 with binary $1 into log $4.  A demo run ends by TERM once
+# its first demo is whole.
 play()
 {
 	local bin=$1 scene=$2 fps=$3 log=$4 home=${4%.log}.home pid rc
@@ -101,6 +121,8 @@ play()
 		# The demo goes on after TERM; its frames are written by then.
 		args+=(-autodemo)
 		env+=(RUN_KILL_AFTER=3)
+	elif [[ $scene == /* ]]; then
+		env+=(DXX_DBG_INPUT_SCRIPT="$scene")
 	else
 		env+=(DXX_DBG_INPUT_SCRIPT="$root/common/debug/scenes/$scene.txt")
 	fi
@@ -191,6 +213,17 @@ compare_fps()
 	return $rc
 }
 
+if [[ $mode == replay ]]; then
+	build "$root"
+	fps=${fps_list[0]}
+	run=$r1/replay/$fps/$(basename "$replay_script").log
+	mkdir -p "$r1/replay/$fps" || exit 1
+	echo "r1.sh: replaying $replay_script at $fps fps"
+	play "$root/build/r1/d2x-rebirth/d2x-rebirth" "$replay_script" "$fps" "$run" || exit 1
+	python3 "$dev_dir/framehash_diff.py" "$(basename "$replay_script") at $fps fps" \
+		"$replay_log" "$run"
+	exit
+fi
 if [[ $mode == check && ! -f $r1/baseline/commit ]]; then
 	echo "r1.sh: no baseline in $r1; run r1.sh capture" >&2
 	exit 2

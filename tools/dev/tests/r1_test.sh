@@ -13,7 +13,8 @@ R1="$DEV_DIR/r1.sh"
 test_bad_arguments_exit_2()
 {
 	local out rc a
-	for a in '' 'frob' 'check --frob x' 'check x' 'capture --base' 'capture x y'; do
+	for a in '' 'frob' 'check --frob x' 'check x' 'capture --base' 'capture x y' \
+		'replay' 'replay x' 'replay x y z'; do
 		# shellcheck disable=SC2086  # split the arguments on purpose
 		out=$("$R1" $a 2>&1) && rc=0 || rc=$?
 		assert_eq "$rc" 2 "$a: $out"
@@ -361,6 +362,49 @@ test_check_needs_baseline_of_same_cfg()
 	assert_eq "$(grep -c . "$d/bin/scons.args")" 1 "check built"
 	out=$(R1_CFG='TexFilt=1' r1_run "$d" check 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 0 "$out"
+}
+
+# The frame hash log the stub game writes for an input script named
+# $1.txt at -maxfps 60 with game.seed 1: a recorded run's own log.
+stub_live_log()
+{
+	echo "# scene $1"
+	for ((i = 0; i < 4; i++)); do printf "%d 640x480 %016x\n" "$i" $((1000 + 600 + ${#1} + i)); done
+}
+
+# Test that replay plays the recording given by its path, hidden, and
+# compares its frames with the recorded run's log: identical passes with 0,
+# a tree that changes a frame fails with 1, naming it (#99).
+test_replay_compares_with_the_recorded_run()
+{
+	local d out rc
+	r1_mac_only
+	d=$(r1_setup)
+	echo '0 end' > "$d/live.txt"
+	stub_live_log live > "$d/live.log"
+	out=$(r1_run "$d" replay "$d/live.txt" "$d/live.log" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "live.txt at 60 fps: 4/4 frames identical"
+	echo 2 > "$d/repo/game.seed"
+	out=$(r1_run "$d" replay "$d/live.txt" "$d/live.log" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "first difference: section '# scene live', frame 0"
+}
+
+# Test that replay refuses files that are not there and more than one fps
+# with 2, before it builds.
+test_replay_bad_inputs_exit_2()
+{
+	local d out rc
+	d=$(r1_setup)
+	echo '0 end' > "$d/live.txt"
+	out=$(r1_run "$d" replay "$d/missing.txt" "$d/live.txt" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "missing.txt is not a file"
+	out=$(R1_FPS='60 200' r1_run "$d" replay "$d/live.txt" "$d/live.txt" 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "holds 2"
+	assert_not_contains "$out" "building"
 }
 
 run_tests --parallel
