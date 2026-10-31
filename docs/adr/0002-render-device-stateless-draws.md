@@ -9,6 +9,7 @@ Amended 2026-10-28 (#32): the pixel-centre rule for lines and points.
 Amended 2026-10-28 (owner, #29): the depth band keeps `discard` on every depth-tested draw.
 Amended 2026-10-29 (#33): the font formats are not quantized; the adapter uploads the texel GL samples.
 Amended 2026-10-29 (#34): SDL_GPU builds GL's mipmaps; the FLIP bound of each texture filter.
+Amended 2026-10-31 (#31): the vertex shader's position is `precise`.
 
 ## Context
 
@@ -62,6 +63,20 @@ ties, and that sticky state is what lets the alpha test leak into 2D.
   depth-tested draw keeps `discard`. T9's screen of 48 combinations found no other bit-exact
   one; in the demo only explosion sprites reach the band (41 draws in 17 of 5,396 frames), and
   keeping `discard` costs at most 1 % (1024x768 and 3072x2304).
+- **Precise position** (#31): `_g3_draw_tmap_2` draws a wall twice, the base texture and then
+  the overlay texture over the same corners, in one draw state (depth `test_and_write`, LEQUAL),
+  so the second pass shows only where its depth is not above the first's. The vertex shader's
+  position output is `precise`, so both passes get bit-identical depth whatever pipeline each
+  runs on. SPIRV-Cross then writes both matrix products as the ordered fma chains of
+  `spvFMulMatrixVector` (marked `[[clang::optnone]]`, its intent; Metal documents no guarantee),
+  and DXC drops the `fast` flags and marks the chain `dx.precise` (pinned dxc: 14 of 14 float
+  operations `fast` before, 27 `dx.precise` and 2 `fast` after). Measured on Metal (M1 Max,
+  Darwin 27.2.0), the overlay trace has 0 depth ties and GL's hashes with `precise` and without
+  it, so on Metal today it changes the shader and no pixel; it guards other compilers (Vulkan
+  and D3D12 drivers are not measured). `shader_blobs`'s `vertex_position_is_precise` pins it in
+  the committed blobs; test-sdlgpu's `overlay_passes_tie_nowhere` counts the ties (frames 1 and
+  2 of `overlay.rtr`: an opaque base and a transparent overlay), and
+  `depth_clear_keeps_the_colour_and_resets_the_depth` pins the pass split at a depth-only clear.
 - **Pixel-centre rule** (#32): lines, line loops and points reach SDL_GPU as triangle lists
   (`common/render/line_quads.h`), because D3D12 has no wide lines or sized points. A pixel belongs
   to a quad when its centre lies inside, and on the quad's left or upper edge in window
