@@ -444,6 +444,13 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 				result = joy_device_removed(&event.jdevice);
 				break;
 #endif
+#if SDL_MAJOR_VERSION == 3
+			case SDL_EVENT_AUDIO_DEVICE_ADDED:
+			case SDL_EVENT_AUDIO_DEVICE_REMOVED:
+			case SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED:
+				dcx::sdl::audio_device_event(event.adevice);
+				continue;
+#endif
 			case SDL_JOYBUTTONDOWN:
 			case SDL_JOYBUTTONUP:
 				if (CGameArg.CtlNoJoystick)

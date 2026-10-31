@@ -100,6 +100,17 @@ void log_device(const char *const what, const SDL_AudioDeviceID id)
 	con_printf(CON_NORMAL, "SDL audio: %s %s, %d frames", what, dcx::sdl::audio_device_text(SDL_GetAudioDeviceName(id), spec).c_str(), frames);
 }
 
+void log_device_event(const SDL_AudioDeviceEvent &e)
+{
+	if (e.recording)
+		return;
+	const char *const what{
+		e.type == SDL_EVENT_AUDIO_DEVICE_ADDED ? "device added:" :
+		e.type == SDL_EVENT_AUDIO_DEVICE_REMOVED ? "device removed:" :
+		"device format changed:"};
+	log_device(what, e.which);
+}
+
 void commit_frame()
 {
 	if (effects)
@@ -143,7 +154,7 @@ int digi_mixer_init()
 		return r;
 	}
 	effects = std::move(e);
-	sdl::audio_hooks = {.commit_frame = &commit_frame};
+	sdl::audio_hooks = {.commit_frame = &commit_frame, .device_event = &log_device_event};
 	digi_mixer_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
 	return 0;
 }

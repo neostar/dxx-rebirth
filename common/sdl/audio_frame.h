@@ -13,15 +13,18 @@
 namespace dcx::sdl {
 
 /* What the event loop (event.cpp) hands the SDL3 build's audio, which
- * registers it while its device is open (digi_mixer.cpp) and clears it at
- * close: commit_frame at the start of every event_process, so a frame's
+ * registers these while its device is open (digi_mixer.cpp) and clears them
+ * at close: commit_frame at the start of every event_process, so a frame's
  * effects reach the mixer in menus and briefings too, where
- * digi_sync_sounds() does not run.  A hook, so that the programs linking
- * event.cpp without the audio (its tests) need none.
+ * digi_sync_sounds() does not run; device_event for each
+ * SDL_EVENT_AUDIO_DEVICE_* event, which the audio logs (sdl-audio.md area 3).
+ * Hooks, so that the programs linking event.cpp without the audio (its
+ * tests) need none.
  */
 struct audio_frame_hooks
 {
 	void (*commit_frame)(){nullptr};
+	void (*device_event)(const SDL_AudioDeviceEvent &){nullptr};
 };
 
 inline audio_frame_hooks audio_hooks{};
@@ -47,6 +50,12 @@ struct audio_frame_commit
 		audio_commit_frame();
 	}
 };
+
+inline void audio_device_event(const SDL_AudioDeviceEvent &e)
+{
+	if (audio_hooks.device_event)
+		audio_hooks.device_event(e);
+}
 
 }
 #endif
