@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the fork's pinned dependencies (SDL3, FluidSynth, SDL3_mixer,
+# Build the fork's pinned dependencies (PhysicsFS, SDL3, FluidSynth, SDL3_mixer,
 # SDL3_image, SDL_shadercross, DXC, gitleaks, LLVM's clangd, clang-format and
 # clang-tidy) from tools/dev/toolchain.pins into
 # the project-local prefix, the same way on the Mac and in the Linux
@@ -15,6 +15,8 @@
 #   download that does not match is deleted, never cached.  `prebuilt` files
 #   are fetched for --platform only (default: this machine's), so the Mac
 #   can fill the cache for the Linux container.
+#   A `patch` line pins a patch file beside the manifest by its sha256; build
+#   applies it to its source after unpacking and fails unless it applies cleanly.
 #   A `fetchcontent` checkout is not built itself: it stands in for the
 #   CMake FetchContent download of that name in every build.
 # build: verify the cache again, then build every source offline into a
@@ -158,7 +160,43 @@ fetch_checkout()
 # manifest.
 dep_lines()
 {
-	grep -E '^(source|git|fetchcontent|prebuilt)[[:space:]]' "$manifest"
+	grep -E '^(source|git|fetchcontent|prebuilt|patch)[[:space:]]' "$manifest"
+}
+
+# Fail unless every `patch` line names a patch file beside the manifest with
+# its pinned sha256, for a `source` dependency of the manifest.
+verify_patches()
+{
+	local kind name file want
+	while read -r kind name file want _; do
+		[[ $kind == patch ]] || continue
+		[[ -n $file && -n $want ]] || refuse "patch $name: needs a file and a sha256"
+		grep -qE "^source[[:space:]]+${name}[[:space:]]" "$manifest" ||
+			refuse "patch $file: the manifest has no source $name to apply it to"
+		verify_file "patch $file" "$(dirname "$manifest")/$file" "$want"
+	done < <(dep_lines)
+}
+
+# Apply the patches of dependency $1 to its unpacked source $2, in manifest
+# order, and fail unless each applies cleanly: git apply takes no fuzz, and
+# a second run in reverse checks that the patch is now in the tree.  The
+# build tree may lie inside a repository (third_party/ of this clone), where
+# git apply skips, without a word, every hunk outside the current directory
+# (paths are the repository's): GIT_CEILING_DIRECTORIES, the source's parent,
+# keeps git from finding any repository above the source.
+apply_patches()
+{
+	local name=$1 src=$2 kind n file want dir ceiling
+	dir=$(cd "$(dirname "$manifest")" && pwd) || return 1
+	ceiling=$(cd "$src/.." && pwd -P) || return 1
+	while read -r kind n file want _; do
+		[[ $kind == patch && $n == "$name" ]] || continue
+		echo "patch $name: $file"
+		(cd "$src" && export GIT_CEILING_DIRECTORIES=$ceiling &&
+			git apply --no-index --whitespace=nowarn "$dir/$file" &&
+			git apply --no-index --reverse --check "$dir/$file") ||
+			{ echo "deps.sh: $name: patch $file does not apply cleanly" >&2; return 1; }
+	done < <(dep_lines)
 }
 
 # Visit every dependency line that applies here: call $1 with
@@ -197,6 +235,14 @@ verify_one()
 
 # Extra CMake options per dependency: only what the game needs, nothing
 # found outside the prefix.
+# PhysicsFS: the shared library only; its CMake (minimum 3.0) predates
+# CMake 4's floor of 3.5.
+cmake_options_physfs()
+{
+	echo -DPHYSFS_BUILD_STATIC=OFF -DPHYSFS_BUILD_SHARED=ON -DPHYSFS_BUILD_TEST=OFF \
+		-DPHYSFS_BUILD_DOCS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+}
+
 # On Linux the prefix serves the headless reference container: offscreen
 # video with Vulkan, no X11 or Wayland.
 cmake_options_SDL3()
@@ -307,7 +353,8 @@ build_options_hash()
 {
 	local f
 	{
-		declare -f build_one reproducible_options relocatable_install_names extract_prebuilt
+		declare -f build_one reproducible_options relocatable_install_names extract_prebuilt \
+			apply_patches physfs_pc_rpath
 		for f in $(declare -F | awk '$3 ~ /^(cmake_options|prebuilt_members|prebuilt_programs)_/ {print $3}'); do
 			echo "$f: $("$f")"
 		done
@@ -401,11 +448,26 @@ relocatable_install_names()
 	done < <(find "$prefix/bin" "$prefix/lib" -type f -print0 2>/dev/null)
 }
 
+# physfs.pc names the library directory but no rpath, which a program
+# linking the shared library needs to find it in the prefix (sdl3.pc does):
+# add it to the Libs line, as -Wl,-rpath,${libdir}, which pkg-config
+# --define-prefix relocates with the prefix.  Fail if the line is not there.
+physfs_pc_rpath()
+{
+	local pc=$prefix/lib/pkgconfig/physfs.pc
+	grep -q '^Libs: ' "$pc" || { echo "$pc has no Libs line"; return 1; }
+	# shellcheck disable=SC2016  # ${libdir} is pkg-config's, not the shell's
+	sed 's|^Libs: |Libs: -Wl,-rpath,${libdir} |' "$pc" > "$pc.new" && mv "$pc.new" "$pc"
+	# shellcheck disable=SC2016
+	grep -q '^Libs: -Wl,-rpath,${libdir} ' "$pc"
+}
+
 build_one()
 {
 	local kind=$1 name=$2 src=$work/src/$2 opts=()
 	case $kind in
-	source) mkdir -p "$src"; tar -xf "$6" -C "$src" --strip-components=1 ;;
+	source) mkdir -p "$src"; tar -xf "$6" -C "$src" --strip-components=1
+		apply_patches "$name" "$src" || refuse "$name: patch failed" ;;
 	# Out of source, straight from the verified checkout: a clone would
 	# fetch the submodules from their remotes.
 	git) src=$5 ;;
@@ -429,7 +491,8 @@ build_one()
 		"${opts[@]+"${opts[@]}"}" > "$work/$name.log" 2>&1 &&
 		cmake --build "$work/build/$name" --parallel "$jobs" >> "$work/$name.log" 2>&1 &&
 		cmake --install "$work/build/$name" >> "$work/$name.log" 2>&1 &&
-		relocatable_install_names >> "$work/$name.log" 2>&1; }; then
+		relocatable_install_names >> "$work/$name.log" 2>&1 &&
+		{ ! declare -F "${name}_pc_rpath" >/dev/null || "${name}_pc_rpath" >> "$work/$name.log" 2>&1; }; }; then
 		tail -n 30 "$work/$name.log" >&2
 		refuse "$name: build failed; log in $work/$name.log"
 	fi
@@ -458,6 +521,7 @@ if [[ $mode != build ]]; then
 fi
 if [[ $mode != fetch ]]; then
 	each_dep verify_one
+	verify_patches
 	# pkg-config sees the prefix only, never Homebrew's or the system's
 	# libraries.
 	export PKG_CONFIG_LIBDIR=$prefix/lib/pkgconfig PKG_CONFIG_PATH=

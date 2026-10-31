@@ -88,6 +88,7 @@ test_plan_maps_paths_to_steps()
 		[docs/contributing/x.md]='tools'
 		[tools/dev/toolchain.pins]='tools container gpu'
 		[tools/dev/deps.sh]='tools container gpu'
+		[tools/dev/patches/physfs-x.patch]='tools container gpu'
 		[tools/dev/vk_layer_settings.txt]='tools gpu'
 		[common/render/device.h]='game gpu'
 		[common/render/readback.h]='game gpu'

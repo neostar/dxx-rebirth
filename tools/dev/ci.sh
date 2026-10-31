@@ -119,7 +119,7 @@ path_classes()
 	common/render/render_device.h|common/sdl/*)
 		echo game gpu ;;
 	tools/dev/gpu-programs|tools/dev/gpu-validate.sh|tools/dev/vk_layer_settings.txt) echo tools gpu ;;
-	tools/dev/deps.sh|tools/dev/toolchain.pins) echo tools container gpu ;;
+	tools/dev/deps.sh|tools/dev/toolchain.pins|tools/dev/patches/*) echo tools container gpu ;;
 	common/*|similar/*|d1x-rebirth/*|d2x-rebirth/*) echo game ;;
 	tools/dev/env.sh|tools/dev/requirements.*|\
 	tools/dev/container/*|tools/dev/build.sh|tools/dev/site-*.py|tools/dev/fork_warnings.py|\

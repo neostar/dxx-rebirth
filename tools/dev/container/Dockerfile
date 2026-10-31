@@ -20,7 +20,8 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
 
 # Compilers (GCC 14 and Clang 19, as gcc/g++/cc/c++ and clang/clang++),
 # ccache, build tools and the libraries of the legacy SDL1.2 and SDL2
-# builds; Vulkan on lavapipe with the validation layers.  Every package
+# builds (PhysicsFS is no apt package: deps.sh builds it, patched, below);
+# Vulkan on lavapipe with the validation layers.  Every package
 # comes from the Ubuntu archive as it was at the snapshot.  The base image
 # has no CA certificates for snapshot.ubuntu.com's https, so they come
 # first with peer verification off: apt checks every package against the
@@ -35,7 +36,7 @@ RUN echo "APT::Snapshot \"$SNAPSHOT\";" > /etc/apt/apt.conf.d/50snapshot \
     && apt-get install -y --no-install-recommends \
         curl git make gcc-14 g++-14 clang-19 ccache pkgconf scons python3 perl zstd \
         libsdl1.2-dev libsdl-image1.2-dev libsdl-mixer1.2-dev \
-        libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libphysfs-dev libpng-dev \
+        libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libpng-dev \
         libgl-dev libglu1-mesa-dev libboost-test-dev \
         libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
     && rm -rf /var/lib/apt/lists/* \
@@ -48,8 +49,10 @@ RUN git config --system safe.directory '*'
 
 COPY --from=uv /uv /usr/local/bin/uv
 # Only what deps.sh reads, so that the image depends on exactly the files
-# container.sh hashes into its tag.
+# container.sh hashes into its tag.  The patch files
+# are hashed through their sha256 in toolchain.pins.
 COPY deps.sh env.sh toolchain.pins requirements.lock /opt/dxx/dev/
+COPY patches /opt/dxx/dev/patches
 
 # The venv from the hashed lockfile: the one step that downloads, at image
 # build time, every wheel checked against its hash.

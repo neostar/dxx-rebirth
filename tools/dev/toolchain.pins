@@ -23,17 +23,16 @@ tool shellcheck any 0.11.0
 # pkg <pkg-config module> <platform> <version>: the system libraries the
 # legacy SDL1.2/SDL2 builds link (Homebrew on the Mac, the Ubuntu snapshot
 # in the container); the source-built SDL3 stack below replaces them from
-# the SDL3 build scaffold (#38) on.
+# the SDL3 build scaffold (#38) on.  PhysicsFS is no `pkg` line: both
+# platforms build it from source below, patched (#87).
 pkg sdl2 darwin 2.32.74
 pkg SDL2_image darwin 2.8.12
 pkg SDL2_mixer darwin 2.8.2
-pkg physfs darwin 3.2.0
 pkg libpng darwin 1.6.59
 pkg sdl darwin 1.2.78
 pkg sdl2 linux 2.30.0
 pkg SDL2_image linux 2.8.2
 pkg SDL2_mixer linux 2.8.0
-pkg physfs linux 3.0.2
 pkg libpng linux 1.6.43
 pkg sdl linux 1.2.68
 pkg SDL_image linux 1.2.12
@@ -53,6 +52,15 @@ image ubuntu-snapshot 20261020T000000Z
 # source <name> <version> <url> <sha256>: a release tarball.
 # git <name> <commit> <url>: the commit, with its submodules at the commits
 #   it records, is the pin.
+# patch <name> <file> <sha256>: a patch to source <name>, applied after
+#   unpacking (deps.sh fails unless it applies cleanly); <file> lies beside
+#   this manifest.
+# PhysicsFS 3.2.0 (2022-09-30) is the latest release, and has no tarball
+# but GitHub's tag archive.  Its patch is upstream commit 8a90802778f1
+# (CVE-2024-58392, UTF-8 out-of-bounds read, #87), unreleased: drop both
+# lines once a release carries it.
+source physfs 3.2.0 https://github.com/icculus/physfs/archive/refs/tags/release-3.2.0.tar.gz 1991500eaeb8d5325e3a8361847ff3bf8e03ec89252b7915e1f25b3f8ab5d560
+patch physfs patches/physfs-8a90802778f1.patch a2df71fd2a109d4ecdca6379f39b3fd2acb3e98a8a38151bc8c361ec8f4e6af7
 source SDL3 3.4.18 https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz 9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
 # FluidSynth v2.6.1: its source archive lacks the gcem and signalsmith
 # submodules, which its CMake would then download during the build.

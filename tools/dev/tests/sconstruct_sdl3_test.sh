@@ -8,16 +8,18 @@
 # costs about two minutes in the emulated container.
 source "$(dirname "$0")/lib.sh"
 
-# Make a prefix in scratch directory $1 holding the pinned SDL3 stack, with
-# .pc files whose include directory pkg-config treats as a system one.
+# Make a prefix in scratch directory $1 holding the pinned SDL3 stack and
+# the pinned PhysicsFS (#87: no system one is installed), with .pc files
+# whose include directory pkg-config treats as a system one.
 make_system_prefix()
 {
 	local d=$1 pc
 	mkdir -p "$d/sys/include" "$d/sys/lib/pkgconfig"
 	cp -R "$dev_deps_prefix/include/SDL3" "$dev_deps_prefix/include/SDL3_image" \
 		"$dev_deps_prefix/include/SDL3_mixer" "$d/sys/include/"
-	cp -R "$dev_deps_prefix/lib/"libSDL3* "$d/sys/lib/"
-	for pc in sdl3:SDL3 sdl3-image:SDL3_image sdl3-mixer:SDL3_mixer; do
+	cp -R "$dev_deps_prefix/include/physfs.h" "$d/sys/include/"
+	cp -R "$dev_deps_prefix/lib/"libSDL3* "$dev_deps_prefix/lib/"libphysfs* "$d/sys/lib/"
+	for pc in sdl3:SDL3 sdl3-image:SDL3_image sdl3-mixer:SDL3_mixer physfs:physfs; do
 		printf '%s\n' "prefix=$d/sys" "includedir=\${prefix}/include" "libdir=\${prefix}/lib" \
 			"Name: ${pc%%:*}" 'Description: synthetic' 'Version: 3.4.0' \
 			"Libs: -L\${libdir} -Wl,-rpath,\${libdir} -l${pc#*:}" "Cflags: -I\${includedir}" \
@@ -44,6 +46,8 @@ need_tools()
 	command -v scons >/dev/null || skip 'no scons in PATH'
 	[[ -e $dev_deps_prefix/include/SDL3/SDL.h ]] ||
 		skip "no pinned SDL3 in $dev_deps_prefix; run tools/dev/deps.sh build"
+	[[ -e $dev_deps_prefix/include/physfs.h ]] ||
+		skip "no pinned PhysicsFS in $dev_deps_prefix; run tools/dev/deps.sh build"
 }
 
 # Test that sdl3=1 finds SDL3 and its libraries in a compiler default

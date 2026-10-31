@@ -54,6 +54,133 @@ test_builds_pinned_source_into_prefix()
 	[[ ! -e $d/prefix-build ]] || fail "build tree left behind"
 }
 
+# Write into $1/patches/demo.patch a patch of demo's CMakeLists.txt that
+# makes the file it installs say "patched" instead of "hello", and print its manifest
+# line `patch demo ...`.
+make_demo_patch()
+{
+	local d=$1 t=$1/patch-tree
+	mkdir -p "$t/a" "$t/b" "$d/patches"
+	cmake_project "$t/a" demo
+	cmake_project "$t/b" demo
+	sed 's/"hello\\n"/"patched\\n"/' "$t/a/CMakeLists.txt" > "$t/b/CMakeLists.txt"
+	# In git's format, as upstream's commits are: only then git apply takes
+	# the paths as the repository's.
+	# raw git: the text of a patch header, not a command
+	{ echo "diff --git a/CMakeLists.txt b/CMakeLists.txt"
+		(cd "$t" && diff -u a/CMakeLists.txt b/CMakeLists.txt) || [[ $? -eq 1 ]] || die "diff failed"
+	} > "$d/patches/demo.patch"
+	echo "patch demo patches/demo.patch $(dev_sha256 "$d/patches/demo.patch")"
+}
+
+# Write a CMake project into directory $1 that installs lib/pkgconfig/physfs.pc
+# with the lines "${@:2}".
+physfs_pc_project()
+{
+	local d=$1; shift
+	mkdir -p "$d"
+	printf '%s\n' 'cmake_minimum_required(VERSION 3.20)' 'project(physfs NONE)' \
+		"file(WRITE \${CMAKE_BINARY_DIR}/physfs.pc \"$(printf '%s\\n' "$@" | sed 's/\$/\\$/g')\")" \
+		'install(FILES ${CMAKE_BINARY_DIR}/physfs.pc DESTINATION lib/pkgconfig)' > "$d/CMakeLists.txt"
+}
+
+# Test that a dependency named physfs gets the rpath on the Libs line of its
+# physfs.pc, which pkg-config relocates with the prefix, and that the build
+# fails when the file has no Libs line (fail closed).
+test_physfs_pc_gets_an_rpath()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	physfs_pc_project "$d/src/physfs-1.0" 'libdir=${prefix}/lib' 'Libs: -L${libdir} -lphysfs'
+	tar -czf "$d/physfs-1.0.tar.gz" -C "$d/src" physfs-1.0
+	echo "source physfs 1.0 file://$d/physfs-1.0.tar.gz $(dev_sha256 "$d/physfs-1.0.tar.gz")" > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$(cat "$d/prefix/lib/pkgconfig/physfs.pc")" 'Libs: -Wl,-rpath,${libdir} -L${libdir} -lphysfs'
+	rm -rf "$d/src" "$d/cache" "$d/prefix" "$d/prefix-build"
+	physfs_pc_project "$d/src/physfs-1.0" 'libdir=${prefix}/lib' 'Requires: none'
+	tar -czf "$d/physfs-1.0.tar.gz" -C "$d/src" physfs-1.0
+	echo "source physfs 1.0 file://$d/physfs-1.0.tar.gz $(dev_sha256 "$d/physfs-1.0.tar.gz")" > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "physfs.pc has no Libs line"
+}
+
+# Test that a pinned patch is applied to its source before it is built, and
+# its line is in the stamp, so doctor.sh sees a changed patch.
+test_applies_pinned_patch()
+{
+	local d t out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	t=$(make_tarball "$d" demo)
+	{ echo "source demo 1.0 file://$t $(dev_sha256 "$t")"; make_demo_patch "$d"; } > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "patch demo: patches/demo.patch"
+	assert_eq "$(cat "$d/prefix/share/demo/hello" 2>&1)" patched
+	assert_contains "$(cat "$d/prefix/deps.stamp")" "patch demo patches/demo.patch"
+}
+
+# Test that a patch is applied also when the build tree lies inside a git
+# repository that ignores it, as third_party/ is in this clone: git apply there
+# skips every hunk, silently.
+test_applies_pinned_patch_inside_a_repository()
+{
+	local d r t out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	r=$(make_repo) || die "make_repo failed"
+	echo /third_party/ > "$r/.gitignore"
+	t=$(make_tarball "$d" demo)
+	{ echo "source demo 1.0 file://$t $(dev_sha256 "$t")"; make_demo_patch "$d"; } > "$d/manifest"
+	out=$("$DEPS" --manifest "$d/manifest" --cache "$d/cache" --prefix "$r/third_party/prefix" 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_eq "$(cat "$r/third_party/prefix/share/demo/hello" 2>&1)" patched
+}
+
+# Test that a patch which does not apply cleanly fails the build, builds
+# nothing and says which patch.
+test_patch_that_does_not_apply_fails()
+{
+	local d t out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	t=$(make_tarball "$d" demo)
+	make_demo_patch "$d" > /dev/null
+	# A context line the source does not have.
+	sed 's/^ project(demo NONE)/ project(other NONE)/' "$d/patches/demo.patch" > "$d/patches/bad"
+	mv "$d/patches/bad" "$d/patches/demo.patch"
+	{ echo "source demo 1.0 file://$t $(dev_sha256 "$t")"
+		echo "patch demo patches/demo.patch $(dev_sha256 "$d/patches/demo.patch")"; } > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "demo: patch patches/demo.patch does not apply cleanly"
+	[[ ! -e $d/prefix/share/demo/hello ]] || fail "built from a source whose patch failed"
+}
+
+# Test that a patch file that is not the pinned one, a missing one, and a
+# patch for a dependency the manifest lacks are refused before any build.
+test_patch_pins_are_checked()
+{
+	local d t out rc line
+	d=$(make_scratch) || die "make_scratch failed"
+	t=$(make_tarball "$d" demo)
+	line=$(make_demo_patch "$d")
+	echo "tampered" >> "$d/patches/demo.patch"
+	{ echo "source demo 1.0 file://$t $(dev_sha256 "$t")"; echo "$line"; } > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "does not match the pinned"
+	rm "$d/patches/demo.patch"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "not in the cache"
+	{ echo "source demo 1.0 file://$t $(dev_sha256 "$t")"; echo "${line/patch demo/patch other}"; } > "$d/manifest"
+	out=$(run_deps "$d") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "the manifest has no source other to apply it to"
+	[[ ! -e $d/prefix ]] || fail "prefix made despite a refused patch"
+}
+
 # Test that the stamp records the pins and a hash of the build options.
 test_stamp_records_pins_and_build_options()
 {

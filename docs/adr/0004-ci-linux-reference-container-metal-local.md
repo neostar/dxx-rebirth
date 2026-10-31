@@ -77,6 +77,9 @@ says nothing about a GPU; actions/runner-images#7085, #9918 and #14836 disagree 
   versions (`pkg` lines: Homebrew on the Mac, the Ubuntu snapshot in the container), which
   `doctor.sh` checks with pkg-config. The pinned, source-built SDL3 stack (`deps.sh`) is consumed
   from the SDL3 build scaffold ticket (#38) on.
+  PhysicsFS is the exception among the legacy libraries: both platforms link the source-built 3.2.0
+  from `deps.sh`, with upstream's CVE-2024-58392 fix (`patch` line, pinned by sha256, applied
+  without fuzz), and `doctor.sh` probes it for the fix.
 - **One LLVM.** clangd, clang-format and clang-tidy come from LLVM's own release archive for each
   platform, pinned by sha256 and unpacked by `deps.sh`, on the Mac and in the container alike;
   `doctor.sh` checks that the programs are still the unpacked ones, of one release and one source.

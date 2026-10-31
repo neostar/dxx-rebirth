@@ -1,0 +1,28 @@
+From 8a90802778f14dea9c086fb5436839181a3222d5 Mon Sep 17 00:00:00 2001
+From: "Ryan C. Gordon" <icculus@icculus.org>
+Date: Wed, 17 Dec 2025 10:24:26 -0500
+Subject: [PATCH] unicode: fix moving to next codepoint on maliciously-crafted
+ UTF-8 string.
+
+Note that 6-byte UTF-8 is illegal now, so this chunk of code really needs to
+go away in any case, but that's a different problem.
+
+Fixes #79.
+Closes #80.
+---
+ src/physfs_unicode.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/physfs_unicode.c b/src/physfs_unicode.c
+index 8c615cf6..6a235d40 100644
+--- a/src/physfs_unicode.c
++++ b/src/physfs_unicode.c
+@@ -183,7 +183,7 @@ PHYSFS_uint32 __PHYSFS_utf8codepoint(const char **_str)
+         if ((octet & (128+64)) != 128)  /* Format isn't 10xxxxxx? */
+             return UNICODE_BOGUS_CHAR_VALUE;
+ 
+-        *_str += 6;  /* skip to next possible start of codepoint. */
++        *_str += 5;  /* skip to next possible start of codepoint. */
+         return UNICODE_BOGUS_CHAR_VALUE;
+     } /* else if */
+ 
