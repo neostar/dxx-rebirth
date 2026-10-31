@@ -70,8 +70,12 @@ Terms used in code, tickets, ADRs and agent prompts for the SDL3 + SDL_GPU port.
   ends the run. `DXX_DBG_HIDDEN=1` creates the window hidden, so nothing shows on screen;
   on macOS its frames hash the same as a shown window's. `DXX_DBG_TRACE=path` with
   `DXX_DBG_TRACE_FRAMES=FIRST-LAST` records a trace of those frames through the recording
-  adapter (`common/render/recording_device.h`), frames counted by presents from the run's start. `-pilot name` creates a missing pilot with the
-  defaults, so a fresh `D2X_REBIRTH_HOME` skips the pilot prompt.
+  adapter (`common/render/recording_device.h`), frames counted by presents from the run's start.
+  `DXX_DBG_RECORD_INPUT=path` records the input the run consumed as an input script, at the
+  harness tick `event_poll` took each event, which `DXX_DBG_INPUT_SCRIPT` replays
+  (`common/debug/input_recorder.h`, `common/sdl/harness_record.cpp`, `docs/agents/game-data.md`).
+  `-pilot name` creates a missing pilot with the defaults, so a fresh `D2X_REBIRTH_HOME` skips the
+  pilot prompt.
 - **Golden**: the reference image or hash a test compares against; always produced by GL replay.
 - **R1-R16**: the rubric criteria in the approved plan.
 - **R1 baseline**: the frame hash logs of S1-S4 played by a build of the branch point, one set
