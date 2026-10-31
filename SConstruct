@@ -5139,6 +5139,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-link-stub', (
 			'common/sdl/unittest/link_stub.cpp',
 			)),
+		RuntimeTest('test-audio-gains', (
+			'common/sdl/unittest/audio_gains.cpp',
+			)),
 		RuntimeTest('test-gamepad-layout', (
 			'common/sdl/unittest/gamepad_layout.cpp',
 			)),
