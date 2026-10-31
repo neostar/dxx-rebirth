@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -90,15 +91,17 @@ BOOST_AUTO_TEST_CASE(msl_blobs_define_entry_point)
 }
 
 /* Test that the vertex shader follows the exact transform model (ADR 2): clip = P * (MV * v)
- * with split matrices, and GL's near and far planes as the clip distances z + w and w - z. */
+ * with split matrices, and GL's near and far planes as the clip distances z + w and w - z.  The
+ * position is precise (#31), so SPIRV-Cross multiplies with its spvFMulMatrixVector. */
 BOOST_AUTO_TEST_CASE(vertex_shader_uses_exact_transform_model)
 {
 	const std::string msl{vert::msl.begin(), vert::msl.end()};
 	BOOST_TEST(msl.contains("float4x4 projection;\n    float4x4 modelview;"));
 	BOOST_TEST(msl.contains("float gl_ClipDistance [[clip_distance]] [2];"));
 	const std::string clip{value_name(msl, "float4",
-	                                  "vertex_uniforms.projection * (vertex_uniforms.modelview * "
-	                                  "float4(in.in_var_TEXCOORD0, 1.0))")};
+	                                  "spvFMulMatrixVector(vertex_uniforms.projection, "
+	                                  "spvFMulMatrixVector(vertex_uniforms.modelview, "
+	                                  "float4(in.in_var_TEXCOORD0, 1.0)))")};
 	BOOST_REQUIRE(!clip.empty());
 	BOOST_TEST(msl.contains("out.gl_Position = " + clip + ";"));
 	const std::string z{value_name(msl, "float", clip + ".z")};
@@ -107,6 +110,47 @@ BOOST_AUTO_TEST_CASE(vertex_shader_uses_exact_transform_model)
 	BOOST_REQUIRE(!w.empty());
 	BOOST_TEST(msl.contains("out.gl_ClipDistance[0u] = " + z + " + " + w + ";"));
 	BOOST_TEST(msl.contains("out.gl_ClipDistance[1u] = " + w + " - " + z + ";"));
+}
+
+namespace {
+
+/* How many OpDecorate NoContraction instructions the SPIR-V module `spirv` holds: after its
+ * 5-word header come instructions of word count << 16 | opcode, OpDecorate (71) being three
+ * words, a target id and its decoration, NoContraction (42). */
+std::size_t no_contraction_decorations(const std::span<const std::uint8_t> spirv)
+{
+	const auto word{[&spirv](const std::size_t i) {
+		const auto b{spirv.subspan(i * 4, 4)};
+		return std::uint32_t{b[0]} | std::uint32_t{b[1]} << 8u | std::uint32_t{b[2]} << 16u |
+		       std::uint32_t{b[3]} << 24u;
+	}};
+	constexpr std::uint32_t op_decorate{71}, no_contraction{42};
+	std::size_t n{0};
+	for (std::size_t i{5}; i < spirv.size() / 4;)
+	{
+		const std::uint32_t head{word(i)};
+		const std::size_t count{head >> 16u};
+		if (count == 0)
+			break;
+		if ((head & 0xffffu) == op_decorate && count == 3 && word(i + 2) == no_contraction)
+			++n;
+		i += count;
+	}
+	return n;
+}
+
+}
+
+/* Test that the vertex shader's position is precise (#31): the two passes of an overlay wall
+ * need bit-identical depth.  The SPIR-V decorates the position's arithmetic NoContraction and
+ * the MSL multiplies the matrices with SPIRV-Cross's spvFMulMatrixVector, an ordered fma chain
+ * the compiler may not reorder.  Without `precise` the SPIR-V holds no such decoration and
+ * the MSL multiplies with `*`. */
+BOOST_AUTO_TEST_CASE(vertex_position_is_precise)
+{
+	BOOST_TEST(no_contraction_decorations(vert::spirv) > 0u);
+	BOOST_TEST(contains(vert::msl, "spvFMulMatrixVector(vertex_uniforms.projection"));
+	BOOST_TEST(!contains(vert::msl, "vertex_uniforms.projection * "));
 }
 
 /* Test that each shader's stage and resource counts are the ones SDL_GPU must be given: the

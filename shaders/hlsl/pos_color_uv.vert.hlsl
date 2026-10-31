@@ -11,6 +11,14 @@
  * planes clip through the two clip distances z + w and w - z.  The colour is clamped to [0, 1]
  * per vertex, before it is interpolated, as GL_CLAMP_VERTEX_COLOR does (spike T9, vclamp_off);
  * the fragment shader clamps again.  The uv passes through.
+ * The position is precise (#31): the two passes of a wall with an overlay texture (tmap_2) draw
+ * the same corners with the same matrices and must get bit-identical depth, which the second
+ * pass's LEQUAL depth test needs.  precise makes SPIRV-Cross write the two matrix products as
+ * the ordered fma chains of spvFMulMatrixVector, which SPIRV-Cross marks [[clang::optnone]] so
+ * that the Metal compiler does not fuse or reorder them (its intent; Metal documents no
+ * guarantee of it).  With precise, DXC drops the fast flags and marks the chain dx.precise
+ * (checked with the pinned dxc -dumpbin: without it all 14 float mul/add/sub operations carry
+ * fast and none dx.precise; with it 27 are dx.precise and 2 keep fast).
  * Vertex-stage uniform buffers live in (b[n], space1) for SDL_GPU.
  */
 cbuffer vertex_uniforms : register(b0, space1)
@@ -31,7 +39,7 @@ struct vs_output
 {
 	float4 color : TEXCOORD0;
 	float2 uv : TEXCOORD1;
-	float4 pos : SV_Position;
+	precise float4 pos : SV_Position;
 	float near_clip : SV_ClipDistance0;
 	float far_clip : SV_ClipDistance1;
 };
