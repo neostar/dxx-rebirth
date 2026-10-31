@@ -5191,6 +5191,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-mve-audio-stream', (
 			'd2x-rebirth/unittest/mve_audio_stream.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-physfs-utf8', (
+			'common/physfs/unittest/physfs_utf8.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-physfsrwops', (
 			'common/unittest/physfsrwops.cpp',
 			'common/misc/physfsrwops.cpp',

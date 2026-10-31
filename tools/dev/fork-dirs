@@ -7,3 +7,4 @@ common/debug
 shaders
 common/algorithm
 common/sdl
+common/physfs
