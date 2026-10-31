@@ -5379,6 +5379,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-effect-mixer', (
 			'common/sdl/unittest/effect_mixer.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-music-source', (
+			'common/sdl/unittest/music_source.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-sdl-assertion-exit', (
 			'common/sdl/unittest/assertion_exit.cpp',
 			'common/sdl/assertion_exit.cpp',

@@ -19,3 +19,4 @@ common/sdl/unittest/pilot_file.cpp
 common/sdl/unittest/arch_init.cpp
 common/sdl/harness_record.cpp
 common/sdl/unittest/effect_mixer.cpp
+common/sdl/unittest/music_source.cpp
