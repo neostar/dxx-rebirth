@@ -5318,6 +5318,8 @@ class DXXArchive(DXXCommon):
 		'common/arch/sdl/joy.cpp',
 		'common/arch/sdl/key.cpp',
 		'common/arch/sdl/mouse.cpp',
+		# event.cpp reports to the input recorder in dbg_harness builds.
+		'common/sdl/harness_record.cpp',
 		)
 	sdl2_runtime_tests = (
 		# The mouse helpers read SDL2's or SDL3's wheel event; SDL 1.2 has none.
@@ -5493,6 +5495,10 @@ class DXXArchive(DXXCommon):
 'common/debug/trace_harness.cpp',
 'common/render/recording_device.cpp',
 'common/render/trace.cpp',
+))
+	# The input recorder (#99), linked into dbg_harness builds alone.
+	get_objects_sdl_harness = DXXCommon.create_lazy_object_getter((
+'common/sdl/harness_record.cpp',
 ))
 	get_objects_arch_sdlmixer = DXXCommon.create_lazy_object_getter((
 'common/arch/sdl/digi_mixer_music.cpp',
@@ -6030,6 +6036,8 @@ class DXXProgram(DXXCommon):
 		objects.extend(objects_similar_arch())
 		if user_settings.dbg_harness and (user_settings.opengl or user_settings.opengles):
 			objects.extend(static_archive_construction.get_objects_arch_ogl_trace())
+		if user_settings.dbg_harness:
+			objects.extend(static_archive_construction.get_objects_sdl_harness())
 		if user_settings.editor:
 			objects.extend(self.get_objects_editor())
 			objects.extend(static_archive_construction.get_objects_editor())

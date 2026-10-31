@@ -35,6 +35,7 @@
 #include <utility>
 #include "common/debug/hidden_window.h"
 #include "common/debug/input_script_harness.h"
+#include "common/sdl/harness_record.h"
 #if SDL_MAJOR_VERSION >= 2
 #include "common/sdl/virtual_joystick.h"
 #endif
@@ -184,11 +185,13 @@ SDL_Event harness_mouse_event(const input_event &e)
 
 namespace {
 
-/* Push the events of the input script DXX_DBG_INPUT_SCRIPT names
- * (input_script_harness.h) due at this harness tick.
+/* Start the next harness tick of a recording (harness_record.h), then push
+ * the events of the input script DXX_DBG_INPUT_SCRIPT names
+ * (input_script_harness.h) due at it.
  */
 void harness_push_input()
 {
+	harness_record_next_tick();
 	static const char *const path{read_harness_input_script_path()};
 	if (!path)
 		return;
@@ -198,12 +201,7 @@ void harness_push_input()
 	for (const auto &e : script->player.next_tick())
 	{
 		if (e.action == input_action::end)
-		{
-			/* Every frame hash line is already flushed; whatever screen is up, the run ends. */
-			con_printf(CON_NORMAL, "DXX_DBG_INPUT_SCRIPT: the script ends the run at tick %u", std::to_underlying(e.tick));
-			fflush(nullptr);
-			_Exit(0);
-		}
+			harness_end_run(e.tick);
 		const bool joystick_line{e.action == input_action::joy_attach || e.action == input_action::joy_detach ||
 		                         e.action == input_action::joy_axis || e.action == input_action::joy_button_down ||
 		                         e.action == input_action::joy_button_up || e.action == input_action::joy_hat};
@@ -313,6 +311,9 @@ void event_poll_state::process_event_batch(const std::ranges::subrange<const SDL
 #endif
 	for (auto &&event : events)
 	{
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+		harness_record_input(event);
+#endif
 		window_event_result result;
 		switch(event.type) {
 #if SDL_MAJOR_VERSION == 2

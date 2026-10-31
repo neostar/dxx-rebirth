@@ -6,10 +6,11 @@
  */
 
 /*
- * The debug harness's input recorder at the SDL seam (#99): each SDL event
- * the game consumes becomes an input script event, the inverse of the events
- * harness_push_input pushes.  Recording needs SDL 2 or SDL 3;
- * harness_record.cpp defines these.
+ * The debug harness's input recorder at the SDL seam (#99): event.cpp hands
+ * each SDL event the game consumes to harness_record_input, which turns it
+ * into an input script event, the inverse of the events harness_push_input
+ * pushes.  Recording needs SDL 2 or SDL 3.  harness_record.cpp, linked into
+ * dbg_harness builds alone, defines these.
  */
 
 #pragma once
@@ -25,6 +26,20 @@
 #endif
 
 namespace dcx {
+
+/* Start the next harness tick of the run's recording (DXX_DBG_RECORD_INPUT):
+ * count it, pace it to the wall clock when no script plays, and end the
+ * run there when DXX_DBG_RECORD_INPUT_TICKS says so.  Nothing without the
+ * variable.
+ */
+void harness_record_next_tick();
+
+/* End the run at harness tick `tick`, as a script's end line does: every
+ * frame hash line is already flushed, and whatever screen is up, the run
+ * ends; a recording ends there too.
+ */
+[[noreturn]]
+void harness_end_run(harness_tick tick);
 
 #if SDL_MAJOR_VERSION >= 2
 /* What the recorder carries from one event to the next.  SDL3: the
@@ -46,6 +61,11 @@ struct harness_record_state
  */
 std::expected<std::optional<input_event>, unrecorded_input>
 harness_recorded_event(const SDL_Event &event, harness_tick tick, harness_record_state &state);
+
+/* Record `event`, which the game is about to consume, at the harness tick
+ * under way; nothing without DXX_DBG_RECORD_INPUT.
+ */
+void harness_record_input(const SDL_Event &event);
 #endif
 
 }

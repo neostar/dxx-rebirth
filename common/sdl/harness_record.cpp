@@ -6,8 +6,8 @@
  */
 
 /* The input recorder at the SDL seam (#99), linked into dbg_harness builds
- * alone; the unit test links it with event.cpp
- * (common/sdl/unittest/event_poll.cpp).  Without dbg_harness it
+ * alone (SConstruct: get_objects_sdl_harness); the unit test links it with
+ * event.cpp (common/sdl/unittest/event_poll.cpp).  Without dbg_harness it
  * compiles to nothing.
  */
 
@@ -20,12 +20,18 @@
 #include "common/sdl/harness_record.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <iterator>
 #include <string_view>
 #include <utility>
 
+#include "common/debug/input_recorder_harness.h"
+#include "common/debug/input_script_harness.h"
 // clang-format off
 #include "tools/dev/upstream_begin.h"
+#include "console.h"
+#include "dxxerror.h"
 #include "key.h"
 #include "tools/dev/upstream_end.h"
 // clang-format on
@@ -34,6 +40,59 @@ namespace dcx {
 
 /* Whether key_handler takes repeated keys (key.cpp). */
 bool key_repeat_active();
+
+namespace {
+
+/* The run's input recording (input_recorder_harness.h); nullptr without
+ * DXX_DBG_RECORD_INPUT.  Paced to the wall clock when no script plays: a
+ * player drives it.
+ */
+harness_input_recording *harness_recording()
+{
+	static const char *const path{read_harness_record_path()};
+	if (!path)
+		return nullptr;
+#if SDL_MAJOR_VERSION >= 2
+	static const auto recording{open_harness_recording(
+	    path, read_harness_clock_step(), read_harness_record_ticks(),
+	    read_harness_input_script_path() == nullptr,
+	    [](const input_key key) {
+		    return std::string_view{std::data(input_key_entry(key_properties, key).key_text)};
+	    },
+	    [](const std::string_view name) { return input_key_named(key_properties, name); })};
+	if (!recording)
+		// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-format-attr-call): constant format
+		UserError("DXX_DBG_RECORD_INPUT=\"%s\": %s", path, recording.error().c_str());
+	return recording->get();
+#else
+	UserError_puts("DXX_DBG_RECORD_INPUT: recording needs an SDL 2 or SDL 3 build");
+#endif
+}
+
+}
+
+void harness_record_next_tick()
+{
+	if (const auto recording{harness_recording()})
+	{
+		const auto tick{recording->next_tick()};
+		if (recording->ends_at(tick))
+			harness_end_run(tick);
+	}
+}
+
+void harness_end_run(const harness_tick tick)
+{
+	if (const auto recording{harness_recording()})
+	{
+		recording->recorder().end(tick);
+		(void)std::fprintf(stderr, "%s\n", recording->exit_note().c_str());
+	}
+	con_printf(CON_NORMAL, "DXX_DBG_INPUT_SCRIPT: the run ends at tick %u",
+	           std::to_underlying(tick));
+	(void)std::fflush(nullptr);
+	std::_Exit(0);
+}
 
 #if SDL_MAJOR_VERSION >= 2
 std::expected<std::optional<input_event>, unrecorded_input>
@@ -128,6 +187,19 @@ harness_recorded_event(const SDL_Event &event, const harness_tick tick,
 			return std::unexpected{unrecorded_input::joystick};
 		return std::nullopt;
 	}
+}
+
+void harness_record_input(const SDL_Event &event)
+{
+	const auto recording{harness_recording()};
+	if (!recording)
+		return;
+	static harness_record_state state;
+	const auto e{harness_recorded_event(event, recording->tick(), state)};
+	if (!e)
+		recording->recorder().skip(recording->tick(), e.error());
+	else if (e->has_value())
+		recording->recorder().record(e->value());
 }
 #endif
 
