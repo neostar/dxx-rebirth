@@ -363,17 +363,17 @@ namespace {
 /* The bytes of the committed trace the i-th argument after `--` names:
  * tools/dev/rtrace-tests.sh passes the sample's, the overbright
  * trace's, the flash trace's, the walls trace's, the alpha trace's, the
- * lines trace's, the oversize trace's, the fonts trace's, then the filters
- * trace's.
+ * lines trace's, the oversize trace's, the fonts trace's, the filters
+ * trace's, then the overlay trace's.
  */
 [[nodiscard]]
 bytes committed_trace(const std::size_t i)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
 	BOOST_REQUIRE_MESSAGE(
-	    suite.argc == 10,
+	    suite.argc == 11,
 	    "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS ALPHA LINES OVERSIZE "
-	    "FONTS FILTERS");
+	    "FONTS FILTERS OVERLAY");
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	std::ifstream in{args[i], std::ios::binary};
@@ -453,6 +453,14 @@ BOOST_AUTO_TEST_CASE(fonts_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(filters_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(9) == render::rtrace::filters_trace()));
+}
+
+/* Test that the committed overlay trace is the writer's: its bytes are what
+ * overlay_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(overlay_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(10) == render::rtrace::overlay_trace()));
 }
 
 /* Test the lines trace on GL (#32): the pixels each frame covers and their
@@ -1248,7 +1256,7 @@ BOOST_AUTO_TEST_CASE(glyph_blits_its_window_of_the_texture)
 BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE(suite.argc == 10);
+	BOOST_REQUIRE(suite.argc == 11);
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	const auto dir{std::filesystem::temp_directory_path() /
@@ -1297,7 +1305,7 @@ BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 BOOST_AUTO_TEST_CASE(replay_logs_the_games_bottom_first_hashes)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE(suite.argc == 10);
+	BOOST_REQUIRE(suite.argc == 11);
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	const auto dir{std::filesystem::temp_directory_path() /

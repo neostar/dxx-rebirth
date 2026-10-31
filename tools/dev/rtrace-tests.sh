@@ -9,7 +9,7 @@
 # build/<profile>/common/test-rtrace and rtrace (seconds when warm), and
 # then, each through WRAPPER:
 # - test-rtrace, the replay tests on synthetic traces, given the committed
-#   sample, overbright, flash, walls, alpha, lines, oversize, fonts and filters traces to compare
+#   sample, overbright, flash, walls, alpha, lines, oversize, fonts, filters and overlay traces to compare
 #   with their writers, its report written to a file and read back;
 # - rtrace on common/render/rtrace/synthetic/sample.rtr, twice: both runs
 #   log the same two frame hash lines, each the one pinned below;
@@ -181,7 +181,7 @@ rc=0
 report=$tmp/test-rtrace.report
 if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/test-rtrace" --report_level=short \
 	--report_sink="$report" -- "$sample" "$overbright" "$flash" "$walls" "$alpha" "$lines_rtr" \
-	"$oversize" "$fonts" "$filters"; then
+	"$oversize" "$fonts" "$filters" "$overlay"; then
 	echo "rtrace-tests: test-rtrace failed" >&2
 	rc=1
 fi

@@ -47,3 +47,5 @@ expected_filters_metal=('0 64x48 0d33b500a6d9edb0' '1 64x48 3c3b6542f0892545' '2
 # on 2, 15 and 38 pixels.
 filters_gl_tolerance=('5 255' '2 1' '15 1' '38 1' '15 1' '38 1')
 filters=$root/common/render/rtrace/synthetic/filters.rtr
+# The overlay trace (#31).
+overlay=$root/common/render/rtrace/synthetic/overlay.rtr

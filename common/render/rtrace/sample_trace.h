@@ -16,7 +16,8 @@
  * lines.rtr, lines, points and strips (#32); and oversize.rtr, viewports
  * reaching past the target (#18); and fonts.rtr, the font formats' ramps
  * and text (#33); and filters.rtr, minified textures under each texture
- * filter (#34).
+ * filter (#34); and overlay.rtr, walls with the second texture of
+ * _g3_draw_tmap_2 drawn over them, and depth switched off (#31).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -32,6 +33,7 @@
 
 #include "common/render/ambient.h"
 #include "common/render/blit.h"
+#include "common/render/overlay_uv.h"
 #include "common/render/palette_expand.h"
 #include "common/render/render_device.h"
 #include "common/render/trace.h"
@@ -1005,6 +1007,176 @@ inline std::vector<std::uint8_t> filters_trace()
 		w.draw(magnified);
 		w.present({.frame = frame++});
 	}
+	return w.take();
+}
+
+/* A 4x4 nearest texture for the overlay trace: texel i is (r0 + 11 i, g0 -
+ * 9 i, b0 + 30 (i mod 4)) clamped to 20..255, never black, or (r0, g0, b0)
+ * in every texel when solid, and with alpha in every texel (255, opaque)
+ * except when holes: then every texel with i mod 3 == 0 is transparent
+ * (alpha 0) and the others have alpha, so a hole shows the base texture
+ * under it whichever way the overlay turns.  An alpha below 255 makes the
+ * texture has_transparency, as a hole does.
+ */
+struct overlay_texture
+{
+	std::array<std::uint8_t, 64> rgba;
+	texture_image image;
+	overlay_texture(const int r0, const int g0, const int b0, const bool holes,
+	                const bool solid = false, const std::uint8_t alpha = 255)
+	    : rgba{[=] {
+		      std::array<std::uint8_t, 64> p{};
+		      const auto byte{[](const int v) {
+			      return static_cast<std::uint8_t>(v < 20 ? 20 : v > 255 ? 255 : v);
+		      }};
+		      for (std::size_t i{0}; i != 16; ++i)
+		      {
+			      const int k{solid ? 0 : static_cast<int>(i)};
+			      p[i * 4] = byte(r0 + 11 * k);
+			      p[i * 4 + 1] = byte(g0 - 9 * k);
+			      p[i * 4 + 2] = byte(b0 + 30 * (k % 4));
+			      p[i * 4 + 3] = holes && i % 3 == 0 ? std::uint8_t{0} : alpha;
+		      }
+		      return p;
+	      }()},
+	      image{{.size = {4, 4},
+		         .format = texture_format::rgba8,
+		         .filter = filter::nearest,
+		         .anisotropic = false,
+		         .has_transparency = holes || alpha != 255},
+		        rgba}
+	{}
+	overlay_texture(const overlay_texture &) = delete;
+	overlay_texture &operator=(const overlay_texture &) = delete;
+	overlay_texture(overlay_texture &&) = delete;
+	overlay_texture &operator=(overlay_texture &&) = delete;
+	~overlay_texture() = default;
+};
+
+/* A wall's two passes, as _g3_draw_tmap_2 draws them: the base texture over
+ * the quad, then the overlay texture over the same four eye-space corners,
+ * its coordinates turned by rotation (overlay_uv), the same vertex light,
+ * both in the game's state for walls (wall_draw: depth tested and written,
+ * front culled, the default blend and alpha reference, wrapped).  The
+ * corners are clockwise on screen, as the walls trace's are.
+ */
+inline void overlay_wall(trace::writer &w, const std::array<std::array<float, 3>, 4> &pos,
+                         const std::array<std::array<float, 4>, 4> &rgba, const float uv_max,
+                         const uv_rotation rotation, const texture_slot base,
+                         const texture_slot overlay)
+{
+	const auto first{wall_quad(pos, rgba, uv_max)};
+	auto second{first};
+	for (auto &v : second)
+		v.uv = overlay_uv(v.uv, rotation);
+	draw_call b{wall_draw(first)};
+	b.texture = base;
+	b.state.wrap = wrap::repeat;
+	w.draw(b);
+	draw_call o{wall_draw(second)};
+	o.texture = overlay;
+	o.state.wrap = wrap::repeat;
+	w.draw(o);
+}
+
+/* The overlay trace's corridor (frames 0 and 1): the walls trace's, to 40
+ * deep, with an end wall, each wall's two passes with its own turn of the
+ * overlay.  The light is bright at the near end and dim at the far one.
+ */
+inline void overlay_corridor(trace::writer &w, const texture_slot base, const texture_slot overlay)
+{
+	constexpr float n{-0.5f}, f{-40};
+	constexpr std::array<float, 4> bright{{1.6f, 1.4f, 1.2f, 1}}, dim{{0.3f, 0.35f, 0.4f, 1}};
+	const auto lit{[&](const std::array<std::array<float, 3>, 4> &pos) {
+		std::array<std::array<float, 4>, 4> c{};
+		for (std::size_t i{0}; i != 4; ++i)
+			c[i] = pos[i][2] == n ? bright : dim;
+		return c;
+	}};
+	const std::array<std::array<float, 3>, 4> floor{
+	    {{{-1, -1, n}}, {{-1, -1, f}}, {{1, -1, f}}, {{1, -1, n}}}};
+	const std::array<std::array<float, 3>, 4> ceiling{
+	    {{{-1, 1, n}}, {{1, 1, n}}, {{1, 1, f}}, {{-1, 1, f}}}};
+	const std::array<std::array<float, 3>, 4> left{
+	    {{{-1, -1, n}}, {{-1, 1, n}}, {{-1, 1, f}}, {{-1, -1, f}}}};
+	const std::array<std::array<float, 3>, 4> right{
+	    {{{1, -1, n}}, {{1, -1, f}}, {{1, 1, f}}, {{1, 1, n}}}};
+	const std::array<std::array<float, 3>, 4> end{
+	    {{{-1, -1, f}}, {{-1, 1, f}}, {{1, 1, f}}, {{1, -1, f}}}};
+	overlay_wall(w, floor, lit(floor), 20, uv_rotation::none, base, overlay);
+	overlay_wall(w, ceiling, lit(ceiling), 20, uv_rotation::quarter, base, overlay);
+	overlay_wall(w, left, lit(left), 20, uv_rotation::half, base, overlay);
+	overlay_wall(w, right, lit(right), 20, uv_rotation::three_quarters, base, overlay);
+	overlay_wall(w, end, flat({{0.8f, 0.8f, 0.8f, 1}}), 2, uv_rotation::quarter, base, overlay);
+}
+
+/* The overlay trace's bytes (#31).  Frame 0, the game's two-pass walls: a
+ * lit corridor to 40 deep, each wall drawn with a base texture and then a
+ * second texture with transparent texels (holes) over the same corners,
+ * turned differently on each wall.  Frame 1, the same corridor with a
+ * solid red base and a green overlay of alpha 254 in every texel
+ * (has_transparency, as the game's overlay has, over its opaque base): the
+ * overlay is drawn at the depth the base wrote, so every pixel of a wall
+ * must end green; a pixel left red is a depth tie lost (the second pass's
+ * depth above the first's, LEQUAL failing it).  The two run on different
+ * pipelines where SDL_GPU alpha-tests only the transparent one, and must
+ * still get one depth.  The overlay lets one level of red through, under
+ * the 10 the tests' red pixels need.  Frame 2, the same two passes on a
+ * slanted wall and one 1500 deep, where depth values lie closest together.
+ * Frame 3, depth on and off: a far wall, a nearer red quad, a blue quad
+ * between them drawn with depth off (not tested, so over the red one, and
+ * not written), then a yellow quad behind the red one with depth on: it
+ * covers the blue one, whose depth was never written, except where the
+ * nearer red quad stops it.  Frame 4, a mid-frame depth-only clear, as the
+ * rear view makes (begin_3d_frame): a big red quad near, a clear of the
+ * depth alone, then a smaller green quad farther: the cleared depth lets it
+ * show over the red one, and the kept colour keeps the red around it.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> overlay_trace()
+{
+	trace::writer w{sample_target};
+	const overlay_texture base{80, 250, 60, false}, holes{200, 220, 10, true};
+	const overlay_texture red{255, 20, 20, false, true}, green{20, 255, 20, false, true, 254};
+	w.texture({1}, &base.image);
+	w.texture({2}, &holes.image);
+	w.texture({3}, &red.image);
+	w.texture({4}, &green.image);
+	w.clear({.color = true, .depth = true});
+	overlay_corridor(w, {1}, {2});
+	w.present({.frame = 0});
+	w.clear({.color = true, .depth = true});
+	overlay_corridor(w, {3}, {4});
+	w.present({.frame = 1});
+	w.clear({.color = true, .depth = true});
+	const std::array<std::array<float, 3>, 4> slanted{
+	    {{{-0.8f, -0.3f, -1}}, {{-0.7f, 0.9f, -9}}, {{0.6f, 0.8f, -13}}, {{0.7f, -0.4f, -2}}}};
+	overlay_wall(w, slanted, flat({{1, 1, 1, 1}}), 1, uv_rotation::half, {3}, {4});
+	const std::array<std::array<float, 3>, 4> distant{{{{-1000, -1000, -1500}},
+	                                                   {{-1000, 1000, -1500}},
+	                                                   {{1000, 1000, -1500}},
+	                                                   {{1000, -1000, -1500}}}};
+	overlay_wall(w, distant, flat({{1, 1, 1, 1}}), 1, uv_rotation::none, {3}, {4});
+	w.present({.frame = 2});
+	w.clear({.color = true, .depth = true});
+	const auto wall{[](const float z, const std::array<float, 4> &rgba, const float half) {
+		return wall_quad(
+		    {{{{-half, -half, z}}, {{-half, half, z}}, {{half, half, z}}, {{half, -half, z}}}},
+		    flat(rgba), 0);
+	}};
+	w.draw(wall_draw(wall(-4, {{0, 0.6f, 0, 1}}, 4)));
+	w.draw(wall_draw(wall(-2, {{0.8f, 0, 0, 1}}, 0.6f)));
+	const auto blue{wall(-3, {{0, 0, 1, 1}}, 1.2f)};
+	draw_call between{wall_draw(blue)};
+	between.state.depth = depth::off;
+	w.draw(between);
+	w.draw(wall_draw(wall(-3.5f, {{1, 1, 0, 1}}, 1.8f)));
+	w.present({.frame = 3});
+	w.clear({.color = true, .depth = true});
+	w.draw(wall_draw(wall(-2, {{0.8f, 0, 0, 1}}, 1)));
+	w.clear({.color = false, .depth = true});
+	w.draw(wall_draw(wall(-6, {{0, 0.8f, 0, 1}}, 1.5f)));
+	w.present({.frame = 4});
 	return w.take();
 }
 
