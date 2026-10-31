@@ -83,6 +83,9 @@ test_plan_maps_paths_to_steps()
 		[similar/main/y.cpp]='game'
 		[tools/dev/run.sh]='tools'
 		[docs/agents/issue-tracker.md]='tools'
+		[docs/adr/0006-x.md]='tools'
+		[GLOSSARY.md]='tools'
+		[docs/contributing/x.md]='tools'
 		[tools/dev/toolchain.pins]='tools container gpu'
 		[tools/dev/deps.sh]='tools container gpu'
 		[tools/dev/vk_layer_settings.txt]='tools gpu'
@@ -105,7 +108,7 @@ test_plan_maps_paths_to_steps()
 		[tools/dev/gpu-programs]='tools gpu'
 		[tools/dev/gpu-validate.sh]='tools gpu'
 		[README.md]='full'
-		[docs/adr/0009-x.md]='full'
+		[docs/other/x.md]='full'
 	)
 	# One repository, one commit per path, each planned against its parent.
 	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
@@ -120,8 +123,8 @@ test_plan_maps_paths_to_steps()
 }
 
 # Test that a changed tools/dev script runs the shell tests naming it, a
-# file no test names all of them, a changed test itself, and a docs/agents
-# file none (shellcheck alone).
+# file no test names all of them, a changed test itself, and a docs/agents,
+# docs/adr, GLOSSARY.md or docs/contributing file none (shellcheck alone).
 test_plan_picks_shell_tests()
 {
 	local bin r out p want
@@ -131,6 +134,9 @@ test_plan_picks_shell_tests()
 		[tools/dev/unnamed.txt]='a_test.sh b_test.sh'
 		[tools/dev/tests/b_test.sh]='b_test.sh'
 		[docs/agents/x.md]='none'
+		[docs/adr/x.md]='none'
+		[GLOSSARY.md]='none'
+		[docs/contributing/x.md]='none'
 	)
 	r=$(make_gate_repo "$bin") || die "make_gate_repo failed"
 	for p in "${!want[@]}"; do

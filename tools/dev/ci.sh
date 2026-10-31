@@ -41,7 +41,8 @@
 # SDL3-only files tidied, tidy and format of the changed fork files,
 # doctor, gitleaks on the new commits, R1 against REV's baseline; its own
 # 5-minute budget), and adds by changed path (path_classes):
-# tools/dev and docs/agents files run shellcheck and the shell tests of the
+# tools/dev, docs/agents, docs/adr and docs/contributing files and
+# GLOSSARY.md run shellcheck and the shell tests of the
 # changed scripts (`check.sh --tools`); the SDL_GPU device's sources,
 # gpu-programs and gpu-validate.sh the GPU programs (`check.sh --gpu`,
 # #24); image inputs, SConstruct,
@@ -125,7 +126,7 @@ path_classes()
 	tools/dev/hardening.py|tools/dev/hardening-exit.h|tools/dev/upstream_begin.h|\
 	tools/dev/upstream_end.h|tools/dev/fork-dirs)
 		echo tools container ;;
-	tools/dev/*|docs/agents/*) echo tools ;;
+	tools/dev/*|docs/agents/*|docs/adr/*|docs/contributing/*|GLOSSARY.md) echo tools ;;
 	SConstruct|shaders/*) echo container gpu ;;
 	site_scons/*) echo container ;;
 	*) echo full ;;
@@ -134,12 +135,13 @@ path_classes()
 
 # Print the shell tests (names in tools/dev/tests) changed path $1 runs: a
 # test runs itself (none once deleted); any other tools/dev file runs every
-# test naming it, or every test when none does; a docs/agents file none.
+# test naming it, or every test when none does; a docs/agents, docs/adr,
+# docs/contributing or GLOSSARY.md file none.
 path_tests()
 {
 	local name=${1##*/} hits rc
 	case $1 in
-	docs/agents/*) return 0 ;;
+	docs/agents/*|docs/adr/*|docs/contributing/*|GLOSSARY.md) return 0 ;;
 	tools/dev/tests/*_test.sh) [[ ! -f $root/$1 ]] || echo "$name"; return 0 ;;
 	esac
 	hits=$(cd "$dev_dir/tests" && grep -lF -- "$name" ./*_test.sh) && rc=0 || rc=$?
