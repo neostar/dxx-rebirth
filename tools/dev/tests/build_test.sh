@@ -87,7 +87,7 @@ test_dev_profile_builds_d2x_with_site_dev()
 {
 	local out
 	out=$(scons_args dev check | tr '\n' ' ')
-	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py check "
+	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py check "
 }
 
 # Test that the game is the caller's to choose: with none of d1x=, d2x= and
@@ -98,14 +98,14 @@ test_game_selection_is_the_callers_when_given()
 {
 	local out
 	out=$(scons_args dev d1x=1 d2x=1 | tr '\n' ' ')
-	assert_contains "$out" "site=$DEV_DIR/site-dev.py d1x=1 d2x=1 "
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py d1x=1 d2x=1 "
 	assert_not_contains "$out" "d1x=0"
 	out=$(scons_args dev d1x=1 | tr '\n' ' ')
-	assert_contains "$out" "site=$DEV_DIR/site-dev.py d1x=1 "
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py d1x=1 "
 	assert_not_contains "$out" "d1x=0"
 	assert_not_contains "$out" "d2x=1"
 	out=$(scons_args dev dxx=1 | tr '\n' ' ')
-	assert_contains "$out" "site=$DEV_DIR/site-dev.py dxx=1 "
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py dxx=1 "
 	assert_not_contains "$out" "d1x=0"
 	out=$(scons_args dev d2x=1 | tr '\n' ' ')
 	assert_not_contains "$out" "d1x=0"
@@ -119,7 +119,7 @@ test_asan_profile_layers_site_asan_over_site_dev()
 {
 	local out
 	out=$(scons_args asan check | tr '\n' ' ')
-	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-asan.py check "
+	assert_contains "$out" "d1x=0 d2x=1 site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-asan.py site=$DEV_DIR/site-deps.py check "
 	out=$(site_settings "$DEV_DIR/site-dev.py" "$DEV_DIR/site-asan.py" | grep -v '^CPPFLAGS=')
 	assert_eq "$(tr '\n' ' ' <<<"$out")" "builddir=build/asan \
 compilation_database=build/asan/compile_commands.json debug=True lto=0 \
@@ -128,18 +128,21 @@ macos_add_frameworks=False sconf_optimize_builtin_constant_p=force-failure "
 
 # Print what build.sh passes to scons for arguments "$@", one argument
 # per line, then the variables it exports for pkg-config and site-sdl3.py,
-# with a fake brew whose prefix is /brew on PATH and the pinned prefix at
-# /pinned.
+# with a fake brew whose prefix is /brew on PATH and a pinned prefix holding
+# a physfs.pc, which the output calls /pinned.
 scons_sdl3_args()
 {
-	local bin
+	local bin out rc pinned=$_scratch_root/pinned
+	mkdir -p "$pinned/lib/pkgconfig" && : > "$pinned/lib/pkgconfig/physfs.pc"
 	bin=$(make_scratch) || die "make_scratch failed"
 	printf '#!/bin/sh\nprintf "%%s\\n" "$@" "PKG_CONFIG=$PKG_CONFIG" "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" "DXX_SDL3_PREFIX=${DXX_SDL3_PREFIX-}" "DXX_SDL3_SYSTEM_INCLUDE=${DXX_SDL3_SYSTEM_INCLUDE-}"\n' \
 		> "$bin/scons"
 	printf '#!/bin/sh\necho /brew\n' > "$bin/brew"
 	: > "$bin/pkg-config"
 	chmod +x "$bin/scons" "$bin/brew" "$bin/pkg-config"
-	PATH="$bin:$PATH" DXX_DEPS_PREFIX=/pinned PKG_CONFIG_PATH='' "$DEV_DIR/build.sh" "$@"
+	out=$(PATH="$bin:$PATH" DXX_DEPS_PREFIX=$pinned PKG_CONFIG_PATH='' "$DEV_DIR/build.sh" "$@" 2>&1) && rc=0 || rc=$?
+	printf '%s\n' "${out//$pinned//pinned}"
+	return "$rc"
 }
 
 # Test that sdl3=1 builds each profile in its own directory against the
@@ -153,21 +156,71 @@ test_sdl3_builds_profiles_against_pinned_sdl3()
 	local out sys=''
 	[[ $dev_os == darwin ]] && sys=/brew/include
 	out=$(scons_sdl3_args dev sdl3=1 check | tr '\n' ' ')
-	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-sdl3.py \
-builddir=build/dev-sdl3 compilation_database=build/dev-sdl3/compile_commands.json sdl3=1 check "
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py \
+site=$DEV_DIR/site-sdl3.py builddir=build/dev-sdl3 compilation_database=build/dev-sdl3/compile_commands.json sdl3=1 check "
 	[[ $out =~ \ PKG_CONFIG=/[^\ ]+/pkg-config\ --define-prefix\ PKG_CONFIG_PATH=/pinned/lib/pkgconfig\  ]] ||
 		fail "pkg-config not the pinned prefix's by full path: $out"
 	assert_contains "$out" " DXX_SDL3_PREFIX=/pinned DXX_SDL3_SYSTEM_INCLUDE=$sys "
 	assert_not_contains "$out" "FLAGS="
 	out=$(scons_sdl3_args asan sdl3=1 | tr '\n' ' ')
 	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-asan.py \
-site=$DEV_DIR/site-sdl3.py builddir=build/asan-sdl3 \
+site=$DEV_DIR/site-deps.py site=$DEV_DIR/site-sdl3.py builddir=build/asan-sdl3 \
 compilation_database=build/asan-sdl3/compile_commands.json sdl3=1 "
 	assert_not_contains "$out" "FLAGS="
 	out=$(scons_sdl3_args dev check | tr '\n' ' ')
 	assert_not_contains "$out" "builddir="
 	assert_not_contains "$out" "site-sdl3.py"
-	assert_contains "$out" "PKG_CONFIG= PKG_CONFIG_PATH= DXX_SDL3_PREFIX= "
+	assert_contains "$out" "DXX_SDL3_PREFIX= "
+}
+
+# Test that every build, sdl3 or not, links the pinned PhysicsFS: build.sh
+# puts the prefix's .pc files first for pkg-config (without --define-prefix,
+# which would move the system .pc files too) and reads site-deps.py after the profile's site
+# files; without a physfs.pc in the prefix it stops before scons runs.
+test_every_build_links_the_pinned_physfs()
+{
+	local out rc
+	out=$(scons_sdl3_args dev check | tr '\n' ' ')
+	assert_contains "$out" "site=$DEV_DIR/site-dev.py site=$DEV_DIR/site-deps.py check "
+	assert_contains "$out" " PKG_CONFIG= PKG_CONFIG_PATH=/pinned/lib/pkgconfig "
+	out=$(scons_sdl3_args asan check | tr '\n' ' ')
+	assert_contains "$out" "site=$DEV_DIR/site-asan.py site=$DEV_DIR/site-deps.py check "
+	out=$(DXX_DEPS_PREFIX=$_scratch_root/empty scons_args dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "build.sh: no PhysicsFS in $_scratch_root/empty; run tools/dev/deps.sh"
+	assert_not_contains "$out" "site="
+}
+
+# Test that the PhysicsFS check comes after argument parsing, so a usage
+# error is reported as one even in a prefix without PhysicsFS, and that a
+# prefix with a space in its path is refused (SCons splits flags at spaces).
+test_physfs_check_follows_argument_parsing_and_refuses_a_space()
+{
+	local out rc
+	out=$(DXX_DEPS_PREFIX=$_scratch_root/empty scons_args dev sdl3=maybe 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 2 "$out"
+	assert_contains "$out" "sdl3=maybe is not a SCons boolean"
+	assert_not_contains "$out" "no PhysicsFS"
+	mkdir -p "$_scratch_root/a b/lib/pkgconfig" && : > "$_scratch_root/a b/lib/pkgconfig/physfs.pc"
+	out=$(DXX_DEPS_PREFIX="$_scratch_root/a b" scons_args dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "build.sh: DXX_DEPS_PREFIX $_scratch_root/a b holds a space, which SCons splits its flags at"
+	assert_not_contains "$out" "site="
+}
+
+# Test that site-deps.py puts the prefix's lib directory ahead of every other
+# -L, so -lphysfs finds the pinned, patched PhysicsFS before Homebrew's, once
+# however often SCons reads it, and stops without DXX_DEPS_PREFIX.
+test_site_deps_puts_the_prefix_first()
+{
+	local out deps=$DEV_DIR/site-deps.py
+	out=$(DXX_DEPS_PREFIX=/pinned python3 -I -c "$read_sites"'
+import SCons.Defaults
+print(SCons.Defaults.ConstructionEnvironment["_LIBDIRFLAGS"])
+' "$(fake_scons)" "$deps" "$deps" 2>&1)
+	assert_eq "$out" '-L/pinned/lib $LIBDIRS'
+	out=$(DXX_DEPS_PREFIX='' python3 -I -c "$read_sites" "$(fake_scons)" "$deps" 2>&1)
+	assert_contains "$out" "site-deps.py: DXX_DEPS_PREFIX is not set; build.sh sets it"
 }
 
 # Test that build.sh reads sdl3= as SCons' BoolVariable does: every true

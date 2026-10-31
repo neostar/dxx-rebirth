@@ -20,9 +20,12 @@
 # no-window.sh, so a test that takes focus or crashes fails the build.
 # Pass `sdl3=1` (any SCons true spelling: yes, true, on, ...; the last
 # sdl3= wins) to build against the pinned SDL3 ($dev_deps_prefix) in
-# build/<profile>-sdl3: pkg-config reads its .pc files first and, with
-# --define-prefix, relocates them to where the prefix lies, and
-# site-sdl3.py, read last, links the pinned libraries ahead of Homebrew's
+# build/<profile>-sdl3.  Every build, sdl3 or not, links the pinned PhysicsFS
+# of $dev_deps_prefix (patched against CVE-2024-58392, ticket #87) and fails
+# without it: pkg-config reads the prefix's .pc files first (physfs.pc names
+# the prefix where deps.sh built it) and site-deps.py puts its lib directory
+# ahead of Homebrew's.  For sdl3=1, pkg-config also relocates the .pc files to
+# where the prefix lies (--define-prefix), and site-sdl3.py, read last, links the pinned libraries ahead of Homebrew's
 # and on macOS makes Homebrew's headers system ones (see its header).
 # ccache shares its cache across worktrees: CCACHE_BASEDIR, the source
 # tree, has it rewrite the tree's absolute paths (hardening-exit.h's
@@ -67,6 +70,7 @@ export SDL_MAC_BACKGROUND_APP=1
 jobs=$dev_jobs
 sites=("site=$dev_dir/site-dev.py")
 [[ $profile == asan ]] && sites+=("site=$dev_dir/site-asan.py")
+sites+=("site=$dev_dir/site-deps.py")
 wrap=() sdl3=0 games=(d1x=0 d2x=1)
 for a in "$@"; do
 	[[ $a == d1x=* || $a == d2x=* || $a == dxx=* ]] && games=()
@@ -82,19 +86,36 @@ for a in "$@"; do
 		esac
 	fi
 done
+# Every build links the pinned PhysicsFS of $dev_deps_prefix (patched, #87),
+# never Homebrew's or the system's: no physfs.pc there is an error.  After
+# the argument checks, so a usage error is reported first.  SCons splits
+# flags at spaces (site-deps.py), so the prefix may not hold one.
+[[ $dev_deps_prefix != *" "* ]] || {
+	echo "build.sh: DXX_DEPS_PREFIX $dev_deps_prefix holds a space, which SCons splits its flags at" >&2
+	exit 1
+}
+[[ -f $dev_deps_prefix/lib/pkgconfig/physfs.pc ]] || {
+	echo "build.sh: no PhysicsFS in $dev_deps_prefix; run tools/dev/deps.sh" >&2
+	exit 1
+}
+# pkg-config reads the prefix's .pc files first.
+PKG_CONFIG_PATH=$dev_deps_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+export PKG_CONFIG_PATH DXX_DEPS_PREFIX=$dev_deps_prefix
 build=()
 if [[ $sdl3 == 1 ]]; then
 	sites+=("site=$dev_dir/site-sdl3.py")
 	build=(builddir="build/$profile-sdl3"
 		compilation_database="build/$profile-sdl3/compile_commands.json")
+	# --define-prefix relocates the .pc files to where the prefix lies (it
+	# would also move the system ones of libpng and the SDL1.2/2 libraries,
+	# which a plain build reads too: Ubuntu's would name /usr/lib).
 	# SConstruct finds a PKG_CONFIG with arguments only by its full path.
 	PKG_CONFIG="$(command -v pkg-config || echo pkg-config) --define-prefix"
-	PKG_CONFIG_PATH=$dev_deps_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
 	DXX_SDL3_PREFIX=$dev_deps_prefix DXX_SDL3_SYSTEM_INCLUDE=
 	if [[ $dev_os == darwin ]] && command -v brew >/dev/null; then
 		DXX_SDL3_SYSTEM_INCLUDE=$(brew --prefix)/include
 	fi
-	export PKG_CONFIG PKG_CONFIG_PATH DXX_SDL3_PREFIX DXX_SDL3_SYSTEM_INCLUDE
+	export PKG_CONFIG DXX_SDL3_PREFIX DXX_SDL3_SYSTEM_INCLUDE
 fi
 # The build directory SCons uses: the last builddir= wins, as in SCons.
 dir=build/$profile
