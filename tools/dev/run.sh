@@ -19,7 +19,8 @@
 # with status 1 on another driver.  run.sh, the second net, passes the
 # binary's stderr on through tee and fails the run (status 1, or the
 # run's own failing status) when a line holding that report is not exactly
-# the dummy one, unless NO_WINDOW_SOUND=1.  A run that never initialised
+# the dummy or the disk one (disk writes a file and plays nothing: R12
+# captures, which no-window.sh lets through), unless NO_WINDOW_SOUND=1.  A run that never initialised
 # audio (-nosound) writes no such line and passes.
 #
 # SDL_VIDEO_HIGHDPI_DISABLED=1 renders at 1x on Retina: a bare dev binary
@@ -162,7 +163,7 @@ binary_pid=$(cat "$tmp/pid" 2>/dev/null)
 # The audio check, after the game's own (audio_driver_report.h): tee ends
 # once every process of the run has closed its stderr; one still holding
 # it 5 s after the run ended leaves the copy incomplete, which fails.  Any
-# line holding the report but the exact dummy one fails, also one with text
+# line holding the report but the exact dummy or disk one fails, also one with text
 # before the report, as after a partial write.  A failure sets
 # audio_failed, not rc, so a crashed run's status still has its crash
 # report awaited below.
@@ -180,12 +181,12 @@ if [[ -n $tee_pid ]]; then
 	fi
 	marker='DXX_DBG_HIDDEN: audio driver'
 	while IFS= read -r line || [[ -n $line ]]; do
-		[[ $line == *"$marker"* && $line != "$marker dummy" ]] || continue
+		[[ $line == *"$marker"* && $line != "$marker dummy" && $line != "$marker disk" ]] || continue
 		audio_failed=1
 		if [[ $line == "$marker" || $line == "$marker " ]]; then
 			echo "run.sh: $name: hidden run opened audio but names no driver" >&2
 		elif [[ $line == "$marker "* ]]; then
-			echo "run.sh: $name: hidden run opened audio driver '${line#"$marker "}', not dummy" >&2
+			echo "run.sh: $name: hidden run opened audio driver '${line#"$marker "}', not dummy or disk" >&2
 		else
 			echo "run.sh: $name: hidden run's audio driver report is not alone on its line: '$line'" >&2
 		fi

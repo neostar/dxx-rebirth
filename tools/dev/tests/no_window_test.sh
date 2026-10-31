@@ -39,6 +39,36 @@ test_run_is_silent()
 	assert_eq "$out" "coreaudio coreaudio"
 }
 
+# Test that a caller asking for SDL's disk driver (an R12 capture: it
+# writes a file and plays nothing) keeps it, under both variables, with
+# an absolute output file; a relative or missing one fails before the
+# command runs, since the game changes its working directory and two
+# runs in one directory would overwrite each other.
+test_disk_driver_needs_an_absolute_output_file()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"; mkdir "$d/reports"
+	out=$(env -u SDL_AUDIODRIVER SDL_AUDIO_DRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$d/a.raw" \
+		NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" "1 Terminal")" NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo "$SDL_AUDIODRIVER $SDL_AUDIO_DRIVER $SDL_DISKAUDIOFILE"' 2>&1)
+	assert_eq "$out" "disk disk $d/a.raw"
+	out=$(SDL_AUDIODRIVER=disk SDL_AUDIO_DRIVER=coreaudio SDL_AUDIO_DISK_OUTPUT_FILE="$d/a.raw" \
+		NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo "$SDL_AUDIODRIVER $SDL_AUDIO_DRIVER"' 2>&1)
+	assert_eq "$out" "disk disk"
+	out=$(SDL_AUDIO_DRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE=a.raw \
+		NO_WINDOW_FRONTMOST_CMD=$(fake_sampler "$d" "1 Terminal") NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo ran' 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "no-window.sh: the disk audio driver needs an absolute SDL_AUDIO_DISK_OUTPUT_FILE, not 'a.raw'"
+	[[ $out != *ran* ]] || fail "the command ran: $out"
+	out=$(env -u SDL_AUDIO_DISK_OUTPUT_FILE SDL_AUDIO_DRIVER=disk \
+		NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" "1 Terminal")" NO_WINDOW_REPORTS_DIR="$d/reports" \
+		"$NO_WINDOW" sh -c 'echo ran' 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "needs an absolute SDL_AUDIO_DISK_OUTPUT_FILE, not ''"
+}
+
 # Test that a child of the run taking focus fails and names it.  The child
 # keeps focus until the sampler has reported it twice: the second sample
 # listed the run's processes while the child was alive, so the result does

@@ -284,6 +284,20 @@ test_hidden_run_on_the_dummy_driver_passes()
 	assert_contains "$(cat "$d/out")" "after"
 }
 
+# Test that a hidden game run on SDL's disk driver passes: it writes a
+# file and plays nothing (R12 captures).
+test_hidden_run_on_the_disk_driver_passes()
+{
+	local d
+	d=$(make_scratch) || die "make_scratch failed"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver disk' DXX_DBG_HIDDEN=1 \
+		SDL_AUDIO_DRIVER=disk SDL_AUDIO_DISK_OUTPUT_FILE="$d/a.raw"
+	assert_eq "$(cat "$d/rc")" 0 "$(cat "$d/out")"
+	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver diskx' DXX_DBG_HIDDEN=1
+	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
+	assert_contains "$(cat "$d/out")" "run.sh: game: hidden run opened audio driver 'diskx', not dummy or disk"
+}
+
 # Test that a hidden game run whose log names another audio driver fails,
 # naming it: that run could play sound.
 test_hidden_run_on_another_driver_fails()
@@ -292,7 +306,7 @@ test_hidden_run_on_another_driver_fails()
 	d=$(make_scratch) || die "make_scratch failed"
 	hidden_game_run "$d" 'DXX_DBG_HIDDEN: audio driver coreaudio' DXX_DBG_HIDDEN=1
 	assert_eq "$(cat "$d/rc")" 1 "$(cat "$d/out")"
-	assert_contains "$(cat "$d/out")" "run.sh: game: hidden run opened audio driver 'coreaudio', not dummy"
+	assert_contains "$(cat "$d/out")" "run.sh: game: hidden run opened audio driver 'coreaudio', not dummy or disk"
 }
 
 # Test that a hidden game run whose log names no driver once audio is
@@ -371,7 +385,7 @@ EOF
 	out=$(env -u NO_WINDOW_SOUND DXX_DBG_HIDDEN=1 NO_WINDOW_FRONTMOST_CMD="$(fake_sampler "$d" '1 Finder')" \
 		NO_WINDOW_REPORTS_DIR="$d/reports" "$RUN" "$d/crashy" 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
-	assert_contains "$out" "run.sh: crashy: hidden run opened audio driver 'coreaudio', not dummy"
+	assert_contains "$out" "run.sh: crashy: hidden run opened audio driver 'coreaudio', not dummy or disk"
 	assert_contains "$out" "run.sh: crashy left a crash report: $d/reports/crashy-1.ips"
 }
 

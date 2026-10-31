@@ -28,13 +28,14 @@ BOOST_AUTO_TEST_CASE(report_names_no_driver_when_sdl_names_none)
 	BOOST_TEST(dcx::audio_driver_report(nullptr) == "DXX_DBG_HIDDEN: audio driver ");
 }
 
-/* Test that a hidden run may go on only on the dummy driver, unless
- * NO_WINDOW_SOUND=1 asks for sound.
+/* Test that a hidden run may go on only on the dummy or the disk driver,
+ * unless NO_WINDOW_SOUND=1 asks for sound.
  */
-BOOST_AUTO_TEST_CASE(only_the_dummy_driver_may_go_on)
+BOOST_AUTO_TEST_CASE(only_the_dummy_or_disk_driver_may_go_on)
 {
 	BOOST_TEST(dcx::audio_driver_refusal("dummy", nullptr).empty());
 	BOOST_TEST(dcx::audio_driver_refusal("dummy", "0").empty());
+	BOOST_TEST(dcx::audio_driver_refusal("disk", nullptr).empty());
 	BOOST_TEST(dcx::audio_driver_refusal("coreaudio", "1").empty());
 	BOOST_TEST(dcx::audio_driver_refusal(nullptr, "1").empty());
 }
@@ -45,12 +46,13 @@ BOOST_AUTO_TEST_CASE(only_the_dummy_driver_may_go_on)
  */
 BOOST_AUTO_TEST_CASE(another_driver_or_none_must_stop)
 {
-	BOOST_TEST(dcx::audio_driver_refusal("coreaudio", nullptr) ==
-	           "hidden run opened audio driver \"coreaudio\", not dummy: it could play sound");
-	BOOST_TEST(dcx::audio_driver_refusal("disk", "0") ==
-	           "hidden run opened audio driver \"disk\", not dummy: it could play sound");
+	BOOST_TEST(
+	    dcx::audio_driver_refusal("coreaudio", nullptr) ==
+	    "hidden run opened audio driver \"coreaudio\", not dummy or disk: it could play sound");
+	BOOST_TEST(dcx::audio_driver_refusal("diskx", "0") ==
+	           "hidden run opened audio driver \"diskx\", not dummy or disk: it could play sound");
 	BOOST_TEST(dcx::audio_driver_refusal("dummyx", "") ==
-	           "hidden run opened audio driver \"dummyx\", not dummy: it could play sound");
+	           "hidden run opened audio driver \"dummyx\", not dummy or disk: it could play sound");
 	BOOST_TEST(dcx::audio_driver_refusal(nullptr, nullptr) ==
 	           "hidden run opened audio but SDL names no driver: it could play sound");
 }

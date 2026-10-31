@@ -28,7 +28,8 @@ inline std::string audio_driver_report(const char *const driver)
 }
 
 /* Why a hidden run that opened driver must stop, before it plays anything:
- * empty when it may go on.  Only SDL's dummy driver is silent, unless
+ * empty when it may go on.  Only SDL's dummy driver and its disk driver,
+ * which writes the mix to a file (R12 captures), are silent, unless
  * no_window_sound, NO_WINDOW_SOUND as no-window.sh reads it, is "1" and
  * asks for sound.
  */
@@ -39,11 +40,11 @@ inline std::string audio_driver_refusal(const char *const driver, const char *co
 		return {};
 	if (driver == nullptr)
 		return "hidden run opened audio but SDL names no driver: it could play sound";
-	if (std::string_view{driver} == "dummy")
+	if (const std::string_view d{driver}; d == "dummy" || d == "disk")
 		return {};
 	std::string refusal{"hidden run opened audio driver \""};
 	refusal += driver;
-	refusal += "\", not dummy: it could play sound";
+	refusal += "\", not dummy or disk: it could play sound";
 	return refusal;
 }
 

@@ -13,7 +13,12 @@
 # without running CMD.  On other systems CMD just runs.
 # SDL_MAC_BACKGROUND_APP=1 is exported for CMD, and the run is silent: SDL's
 # audio driver is dummy (SDL_AUDIODRIVER for SDL2, SDL_AUDIO_DRIVER for
-# SDL3), also over one the caller set, unless NO_WINDOW_SOUND=1.
+# SDL3), also over one the caller set, unless NO_WINDOW_SOUND=1.  The one
+# other driver kept is disk, which writes the mix to a file and plays
+# nothing (R12 captures): asked for in either variable, both name it, and
+# SDL_AUDIO_DISK_OUTPUT_FILE (SDL_DISKAUDIOFILE for SDL2 is set to it) must
+# be absolute, else the run fails before CMD starts: SDL's default is
+# relative and the game changes its working directory.
 #
 # NO_WINDOW_FRONTMOST_CMD replaces the sampler (it prints "PID NAME") and
 # NO_WINDOW_REPORTS_DIR the crash report directory (used by the tests).
@@ -21,7 +26,15 @@ set -u
 [[ $# -gt 0 ]] || { echo "usage: $0 CMD [ARG...]" >&2; exit 2; }
 export SDL_MAC_BACKGROUND_APP=1
 if [[ ${NO_WINDOW_SOUND-} != 1 ]]; then
-	export SDL_AUDIODRIVER=dummy SDL_AUDIO_DRIVER=dummy
+	if [[ ${SDL_AUDIO_DRIVER-} == disk || ${SDL_AUDIODRIVER-} == disk ]]; then
+		if [[ ${SDL_AUDIO_DISK_OUTPUT_FILE-} != /* ]]; then
+			echo "no-window.sh: the disk audio driver needs an absolute SDL_AUDIO_DISK_OUTPUT_FILE, not '${SDL_AUDIO_DISK_OUTPUT_FILE-}'" >&2
+			exit 1
+		fi
+		export SDL_AUDIODRIVER=disk SDL_AUDIO_DRIVER=disk SDL_DISKAUDIOFILE=$SDL_AUDIO_DISK_OUTPUT_FILE
+	else
+		export SDL_AUDIODRIVER=dummy SDL_AUDIO_DRIVER=dummy
+	fi
 fi
 if [[ $(uname -s) != Darwin && -z ${NO_WINDOW_FRONTMOST_CMD-} ]]; then
 	exec "$@"
