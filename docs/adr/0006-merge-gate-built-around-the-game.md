@@ -41,7 +41,7 @@ Before the two changes the same chain took 332 s.
 | Changed paths | Adds |
 |---|---|
 | game code, fork C++ | (the gate above) |
-| `tools/dev/**`, `docs/agents/**` | the shell tests of the changed scripts, shellcheck |
+| `tools/dev/**`, `docs/agents/**`, `docs/adr/**`, `docs/contributing/**`, `GLOSSARY.md` | the shell tests of the changed scripts, shellcheck (the doc paths have no shell test: shellcheck alone) |
 | image inputs (`deps.sh`, `env.sh`, `toolchain.pins`, `requirements.lock`, the Dockerfile), `SConstruct`, `site_scons/**`, fork build flags | the container leg |
 | `shaders/**` | the shader rebuild check (R9) on the container leg |
 | the inputs of the registered GPU programs (`gpu` class in `path_classes`, `tools/dev/ci.sh`): the SDL_GPU device's sources and tests (`common/render/sdlgpu*`, `common/render/unittest/sdlgpu*`), `common/sdl/sdl_wrap_gpu.h`, `tools/dev/gpu-programs`, `tools/dev/gpu-validate.sh` | `gpu_tests`: the programs `tools/dev/gpu-programs` lists, under `gpu-validate.sh` on Metal (`check.sh --gpu`) |
