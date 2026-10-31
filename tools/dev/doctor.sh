@@ -12,7 +12,10 @@
 # dev_deps_prefix) must have been built by deps.sh from the manifest's
 # current dependency lines and build options; the venv (default: dev_venv)
 # from the `venv python` pin and the requirements.lock next to the
-# manifest, with exactly the locked packages installed.  Either not made
+# manifest, with exactly the locked packages installed.  When the manifest has
+# a `source physfs` line, the prefix's PhysicsFS (a built prefix only) must
+# report that version and carry the fix for CVE-2024-58392 (#87): a compiled
+# probe feeds PHYSFS_utf8stricmp a name ending in a six-octet sequence.  Either not made
 # yet is a SKIP.  On macOS the libraries under their lib/ must load only
 # from themselves and the system (check_macho_refs), and there must be
 # some: none fails, unless neither is made (a SKIP).  Exit status 1 means
@@ -136,6 +139,65 @@ elif [[ $("$dev_dir/deps.sh" --manifest "$manifest" --prefix "$prefix" stamp) !=
 else
 	echo "ok   deps $prefix"
 fi
+
+# The prefix's PhysicsFS is the pinned release with the CVE-2024-58392 fix:
+# it reports the pinned version, and does not skip the terminator of a name
+# ending in a six-octet UTF-8 sequence, which the unpatched 3.2.0 does (its
+# cursor lands one byte past the NUL, on the A after it, so the names differ).
+# The probe is compiled against the prefix; a failing compile is drift too.
+check_physfs()
+{
+	local want tmp cc got
+	want=$(awk '$1 == "source" && $2 == "physfs" {print $3}' "$manifest")
+	[[ -n $want ]] || return 0
+	if [[ ! -d $prefix || ! -f $prefix/deps.stamp ]]; then
+		echo "SKIP physfs: $prefix not built; run tools/dev/deps.sh"
+		return 0
+	fi
+	if [[ ! -f $prefix/include/physfs.h || ! -f $prefix/lib/pkgconfig/physfs.pc ]]; then
+		echo "FAIL physfs: no PhysicsFS in $prefix; run tools/dev/deps.sh"
+		rc=1
+		return 0
+	fi
+	cc=$(command -v cc || command -v gcc || command -v clang) || cc=
+	if [[ -z $cc ]]; then
+		echo "FAIL physfs: no C compiler to probe $prefix's PhysicsFS with"
+		rc=1
+		return 0
+	fi
+	tmp=$(mktemp -d) || { echo "FAIL physfs: mktemp failed"; rc=1; return 0; }
+	cat > "$tmp/probe.c" <<'EOF_PROBE'
+#include <physfs.h>
+#include <stdio.h>
+int main(void)
+{
+	static const char a[] = "\xFC\x80\x80\x80\x80\x80\0A";
+	static const char b[] = "\xFC\x81\x80\x80\x80\x80\0\0";
+	PHYSFS_Version v;
+	PHYSFS_getLinkedVersion(&v);
+	printf("%d.%d.%d %d\n", v.major, v.minor, v.patch, PHYSFS_utf8stricmp(a, b));
+	return 0;
+}
+EOF_PROBE
+	if ! "$cc" -I"$prefix/include" -o "$tmp/probe" "$tmp/probe.c" -L"$prefix/lib" -lphysfs \
+		-Wl,-rpath,"$prefix/lib" 2>"$tmp/err"; then
+		echo "FAIL physfs: cannot build the probe against $prefix: $(head -n 3 "$tmp/err" | tr '\n' ' '); run tools/dev/deps.sh"
+		rc=1
+	elif ! got=$("$tmp/probe" 2>&1); then
+		echo "FAIL physfs: the probe against $prefix failed: $got"
+		rc=1
+	elif [[ $got == "$want 0" ]]; then
+		echo "ok   physfs $want, patched against CVE-2024-58392"
+	elif [[ $got == "$want "* ]]; then
+		echo "FAIL physfs: $prefix holds PhysicsFS $want without the CVE-2024-58392 fix; run tools/dev/deps.sh"
+		rc=1
+	else
+		echo "FAIL physfs: $prefix holds PhysicsFS ${got% *}, manifest pins $want"
+		rc=1
+	fi
+	rm -rf "$tmp"
+}
+check_physfs
 
 # Print the packages locked but not installed in the venv (-name==version)
 # and installed but not locked (+name==version) on one line; nothing when

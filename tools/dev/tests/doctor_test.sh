@@ -248,6 +248,101 @@ test_prefix_with_other_build_options_fails()
 	assert_contains "$out" "FAIL deps: $d/prefix was built from other pins"
 }
 
+# Make a prefix $1/prefix for a manifest pinning PhysicsFS 3.2.0, holding a
+# fake libphysfs that reports version $2 (major.minor.patch) and makes
+# PHYSFS_utf8stricmp return $3 for the probe's two names (0 as the patched
+# library does, 1 as the unpatched one does); fail the test if cc cannot.
+fake_physfs_prefix()
+{
+	local d=$1 p=$1/prefix major minor patch
+	printf 'source physfs 3.2.0 https://example.invalid/physfs.tar.gz %s\n' \
+		"$(printf 'b%.0s' {1..64})" > "$d/manifest"
+	mkdir -p "$p/include" "$p/lib/pkgconfig"
+	: > "$p/lib/pkgconfig/physfs.pc"
+	printf '%s\n' 'typedef struct { int major, minor, patch; } PHYSFS_Version;' \
+		'void PHYSFS_getLinkedVersion(PHYSFS_Version *v);' \
+		'int PHYSFS_utf8stricmp(const char *a, const char *b);' > "$p/include/physfs.h"
+	IFS=. read -r major minor patch <<< "$2"
+	{
+		echo '#include "physfs.h"'
+		echo "void PHYSFS_getLinkedVersion(PHYSFS_Version *v)"
+		echo "{ v->major = $major; v->minor = $minor; v->patch = $patch; }"
+		echo "int PHYSFS_utf8stricmp(const char *a, const char *b)"
+		echo "{ (void)a; (void)b; return $3; }"
+	} > "$d/physfs.c"
+	cc -shared -fPIC -I"$p/include" "$d/physfs.c" -o "$p/lib/libphysfs.$(
+		[[ $(uname -s) == Darwin ]] && echo dylib || echo so)" || die "cc cannot build the fake libphysfs"
+	"$DEV_DIR/deps.sh" --manifest "$d/manifest" --prefix "$p" stamp > "$p/deps.stamp"
+}
+
+# Test that a prefix whose PhysicsFS is the pinned version and does not skip
+# the terminator of a name ending in a six-octet sequence passes.
+test_patched_physfs_passes()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	command -v cc >/dev/null || { echo "  SKIP test_patched_physfs_passes: cc not found"; return 0; }
+	fake_physfs_prefix "$d" 3.2.0 0
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 0 "$out"
+	assert_contains "$out" "ok   physfs 3.2.0, patched against CVE-2024-58392"
+}
+
+# Test that a prefix whose PhysicsFS skips the terminator (the unpatched
+# release) fails, as does one of another version.
+test_unpatched_or_drifted_physfs_fails()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	command -v cc >/dev/null || { echo "  SKIP test_unpatched_or_drifted_physfs_fails: cc not found"; return 0; }
+	fake_physfs_prefix "$d" 3.2.0 1
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "FAIL physfs: $d/prefix holds PhysicsFS 3.2.0 without the CVE-2024-58392 fix"
+	fake_physfs_prefix "$d" 3.0.2 0
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=1 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "FAIL physfs: $d/prefix holds PhysicsFS 3.0.2, manifest pins 3.2.0"
+}
+
+# Test that a prefix without PhysicsFS fails, and an unbuilt one skips.
+test_missing_or_unbuilt_physfs()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	command -v cc >/dev/null || { echo "  SKIP test_missing_or_unbuilt_physfs: cc not found"; return 0; }
+	fake_physfs_prefix "$d" 3.2.0 0
+	rm "$d"/prefix/lib/libphysfs.*
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1
+	assert_contains "$out" "FAIL physfs: cannot build the probe against $d/prefix"
+	assert_contains "$out" "; run tools/dev/deps.sh"
+	rm -rf "$d/prefix"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_contains "$out" "SKIP physfs: $d/prefix not built"
+}
+
+# Test that a prefix with a deps stamp but no PhysicsFS (the headers or the
+# physfs.pc missing, as in a prefix built before PhysicsFS was pinned) fails
+# with the command that fixes it, not the compiler's error.
+test_prefix_without_physfs_names_deps_sh()
+{
+	local d out rc
+	d=$(make_scratch) || die "make_scratch failed"
+	command -v cc >/dev/null || { echo "  SKIP test_prefix_without_physfs_names_deps_sh: cc not found"; return 0; }
+	fake_physfs_prefix "$d" 3.2.0 0
+	rm "$d/prefix/include/physfs.h"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL physfs: no PhysicsFS in $d/prefix; run tools/dev/deps.sh"
+	assert_not_contains "$out" "cannot build the probe"
+	fake_physfs_prefix "$d" 3.2.0 0
+	rm "$d/prefix/lib/pkgconfig/physfs.pc"
+	out=$(run_doctor "$d" linux --manifest "$d/manifest" --prefix "$d/prefix") && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "FAIL physfs: no PhysicsFS in $d/prefix; run tools/dev/deps.sh"
+}
+
 # Build into directory $1 a dylib $2 with install name $3, linking the
 # libraries "${@:4}" (paths); fail the test if cc cannot.
 make_dylib()
