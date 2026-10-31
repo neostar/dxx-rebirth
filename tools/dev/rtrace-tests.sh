@@ -21,10 +21,11 @@
 # - rtrace on synthetic/oversize.rtr (#18), once: its two pinned lines;
 # - rtrace on synthetic/fonts.rtr (#33), once: its eleven pinned lines;
 # - rtrace on synthetic/filters.rtr (#34), once: its six pinned lines;
+# - rtrace on synthetic/overlay.rtr (#31), once: its five pinned lines;
 # - rtrace on the sample's header alone, which must fail: no frame;
 # - R3: when build/<profile>-sdl3/common/rtrace-gpu exists (build.sh
 #   <profile> sdl3=1 builds it), rtrace-gpu on the sample, overbright,
-#   flash, walls, alpha, oversize, fonts, lines and filters traces, through
+#   flash, walls, alpha, oversize, fonts, overlay, lines and filters traces, through
 #   no-window.sh and gpu-validate.sh rather than WRAPPER (the oversize
 #   trace's viewports reach past the target, which SDL's debug mode asserts
 #   on unclamped).  Each must log GL's pinned lines, except two pinned to
@@ -276,6 +277,15 @@ elif ! logs_lines "$tmp/fonts.log" "${expected_fonts[@]}"; then
 	cat "$tmp/fonts.log" >&2
 	rc=1
 fi
+# rtrace on the overlay trace.
+if ! bounded ${wrap[@]+"${wrap[@]}"} "$root/$build/common/rtrace" "$overlay" "$tmp/overlay.log"; then
+	echo "rtrace-tests: rtrace on the overlay trace failed" >&2
+	rc=1
+elif ! logs_lines "$tmp/overlay.log" "${expected_overlay[@]}"; then
+	echo "rtrace-tests: unexpected frame hashes of the overlay trace:" >&2
+	cat "$tmp/overlay.log" >&2
+	rc=1
+fi
 # rtrace on the filters trace, its frames kept for rtrace-gpu's tolerance.
 mkdir "$tmp/filters-gl" "$tmp/filters-gpu" ||
 	{ echo "rtrace-tests: mkdir failed" >&2; exit 1; }
@@ -339,6 +349,7 @@ else
 	check_gpu "$alpha" alpha "${expected_alpha[@]}" || rc=1
 	check_gpu "$oversize" oversize "${expected_oversize[@]}" || rc=1
 	check_gpu "$fonts" fonts "${expected_fonts[@]}" || rc=1
+	check_gpu "$overlay" overlay "${expected_overlay[@]}" || rc=1
 	pinned_as="the pinned Metal ones"
 	check_gpu "$lines_rtr" lines "${expected_lines_metal[@]}" || rc=1
 	if ! RTRACE_FRAMES_DIR=$tmp/filters-gpu check_gpu "$filters" filters \

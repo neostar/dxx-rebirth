@@ -47,5 +47,8 @@ expected_filters_metal=('0 64x48 0d33b500a6d9edb0' '1 64x48 3c3b6542f0892545' '2
 # on 2, 15 and 38 pixels.
 filters_gl_tolerance=('5 255' '2 1' '15 1' '38 1' '15 1' '38 1')
 filters=$root/common/render/rtrace/synthetic/filters.rtr
-# The overlay trace (#31).
+# The overlay trace (#31): the game's two-pass walls, two frames of solid passes,
+# an opaque base and a transparent overlay (any red pixel left is a depth tie
+# lost), depth on and off, and a mid-frame depth-only clear.
+expected_overlay=('0 64x48 05e274e5f1dcfcc2' '1 64x48 333469174330ccf5' '2 64x48 e13acd3b02aeb89b' '3 64x48 b4ebcd39fcdecf0d' '4 64x48 cd8367e8073a5325')
 overlay=$root/common/render/rtrace/synthetic/overlay.rtr

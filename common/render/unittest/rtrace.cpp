@@ -46,6 +46,7 @@
 #include "common/render/rtrace/sample_trace.h"
 #include "common/render/trace.h"
 #include "common/render/transform_matrix.h"
+#include "common/render/unittest/pixel_counts.h"
 
 // clang-format off
 #include "tools/dev/upstream_begin.h"
@@ -59,6 +60,7 @@
 
 namespace render = dcx::render;
 namespace trace = dcx::render::trace;
+using dcx::render::unittest::pixels_mostly;
 
 namespace {
 
@@ -712,6 +714,47 @@ BOOST_AUTO_TEST_CASE(depth_band_keeps_the_nearer_on_gl)
 	BOOST_TEST(blue == 0u);
 	BOOST_TEST(green == std::size_t{32} * 24);
 	BOOST_TEST(o.frames.front().hash == 0x053439a05ecf8825u);
+}
+
+/* Test the overlay trace on GL (#31): GL ties nowhere, the baseline of
+ * test-sdlgpu's overlay_passes_tie_nowhere.  Where a wall's base is
+ * opaque and its overlay has transparency (alpha 254 in every texel, as
+ * the game's overlay has holes), the overlay's green covers the base's red
+ * in every pixel of frames 1 and 2 (0 red pixels, GL's LEQUAL passes the
+ * equal depth); in frame 3 the blue quad, drawn without the depth test,
+ * covers the red one (no red pixel) and the yellow one drawn after it with
+ * the test covers the blue one around the red one, as its depth was not
+ * written (blue only inside the red one's footprint).
+ */
+BOOST_AUTO_TEST_CASE(overlay_passes_tie_nowhere_on_gl)
+{
+	const auto o{replay_on_gl(render::rtrace::overlay_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 5u);
+	for (const std::size_t f : {1u, 2u})
+	{
+		BOOST_TEST_CONTEXT("frame " << f)
+		{
+			BOOST_TEST(pixels_mostly(o.frames[f].rgb, 0) == 0u);
+			BOOST_TEST(pixels_mostly(o.frames[f].rgb, 1) > 0u);
+		}
+	}
+	BOOST_TEST(pixels_mostly(o.frames[3].rgb, 0) == 0u);
+	BOOST_TEST(pixels_mostly(o.frames[3].rgb, 2) > 0u);
+}
+
+/* Test a mid-frame depth-only clear on GL (#31), the baseline of
+ * test-sdlgpu's depth_clear_keeps_the_colour: the farther green quad of
+ * frame 4 shows over the nearer red one, as the depth was cleared between
+ * them, and the red quad shows around it, as the colour was kept.
+ */
+BOOST_AUTO_TEST_CASE(depth_only_clear_keeps_the_colour_on_gl)
+{
+	const auto o{replay_on_gl(render::rtrace::overlay_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 5u);
+	BOOST_TEST(pixels_mostly(o.frames[4].rgb, 1) > 0u);
+	BOOST_TEST(pixels_mostly(o.frames[4].rgb, 0) > 0u);
 }
 
 /* Test that a textured draw samples the texture of its own slot, not the
