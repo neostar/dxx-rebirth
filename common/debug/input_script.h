@@ -231,30 +231,43 @@ constexpr std::optional<input_button> parse_button(const std::string_view word)
 	return input_button{button.value()};
 }
 
+/* A hat direction's name and SDL's hat bits. */
+struct named_hat_direction
+{
+	std::string_view name;
+	std::int32_t bits;
+};
+
+constexpr std::array<named_hat_direction, 9> hat_directions{{
+    {.name = "centered", .bits = input_hat_centered},
+    {.name = "up", .bits = input_hat_up},
+    {.name = "right", .bits = input_hat_right},
+    {.name = "down", .bits = input_hat_down},
+    {.name = "left", .bits = input_hat_left},
+    {.name = "up_right", .bits = input_hat_up_right},
+    {.name = "down_right", .bits = input_hat_down_right},
+    {.name = "down_left", .bits = input_hat_down_left},
+    {.name = "up_left", .bits = input_hat_up_left},
+}};
+
 /* A hat direction's name, as SDL's hat bits. */
 [[nodiscard]]
 constexpr std::optional<std::int32_t> parse_hat_direction(const std::string_view word)
 {
-	struct named_direction
-	{
-		std::string_view name;
-		std::int32_t bits;
-	};
-	constexpr std::array<named_direction, 9> directions{{
-	    {.name = "centered", .bits = input_hat_centered},
-	    {.name = "up", .bits = input_hat_up},
-	    {.name = "right", .bits = input_hat_right},
-	    {.name = "down", .bits = input_hat_down},
-	    {.name = "left", .bits = input_hat_left},
-	    {.name = "up_right", .bits = input_hat_up_right},
-	    {.name = "down_right", .bits = input_hat_down_right},
-	    {.name = "down_left", .bits = input_hat_down_left},
-	    {.name = "up_left", .bits = input_hat_up_left},
-	}};
-	const auto i{std::ranges::find(directions, word, &named_direction::name)};
-	if (i == directions.end())
+	const auto i{std::ranges::find(hat_directions, word, &named_hat_direction::name)};
+	if (i == hat_directions.end())
 		return std::nullopt;
 	return i->bits;
+}
+
+/* The name a script gives SDL's hat bits `bits`; nullopt for bits that are none of the nine. */
+[[nodiscard]]
+constexpr std::optional<std::string_view> hat_direction_name(const std::int32_t bits)
+{
+	const auto i{std::ranges::find(hat_directions, bits, &named_hat_direction::bits)};
+	if (i == hat_directions.end())
+		return std::nullopt;
+	return i->name;
 }
 
 /* One joystick line after its action word: the event, or why it is
