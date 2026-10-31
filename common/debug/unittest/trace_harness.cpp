@@ -103,7 +103,7 @@ void exit_note(const char *const message)
 	exit_notes.emplace_back(message);
 }
 
-constexpr dcx::harness_report report{.fail = fail_with, .note = note, .exit_note = exit_note};
+constexpr dcx::harness_reporter report{.fail = fail_with, .note = note, .exit_note = exit_note};
 
 constexpr render::extent screen{.width = 32, .height = 16};
 

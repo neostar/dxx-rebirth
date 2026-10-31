@@ -85,7 +85,7 @@ inline std::optional<trace_request> read_harness_trace()
  * the run with the message (UserError) and does not return; note logs a
  * line; exit_note writes one at exit, after the console is gone (stderr).
  */
-struct harness_report
+struct harness_reporter
 {
 	void (*fail)(const char *message);
 	void (*note)(const char *message);
@@ -101,7 +101,7 @@ struct harness_report
  */
 class harness_front
 {
-	harness_report report_;
+	harness_reporter report_;
 	/* The trace asked for, until the first bind makes its recorder. */
 	std::optional<trace_request> request_;
 	std::unique_ptr<render::recording_device> recorder_;
@@ -112,7 +112,7 @@ class harness_front
 	render::front_reset reset_{front_};
 
   public:
-	harness_front(harness_report report, std::optional<trace_request> request);
+	harness_front(harness_reporter report, std::optional<trace_request> request);
 	/* With a recorder, notes at exit what it recorded (recording_summary):
 	 * a run that ended before the range's last frame gives a shorter trace.
 	 */

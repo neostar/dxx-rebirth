@@ -24,7 +24,7 @@ namespace dcx {
 namespace {
 
 /* Ends the run with message through report; fail does not return. */
-void fail_run(const harness_report &report, const std::string &message)
+void fail_run(const harness_reporter &report, const std::string &message)
 {
 	report.fail(message.c_str());
 }
@@ -44,10 +44,10 @@ class trace_file
 	};
 	std::unique_ptr<std::FILE, closer> file_;
 	std::string path_;
-	harness_report report_;
+	harness_reporter report_;
 
   public:
-	trace_file(std::FILE *const file, std::string path, const harness_report report)
+	trace_file(std::FILE *const file, std::string path, const harness_reporter report)
 	    : file_{file}, path_{std::move(path)}, report_{report}
 	{}
 	void write(const std::span<const std::uint8_t> bytes) const
@@ -79,7 +79,7 @@ class trace_file
 
 }
 
-harness_front::harness_front(const harness_report report, std::optional<trace_request> request)
+harness_front::harness_front(const harness_reporter report, std::optional<trace_request> request)
     : report_{report}, request_{std::move(request)}
 {}
 
