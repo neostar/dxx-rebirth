@@ -28,6 +28,7 @@
 #include "args.h"
 #include "partial_range.h"
 #if SDL_MAJOR_VERSION == 3
+#include "common/sdl/audio_frame.h"
 #include "common/sdl/display.h"
 #include "common/sdl/text_input.h"
 #endif
@@ -528,6 +529,9 @@ window_event_result event_process(void)
 	window_event_result highest_result;
 
 	timer_update();
+#if SDL_MAJOR_VERSION == 3
+	dcx::sdl::audio_commit_frame();
+#endif
 #if DXX_USE_DBG_HARNESS
 	harness_push_input();
 #endif

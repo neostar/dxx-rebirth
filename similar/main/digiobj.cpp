@@ -31,6 +31,9 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "object.h"
 #include "timer.h"
 #include "joy.h"
+#if SDL_MAJOR_VERSION == 3
+#include "common/sdl/audio_frame.h"
+#endif
 #include "digi.h"
 #include "digi_audio.h"
 #include "sounds.h"
@@ -587,6 +590,9 @@ static int was_recording = 0;
 
 void digi_sync_sounds()
 {
+#if SDL_MAJOR_VERSION == 3
+	const dcx::sdl::audio_frame_commit commit_at_return;
+#endif
 	int oldvolume;
 
 	if ( Newdemo_state == ND_STATE_RECORDING)	{

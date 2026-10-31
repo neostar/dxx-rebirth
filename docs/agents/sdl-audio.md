@@ -157,7 +157,8 @@ sets them.
 
 **Rules for #45.**
 1. Every track change happens in one per-frame batch: `MIX_LockMixer`, apply the frame's
-   commands, `MIX_UnlockMixer`, from `digi_sync_sounds()` (`similar/main/digiobj.cpp:588`). The
+   commands, `MIX_UnlockMixer`, from `digi_sync_sounds()` (`similar/main/digiobj.cpp:588`) and
+   each `event_process()` pass; `stop_all` commits at once, as `Mix_HaltChannel` stops. The
    held mixer lock keeps the mix out, which 3.2.4 needs; keep this rule until a release carries
    `4aab76ed760c`, and keep the batch after that so a frame's starts land on one sample frame.
 2. Inside the batch only the calls listed above: no `MIX_PlayAudio`, no track create/destroy, no
@@ -169,6 +170,10 @@ sets them.
    pulls the unbound output stream with `SDL_GetAudioStreamData` (`SDL_mixer.c:644-659`) and never
    takes a device lock, so it finds game-versus-mix races but cannot show a device-lock
    inversion; rule 2 is what prevents those.
+   TSan sees only races between instrumented code: SDL and SDL3_mixer are not instrumented, so a
+   race entered from their callbacks goes unreported (a planted stopped callback writing the
+   game's playing bits ran on the mixing thread 143-266 times per run with no report). Rule 3 is
+   held by `check.sh`'s `audio_callbacks` step instead (`tools/dev/check_audio_callbacks.py`).
 
 Informs #45 (and its TSan step in ADR 5).
 
@@ -324,8 +329,9 @@ interface; put the SDL3 implementation behind it as a fork module (ADR 3: upstre
 `sdl_wrap_audio.cpp`).
 
 - **Interface.** The table's ten functions, music (play, stop, pause, volume) and
-  `commit_frame()` from `digi_sync_sounds()`. Callers learn nothing about tracks, locks, rates,
-  decoders or devices.
+  `commit_frame()` at two points: the end of `digi_sync_sounds()`, and the start of every
+  `event_process()` pass (`common/sdl/audio_frame.h`), since menus and briefings never run
+  `digi_sync_sounds()`. Callers learn nothing about tracks, locks, rates, decoders or devices.
 - **Depth.** Behind it, everything areas 1-8 recommend. Leverage: every `digi_*` caller and the
   four tickets use it unchanged. Locality: gains, locking and device handling each live in one
   place.

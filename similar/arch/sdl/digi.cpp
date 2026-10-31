@@ -224,12 +224,7 @@ void digi_select_system()
 int  digi_init()
 {
 	digi_init_sounds();
-#if SDL_MAJOR_VERSION == 3
-	/* SDL3's stubs open no device, so there is no driver to report until #45
-	 * and #47 open one.
-	 */
-	return fptr->init();
-#elif DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
+#if DXX_USE_DBG_HARNESS && SDL_MAJOR_VERSION >= 2
 	/* A hidden run names the audio driver SDL opened, and stops at once
 	 * on one that could play sound (audio_driver_report.h).
 	 */

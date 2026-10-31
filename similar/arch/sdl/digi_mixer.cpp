@@ -45,64 +45,229 @@
 #include "d_zip.h"
 
 #if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
+#include <optional>
+#include <vector>
+#include "common/sdl/audio_frame.h"
+#include "common/sdl/effect_mixer.h"
 
-/* SDL3_mixer replaces the Mix_* API with MIX_Mixer, MIX_Audio and MIX_Track.
- * Until #45 ports the sound effects, every entry point does nothing and the
- * init reports failure as a device that would not open does: the game runs
- * with no sound (SndNoSound) and no audio device is opened.
+/* The sound effects on SDL3_mixer (#45, docs/agents/sdl-audio.md): this file
+ * opens the default device at its own format, loads each effect once as raw
+ * U8 mono at its own rate, and turns the game's volume and pan into gains
+ * (common/sdl/audio_gains.h); common/sdl/effect_mixer.h holds the tracks and
+ * hands each frame's commands to the mixer in one batch, at
+ * digi_sync_sounds() and at the start of every event loop pass
+ * (common/sdl/audio_frame.h), so menus and briefings play too.
  */
 namespace dcx {
 
-int digi_mixer_init()
+namespace {
+
+struct sdl3_effects
 {
-	static dcx::sdl::link_stub stub{"the SDL_mixer sound effects", "#45"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
+	/* Each track's volume and pan as the game last set them: the SDL2
+	 * build sets them apart (Mix_SetDistance, Mix_SetPanning), and both
+	 * go into one pair of stereo gains here.
+	 */
+	struct level
+	{
+		fix volume;
+		fix pan;
+	};
+	sdl::effect_mixer mixer;
+	std::array<level, sdl::effect_track_count> levels{};
+	/* After the mixer: destroyed first. */
+	std::vector<sdl::mix_audio_ptr> sounds;
+	/* The caller has checked that channel is a track. */
+	void set_level(const sound_channel channel, const level l)
+	{
+		const auto t{underlying_value(channel)};
+		levels[t] = l;
+		mixer.set_gains(t, sdl::effect_gains(l.volume, l.pan));
+	}
+};
+
+std::unique_ptr<sdl3_effects> effects;
+
+void log_device(const char *const what, const SDL_AudioDeviceID id)
+{
+	SDL_AudioSpec spec{};
+	int frames{0};
+	if (!SDL_GetAudioDeviceFormat(id, &spec, &frames))
+	{
+		con_printf(CON_NORMAL, "SDL audio: %s device %u: no format: %s", what, id, SDL_GetError());
+		return;
+	}
+	con_printf(CON_NORMAL, "SDL audio: %s %s, %d frames", what, dcx::sdl::audio_device_text(SDL_GetAudioDeviceName(id), spec).c_str(), frames);
+}
+
+void commit_frame()
+{
+	if (effects)
+		effects->mixer.commit_frame();
+}
+
+int open_failed(const char *const why)
+{
+	const char *const driver{SDL_GetCurrentAudioDriver()};
+	con_printf(CON_URGENT, "\nError: Couldn't open audio (driver %s): %s: %s; playing without sound", driver ? driver : "none", why, SDL_GetError());
 	CGameArg.SndNoSound = 1;
 	return 1;
 }
 
+}
+
+int digi_mixer_init()
+{
+	if (!MIX_Init())
+		return open_failed("MIX_Init");
+	/* The default device at its own rate and format: SDL resamples each
+	 * effect once, and a default device follows the system's (area 2, 3).
+	 */
+	sdl::mix_mixer_ptr m{MIX_CreateMixerDevice(sdl::default_playback_device, nullptr)};
+	if (!m)
+	{
+		const int r{open_failed("MIX_CreateMixerDevice")};
+		MIX_Quit();
+		return r;
+	}
+	const auto id{static_cast<SDL_AudioDeviceID>(SDL_GetNumberProperty(MIX_GetMixerProperties(m.get()), MIX_PROP_MIXER_DEVICE_NUMBER, 0))};
+	const char *const driver{SDL_GetCurrentAudioDriver()};
+	con_printf(CON_NORMAL, "SDL audio: driver %s", driver ? driver : "none");
+	log_device("opened", id);
+	auto e{std::make_unique<sdl3_effects>(sdl::effect_mixer{std::move(m)})};
+	if (!e->mixer.usable())
+	{
+		e.reset();
+		const int r{open_failed("MIX_CreateTrack")};
+		MIX_Quit();
+		return r;
+	}
+	effects = std::move(e);
+	sdl::audio_hooks = {.commit_frame = &commit_frame};
+	digi_mixer_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
+	return 0;
+}
+
 void digi_mixer_close()
 {
+	if (!effects)
+		return;
+	sdl::audio_hooks = {};
+	effects.reset();
+	MIX_Quit();
 }
 
-void digi_mixer_set_channel_volume(sound_channel, int)
+void digi_mixer_set_channel_volume(const sound_channel channel, const int volume)
 {
+	if (!effects)
+		return;
+	const auto t{underlying_value(channel)};
+	if (t < effects->levels.size())
+		effects->set_level(channel, {.volume = volume, .pan = effects->levels[t].pan});
 }
 
-void digi_mixer_set_channel_pan(sound_channel, sound_pan)
+void digi_mixer_set_channel_pan(const sound_channel channel, const sound_pan pan)
 {
+	if (!effects)
+		return;
+	const auto t{underlying_value(channel)};
+	if (t < effects->levels.size())
+		effects->set_level(channel, {.volume = effects->levels[t].volume, .pan = static_cast<fix>(pan)});
 }
 
-void digi_mixer_stop_sound(sound_channel)
+void digi_mixer_stop_sound(const sound_channel channel)
 {
+	if (effects)
+		effects->mixer.stop(underlying_value(channel));
 }
 
-void digi_mixer_end_sound(sound_channel)
+void digi_mixer_end_sound(const sound_channel channel)
 {
+	digi_mixer_stop_sound(channel);
 }
 
-void digi_mixer_set_digi_volume(int)
+void digi_mixer_set_digi_volume(const int dvolume)
 {
+	digi_volume = dvolume;
+	if (effects)
+		effects->mixer.set_volume(sdl::effect_volume_gain(dvolume));
 }
 
-int digi_mixer_is_channel_playing(sound_channel)
+int digi_mixer_is_channel_playing(const sound_channel channel)
 {
-	return 0;
+	return effects && effects->mixer.playing(underlying_value(channel));
 }
 
 void digi_mixer_stop_all_channels()
 {
+	if (effects)
+		effects->mixer.stop_all();
+}
+
+bool digi_mixer_play_voice(const std::span<const uint8_t> file)
+{
+	if (!effects)
+		return true;
+	sdl::mix_audio_ptr voice{MIX_LoadAudio_IO(effects->mixer.mixer(), SDL_IOFromConstMem(file.data(), file.size()), true, true)};
+	if (!voice)
+		return false;
+	effects->mixer.play_voice(std::move(voice));
+	return true;
+}
+
+void digi_mixer_stop_voice()
+{
+	if (effects)
+		effects->mixer.stop_voice();
 }
 
 }
 
 namespace dsx {
 
-sound_channel digi_mixer_start_sound(sound_effect, fix, sound_pan, int, int, int, sound_object *)
+namespace {
+
+/* Effect i as SDL3_mixer audio, loaded on its first use as the game holds
+ * it: U8 mono at the sounds' rate (area 2).
+ */
+MIX_Audio *effect_audio(dcx::sdl3_effects &e, const sound_effect i)
 {
-	return sound_channel::None;
+	const std::size_t n{underlying_value(i)};
+	if (e.sounds.size() <= n)
+		e.sounds.resize(MAX_SOUNDS);
+	auto &a{e.sounds[n]};
+	if (!a)
+	{
+		const auto &gs{GameSounds[i]};
+		const auto data{gs.span()};
+		if (data.empty())
+			return nullptr;
+#if DXX_BUILD_DESCENT == 1
+		const auto freq{gs.freq};
+#elif DXX_BUILD_DESCENT == 2
+		const auto freq{GameArg.SndDigiSampleRate};
+#endif
+		const SDL_AudioSpec spec{.format = SDL_AUDIO_U8, .channels = 1, .freq = underlying_value(freq)};
+		a.reset(MIX_LoadRawAudio(e.mixer.mixer(), data.data(), data.size(), &spec));
+		if (!a)
+			con_printf(CON_URGENT, "SDL audio: effect %u failed to load: %s", static_cast<unsigned>(n), SDL_GetError());
+	}
+	return a.get();
+}
+
+}
+
+sound_channel digi_mixer_start_sound(const sound_effect soundnum, const fix volume, const sound_pan pan, const int looping, int, int, sound_object *)
+{
+	if (!dcx::effects || soundnum == sound_effect::None)
+		return sound_channel::None;
+	auto &e{*dcx::effects};
+	const dcx::sdl3_effects::level l{.volume = volume, .pan = static_cast<fix>(pan)};
+	const auto t{e.mixer.start(effect_audio(e, soundnum), dcx::sdl::effect_gains(l.volume, l.pan), looping != 0, dcx::sdl::effect_track_count)};
+	if (!t)
+		return sound_channel::None;
+	e.levels[*t] = l;
+	return sound_channel{*t};
 }
 
 }

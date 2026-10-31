@@ -10,6 +10,9 @@
 #include "maths.h"
 #include <SDL.h>
 #include "digi_audio.h"
+#if SDL_MAJOR_VERSION == 3
+#include <span>
+#endif
 
 #ifndef DXX_FEATURE_EXTERNAL_RESAMPLER_SDL_NATIVE
 #define DXX_FEATURE_EXTERNAL_RESAMPLER_SDL_NATIVE	1
@@ -68,6 +71,14 @@ void digi_mixer_set_digi_volume(int);
 int digi_mixer_is_channel_playing(sound_channel);
 void digi_mixer_stop_all_channels();
 int digi_mixer_init();
+#if SDL_MAJOR_VERSION == 3
+/* The briefing voice-over on SDL3_mixer's voice track: a whole audio file
+ * (WAV) in memory, decoded at once; false, with SDL's error, if it does not
+ * load.
+ */
+bool digi_mixer_play_voice(std::span<const uint8_t>);
+void digi_mixer_stop_voice();
+#endif
 }
 namespace dsx {
 sound_channel digi_mixer_start_sound(sound_effect, fix, sound_pan, int, int, int, sound_object *);

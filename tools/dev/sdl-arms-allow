@@ -11,6 +11,6 @@ d2x-rebirth/libmve/mvelib.h 3 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/libmve/mveplay.cpp 2 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/main/movie.cpp 1 -- SDL3 branches come with #47 (movie audio)
 d2x-rebirth/unittest/mve_audio_stream.cpp 1 -- SDL3 branches come with #47 (movie audio)
-similar/arch/sdl/digi_mixer.cpp 1 -- SDL3 branches come with #45 (sound effects on SDL3_mixer)
+similar/arch/sdl/digi_mixer.cpp 1 -- the chain nests in the SDL1.2/SDL2 arm, whose SDL3 twin is the file's first branch
 similar/main/inferno.cpp 1 -- the chain nests in the SDL2 version report, whose SDL3 arm is beside it
 similar/main/menu.cpp 1 -- SDL3 branches come with #46 (music options)
