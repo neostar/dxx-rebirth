@@ -5373,6 +5373,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-text-input', (
 			'common/sdl/unittest/text_input.cpp',
 			), use_default_libs=True),
+		RuntimeTest('test-effect-mixer', (
+			'common/sdl/unittest/effect_mixer.cpp',
+			), use_default_libs=True),
 		RuntimeTest('test-sdl-assertion-exit', (
 			'common/sdl/unittest/assertion_exit.cpp',
 			'common/sdl/assertion_exit.cpp',

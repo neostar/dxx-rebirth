@@ -18,3 +18,4 @@ common/sdl/unittest/joystick_events.cpp
 common/sdl/unittest/pilot_file.cpp
 common/sdl/unittest/arch_init.cpp
 common/sdl/harness_record.cpp
+common/sdl/unittest/effect_mixer.cpp
