@@ -7,12 +7,14 @@
 
 #include "common/sdl/effect_mixer.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #define BOOST_TEST_DYN_LINK
@@ -304,4 +306,46 @@ BOOST_AUTO_TEST_CASE(effect_keeps_its_duration_at_the_device_rate)
 	/* A quarter second: 12000 frames, give or take the resampler's edges. */
 	BOOST_TEST(sounding > 11900u);
 	BOOST_TEST(sounding < 12100u);
+}
+
+/* Test the game and the mix on two threads, as on a device: the game thread
+ * starts, pans and stops effects and commits each frame while a second
+ * thread pulls the mix.  ThreadSanitizer runs it in the nightly tier's tsan
+ * step (nightly.sh); here it checks the mix ran and the game state is sane.
+ */
+BOOST_AUTO_TEST_CASE(game_and_mix_threads_share_only_the_batch)
+{
+	auto mixer{make_mixer(48000)};
+	const auto effect{make_effect(mixer.mixer(), 2000, 11025)};
+	std::atomic<bool> done{false};
+	std::atomic<unsigned> pulls{0};
+	MIX_Mixer *const m{mixer.mixer()};
+	std::thread mix{[m, &done, &pulls] {
+		std::vector<float> out(std::size_t{1024} * 2);
+		const auto bytes{static_cast<int>(out.size() * sizeof(float))};
+		while (!done.load())
+			if (MIX_Generate(m, out.data(), bytes) >= 0)
+				pulls.fetch_add(1);
+	}};
+	for (unsigned frame{0}; frame < 400; ++frame)
+	{
+		const auto t{mixer.start(effect.get(),
+		                         dcx::sdl::effect_gains(0x8000, static_cast<int32_t>(frame * 160)),
+		                         frame % 3 == 0, 64)};
+		if (t.has_value() && frame % 5 == 0)
+			mixer.set_gains(t.value(), unit);
+		if (frame % 7 == 0)
+			mixer.stop(static_cast<effect_mixer::track_index>(frame % 64));
+		if (frame % 50 == 0)
+			mixer.set_volume(frame % 100 == 0 ? 0.5f : 1.0f);
+		mixer.commit_frame();
+		std::this_thread::yield();
+	}
+	mixer.stop_all();
+	mixer.commit_frame();
+	done.store(true);
+	mix.join();
+	BOOST_TEST(pulls.load() > 0u);
+	for (std::size_t i{0}; i < dcx::sdl::effect_track_count; ++i)
+		BOOST_TEST(!mixer.playing(static_cast<effect_mixer::track_index>(i)));
 }
