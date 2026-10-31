@@ -57,7 +57,7 @@ song_number songs_is_playing();
 #else
 #define songs_play_file(filename,repeat,hook_finished_track)	songs_play_file()
 #endif
-#if SDL_MAJOR_VERSION == 2
+#if SDL_MAJOR_VERSION >= 2
 #define songs_play_song(songnum,repeat)	songs_play_song(songnum)
 #endif
 #endif

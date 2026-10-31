@@ -54,7 +54,7 @@ extern void RBASetQuadAudio(RBACHANNELCTL *channels);
 extern void RBAGetAudioInfo(RBACHANNELCTL *channels);
 extern void RBASetChannelVolume(int channel, int volume);
 #endif
-#if defined(__linux__) || SDL_MAJOR_VERSION != 1
+#if defined(__linux__) || SDL_MAJOR_VERSION >= 2
 extern void RBASetVolume(int volume);
 #else
 static inline void RBASetVolume(int)

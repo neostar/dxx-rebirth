@@ -2591,6 +2591,9 @@ namespace {
 
 #if SDL_MAJOR_VERSION == 1 && DXX_USE_SDLMIXER
 #define DXX_MUSIC_OPTIONS_SEPARATOR_TEXT " / "
+#elif SDL_MAJOR_VERSION >= 2
+/* No CD music label, so nothing to separate. */
+#define DXX_MUSIC_OPTIONS_SEPARATOR_TEXT ""
 #else
 #define DXX_MUSIC_OPTIONS_SEPARATOR_TEXT ""
 #endif
