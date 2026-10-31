@@ -42,6 +42,7 @@
 #include "common/render/rtrace/sample_trace.h"
 #include "common/render/sdlgpu_clears.h"
 #include "common/render/trace.h"
+#include "common/render/unittest/pixel_counts.h"
 #include "common/sdl/dxx-sdl.h"
 
 #define BOOST_TEST_DYN_LINK
@@ -51,6 +52,7 @@
 
 namespace render = dcx::render;
 namespace sdlgpu = dcx::render::sdlgpu;
+using dcx::render::unittest::pixels_mostly;
 
 namespace {
 
@@ -666,6 +668,77 @@ BOOST_AUTO_TEST_CASE(depth_band_keeps_the_nearer)
 	BOOST_REQUIRE(frames.size() == 1u);
 	BOOST_TEST(pixels_of(frames.front(), blue) == 0u);
 	BOOST_TEST(frames.front().hash == 0x053439a05ecf8825u);
+}
+
+/* Test R3 on the overlay trace (#31): the game's two-pass walls, the
+ * corridor with solid passes, the slanted and the distant wall, depth on
+ * and off, and a mid-frame depth-only clear hash as GL draws them.  Pinned
+ * as the sample's are.
+ */
+BOOST_AUTO_TEST_CASE(overlay_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{0x05e274e5f1dcfcc2u, 0x333469174330ccf5u,
+	                                    0xe13acd3b02aeb89bu, 0xb4ebcd39fcdecf0du,
+	                                    0xcd8367e8073a5325u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::overlay_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
+/* Test that the overlay's second pass ties nowhere, on any driver (#31):
+ * in frames 1 and 2 each pixel ends in the overlay's green; a red pixel
+ * is a base pixel the overlay's depth failed against (LEQUAL) because the
+ * two passes computed depths that differ.  The base is opaque and the
+ * overlay has transparency (alpha 254), the game's split: once the alpha
+ * test is the transparent draws' alone, they run different pipelines, whose
+ * vertex shaders must give one depth (the precise position of
+ * shaders/hlsl/pos_color_uv.vert.hlsl, #31).  The exact transform model of
+ * ADR 2 gives 0 on GL (test-rtrace) and here.
+ */
+BOOST_AUTO_TEST_CASE(overlay_passes_tie_nowhere)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::overlay_trace())};
+	BOOST_REQUIRE(frames.size() == 5u);
+	for (const std::size_t f : {1u, 2u})
+	{
+		BOOST_TEST_CONTEXT("frame " << f)
+		{
+			BOOST_TEST(pixels_mostly(frames[f].rgb, 0) == 0u);
+			BOOST_TEST(pixels_mostly(frames[f].rgb, 1) > 0u);
+		}
+	}
+}
+
+/* Test depth on and off in the 3D view, on any driver (#31): a quad drawn
+ * with depth off is not tested, so the blue quad behind the red one covers
+ * it entirely, and it writes no depth, so the yellow quad drawn after it
+ * behind the red one covers it everywhere the red one does not: blue
+ * shows only inside the red quad's footprint, fewer pixels than the
+ * yellow around it.
+ */
+BOOST_AUTO_TEST_CASE(depth_off_quad_is_untested_and_unwritten)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::overlay_trace())};
+	BOOST_REQUIRE(frames.size() == 5u);
+	BOOST_TEST(pixels_mostly(frames[3].rgb, 0) == 0u);
+	BOOST_TEST(pixels_of(frames[3], blue) > 0u);
+	BOOST_TEST(pixels_of(frames[3], yellow) > pixels_of(frames[3], blue));
+}
+
+/* Test a mid-frame depth-only clear on any driver (#31), which the game
+ * makes at every 3D frame's start and the rear view makes in the middle of
+ * one (begin_3d_frame): frame 4 draws a near red quad, clears the depth
+ * alone, then draws a farther, smaller green quad over it.  The clear splits
+ * the pass: it resets the depth, so the green quad shows over the red one
+ * it lies behind, and loads the colour, so the red quad shows around it.
+ * A clear of the colour too leaves no red pixel; a clear that is skipped
+ * leaves the depth, and no green pixel.
+ */
+BOOST_AUTO_TEST_CASE(depth_clear_keeps_the_colour_and_resets_the_depth)
+{
+	const auto frames{replayed_frames(dcx::render::rtrace::overlay_trace())};
+	BOOST_REQUIRE(frames.size() == 5u);
+	BOOST_TEST(pixels_mostly(frames[4].rgb, 1) > 0u);
+	BOOST_TEST(pixels_mostly(frames[4].rgb, 0) > 0u);
 }
 
 /* Test the winding of the walls trace's corridor, on any driver: front
