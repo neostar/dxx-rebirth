@@ -776,4 +776,13 @@ void key_toggle_repeat0()
 	key_flush();
 }
 
+#if DXX_USE_DBG_HARNESS
+/* Whether key_handler takes repeated keys, for the input recorder (harness_record.cpp). */
+bool key_repeat_active();
+bool key_repeat_active()
+{
+	return keyd_repeat;
+}
+#endif
+
 }

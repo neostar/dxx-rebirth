@@ -23,6 +23,7 @@
 #include <SDL.h>
 #include <algorithm>
 #include <array>
+#include <expected>
 #include <functional>
 #include <optional>
 #include <ostream>
@@ -52,6 +53,9 @@
 // clang-format on
 #if DXX_USE_DBG_HARNESS
 #include "common/debug/input_script.h"
+#if SDL_MAJOR_VERSION >= 2
+#include "common/sdl/harness_record.h"
+#endif
 #endif
 
 namespace {
@@ -623,6 +627,123 @@ bool harness_push_text(bool down, SDL_Keycode key);
 /* event.cpp's harness_mouse_event, which the harness build defines. */
 SDL_Event harness_mouse_event(const input_event &e);
 
+}
+
+BOOST_TEST_DONT_PRINT_LOG_VALUE(::dcx::input_event)
+
+namespace {
+
+/* The SDL event harness_push_input pushes for a script's key line. */
+SDL_Event harness_key_event(const ::dcx::input_event &e)
+{
+	SDL_Event event{};
+	const bool down{e.action == ::dcx::input_action::key_down};
+	const auto sym{::dcx::input_key_entry(::dcx::key_properties, e.key).sym};
+#if SDL_MAJOR_VERSION == 3
+	event.key.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+	event.key.down = down;
+	event.key.key = sym;
+#else
+	event.key.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+	event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+	event.key.keysym.sym = sym;
+#endif
+	return event;
+}
+
+void push(SDL_Event event)
+{
+#if SDL_MAJOR_VERSION == 3
+	BOOST_REQUIRE(SDL_PushEvent(&event));
+#else
+	BOOST_REQUIRE(SDL_PushEvent(&event) == 1);
+#endif
+}
+
+/* What the recorder makes of every event in SDL's queue, as event_poll would take them, at
+ * harness tick `tick`: an event, or nothing; unrecorded input fails the test.
+ */
+std::vector<::dcx::input_event> recorded_from_queue(const ::dcx::harness_tick tick)
+{
+	std::array<SDL_Event, 128> events{};
+	SDL_PumpEvents();
+	const auto peep{SDL_PeepEvents(events.data(), static_cast<int>(events.size()), SDL_GETEVENT,
+	                               SDL_FIRSTEVENT, SDL_LASTEVENT)};
+	BOOST_REQUIRE(peep >= 0);
+	::dcx::harness_record_state state;
+	std::vector<::dcx::input_event> recorded;
+	for (const auto &event : std::span{events}.first(static_cast<std::size_t>(peep)))
+	{
+		const auto e{::dcx::harness_recorded_event(event, tick, state)};
+		BOOST_REQUIRE(e.has_value());
+		if (e.value())
+			recorded.push_back(e.value().value());
+	}
+	return recorded;
+}
+
+}
+
+/* Test that each line a script can hold, pushed as the harness pushes it and taken from SDL's
+ * queue as the game takes it, records as the same line (#99): the recorder is the inverse of
+ * the harness at the seam where the game consumes events.
+ */
+BOOST_AUTO_TEST_CASE(harness_lines_record_as_themselves)
+{
+	const sdl_events sdl;
+	const auto key_of{[](const std::string_view name) {
+		return ::dcx::input_key_named(::dcx::key_properties, name);
+	}};
+	const auto parsed{
+	    ::dcx::parse_input_script("4 down ESC\n4 mouse_move 3 -2\n4 mouse_down right\n"
+		                          "4 mouse_up 17\n4 wheel -2\n4 up ESC\n5 end\n",
+		                          key_of)};
+	BOOST_REQUIRE(parsed.has_value());
+	auto lines{parsed.value()};
+	lines.pop_back();
+	for (const auto &e : lines)
+		push(e.action == ::dcx::input_action::key_down || e.action == ::dcx::input_action::key_up
+		         ? harness_key_event(e)
+				 : ::dcx::harness_mouse_event(e));
+	BOOST_TEST(recorded_from_queue(::dcx::harness_tick{4}) == lines,
+	           boost::test_tools::per_element());
+}
+
+/* Test that a repeated key records only while the game takes repeats, as key_handler drops it
+ * otherwise.
+ */
+BOOST_AUTO_TEST_CASE(a_repeated_key_records_only_while_the_game_takes_repeats)
+{
+	const sdl_events sdl;
+	const auto esc{::dcx::input_key_named(::dcx::key_properties, "ESC")};
+	BOOST_REQUIRE(esc.has_value());
+	auto repeat{harness_key_event({.tick = ::dcx::harness_tick{0},
+	                               .action = ::dcx::input_action::key_down,
+	                               .key = esc.value()})};
+	repeat.key.repeat = 1;
+	::dcx::key_toggle_repeat0();
+	push(repeat);
+	BOOST_TEST(recorded_from_queue(::dcx::harness_tick{0}).empty());
+	::dcx::key_toggle_repeat1();
+	push(repeat);
+	BOOST_TEST(recorded_from_queue(::dcx::harness_tick{0}).size() == 1u);
+	::dcx::key_toggle_repeat0();
+}
+
+/* Test that a joystick event and a quit, which no recorded script line holds, come back as
+ * unrecorded input of their kind, so the recording says so in a comment.
+ */
+BOOST_AUTO_TEST_CASE(input_without_a_script_line_is_named)
+{
+	::dcx::harness_record_state state;
+	SDL_Event joystick{};
+	joystick.type = SDL_JOYBUTTONDOWN;
+	SDL_Event quit{};
+	quit.type = SDL_QUIT;
+	const auto j{::dcx::harness_recorded_event(joystick, ::dcx::harness_tick{0}, state)};
+	const auto q{::dcx::harness_recorded_event(quit, ::dcx::harness_tick{0}, state)};
+	BOOST_TEST((!j && j.error() == ::dcx::unrecorded_input::joystick));
+	BOOST_TEST((!q && q.error() == ::dcx::unrecorded_input::quit));
 }
 
 #if SDL_MAJOR_VERSION == 3

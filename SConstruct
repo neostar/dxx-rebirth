@@ -5333,6 +5333,7 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-event-poll-sdl2', (
 			'common/sdl/unittest/event_poll.cpp',
 			'common/arch/sdl/event.cpp',
+			'common/sdl/harness_record.cpp',
 			'common/arch/sdl/key.cpp',
 			'common/arch/sdl/mouse.cpp',
 			), use_default_libs=True),
@@ -5359,6 +5360,7 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-event-poll-sdl3', (
 			'common/sdl/unittest/event_poll.cpp',
 			'common/arch/sdl/event.cpp',
+			'common/sdl/harness_record.cpp',
 			'common/arch/sdl/key.cpp',
 			'common/arch/sdl/mouse.cpp',
 			), use_default_libs=True),
