@@ -135,13 +135,26 @@ load_input_script(const char *const path, const std::int32_t clock_step, KeyOf &
 	                            .scene = input_scene_name(path)};
 }
 
-/* The scene DXX_DBG_INPUT_SCRIPT plays, for the frame hash log; nullptr
- * without one.
+/* The file that names the run's scene in the frame hash log: the recording
+ * `record_path` when input is recorded, even while the script `script_path`
+ * plays, since the recording's replay plays it as its script and must write
+ * its frames under the live run's header; else the script; nullptr without
+ * either.
+ */
+[[nodiscard]]
+inline const char *harness_scene_path(const char *const script_path, const char *const record_path)
+{
+	return record_path ? record_path : script_path;
+}
+
+/* The scene of this run (harness_scene_path), for the frame hash log;
+ * nullptr without a script or a recording.
  */
 [[nodiscard]]
 inline const char *harness_scene_name()
 {
-	static const char *const path{read_harness_input_script_path()};
+	static const char *const path{
+	    harness_scene_path(read_harness_input_script_path(), read_harness_record_path())};
 	static const std::string scene{path ? input_scene_name(path) : std::string{}};
 	return path ? scene.c_str() : nullptr;
 }

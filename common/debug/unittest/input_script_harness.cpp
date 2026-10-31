@@ -94,6 +94,20 @@ BOOST_AUTO_TEST_CASE(clock_steps_while_input_is_recorded)
 	BOOST_TEST(dcx::harness_clock_step(nullptr, "r.txt", frame_time(nullptr)) == 0);
 }
 
+/* Test that the frame hash log's section is named after the recording when a run records while
+ * a script plays (#99), so the recording's replay, which plays the recording as its script, writes
+ * the same section name; after the script without a recording, and nothing without either.
+ */
+BOOST_AUTO_TEST_CASE(scene_is_named_after_the_recording_first)
+{
+	const char *const script{"/s/s5-mouse-turn.txt"};
+	const char *const recording{"/r/s5.txt"};
+	BOOST_TEST(dcx::harness_scene_path(script, recording) == recording);
+	BOOST_TEST(dcx::harness_scene_path(recording, nullptr) == recording);
+	BOOST_TEST(dcx::harness_scene_path(script, nullptr) == script);
+	BOOST_TEST(dcx::harness_scene_path(nullptr, nullptr) == nullptr);
+}
+
 /* Test that a missing file reads as nothing rather than as an empty script. */
 BOOST_AUTO_TEST_CASE(missing_file_is_not_read)
 {
