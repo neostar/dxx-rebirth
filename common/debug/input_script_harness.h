@@ -19,6 +19,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/debug/input_recorder.h"
 #include "frame_time_harness.h"
 #include "input_script.h"
 
@@ -35,16 +36,19 @@ inline const char *read_harness_input_script_path()
 
 /* How far the harness clock advances at each timer_update, in `fix`
  * seconds: 1/fps of DXX_DBG_FIXED_FRAMETIME (`frame_time`) while the input
- * script at `script_path` plays, so every screen timed by timer_query
- * (title screens, briefings, the menu cursor, the automap) repeats in a
- * replay.  0 keeps the wall clock: no script, or no fixed frame time, which
- * load_input_script refuses.
+ * script at `script_path` plays or input is recorded to `record_path`
+ * (input_recorder.h), so every screen timed by timer_query (title screens,
+ * briefings, the menu cursor, the automap) repeats in a replay, and a
+ * recording runs on the clock its replay will.  0 keeps the wall clock:
+ * neither, or no fixed frame time, which load_input_script and
+ * open_harness_recording refuse.
  */
 [[nodiscard]]
-inline std::int32_t harness_clock_step(const char *const script_path,
+inline std::int32_t harness_clock_step(const char *const script_path, const char *const record_path,
                                        const harness_frame_time &frame_time)
 {
-	if (script_path == nullptr || frame_time.value == nullptr || !frame_time.policy)
+	if ((script_path == nullptr && record_path == nullptr) || frame_time.value == nullptr ||
+	    !frame_time.policy)
 		return 0;
 	return frame_time.policy.value().frame_time(0);
 }
@@ -53,7 +57,8 @@ inline std::int32_t harness_clock_step(const char *const script_path,
 [[nodiscard]]
 inline std::int32_t read_harness_clock_step()
 {
-	return harness_clock_step(read_harness_input_script_path(), harness_frame_time_of_run());
+	return harness_clock_step(read_harness_input_script_path(), read_harness_record_path(),
+	                          harness_frame_time_of_run());
 }
 
 /* Whether the harness clock replaces the wall clock in this run.  Then a

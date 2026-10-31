@@ -25,7 +25,7 @@ std::int32_t clock_step(const char *const script, const char *const fps)
 	const dcx::harness_frame_time frame_time{.value = fps,
 	                                         .policy = fps ? dcx::frame_time_policy::parse(fps)
 	                                                       : dcx::frame_time_policy{}};
-	return dcx::harness_clock_step(script, frame_time);
+	return dcx::harness_clock_step(script, nullptr, frame_time);
 }
 
 std::optional<dcx::input_key> key_of(const std::string_view name)
@@ -78,6 +78,20 @@ BOOST_AUTO_TEST_CASE(clock_steps_only_with_script_and_fixed_frame_time)
 	BOOST_TEST(clock_step(nullptr, "32") == 0);
 	BOOST_TEST(clock_step("s.txt", nullptr) == 0);
 	BOOST_TEST(clock_step("s.txt", "fast") == 0);
+}
+
+/* Test that a recording (#99) runs the harness clock as a script does, so its replay sees the
+ * same time, and that it too needs the fixed frame time.
+ */
+BOOST_AUTO_TEST_CASE(clock_steps_while_input_is_recorded)
+{
+	const auto frame_time{[](const char *const fps) {
+		return dcx::harness_frame_time{.value = fps,
+		                               .policy = fps ? dcx::frame_time_policy::parse(fps)
+		                                             : dcx::frame_time_policy{}};
+	}};
+	BOOST_TEST(dcx::harness_clock_step(nullptr, "r.txt", frame_time("32")) == step_at_32);
+	BOOST_TEST(dcx::harness_clock_step(nullptr, "r.txt", frame_time(nullptr)) == 0);
 }
 
 /* Test that a missing file reads as nothing rather than as an empty script. */

@@ -14,11 +14,16 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "common/debug/input_recorder_harness.h"
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Rebirth input recorder
@@ -323,4 +328,90 @@ BOOST_AUTO_TEST_CASE(pacing_waits_until_the_ticks_wall_time)
 	/* The last tick of a long run does not overflow: 2^32 ticks of 1/30 s. */
 	BOOST_TEST(dcx::harness_pace_wait(harness_tick{4294967295u}, step, 0ns).count() ==
 	           143130623966674804);
+}
+
+namespace {
+
+/* A path in the temporary directory, its file removed with the object. */
+class temporary_path
+{
+	std::filesystem::path path_;
+
+  public:
+	explicit temporary_path(const std::string_view name)
+	    : path_{std::filesystem::temp_directory_path() / name}
+	{}
+	temporary_path(const temporary_path &) = delete;
+	temporary_path &operator=(const temporary_path &) = delete;
+	temporary_path(temporary_path &&) = delete;
+	temporary_path &operator=(temporary_path &&) = delete;
+	~temporary_path()
+	{
+		std::error_code ignored;
+		std::filesystem::remove(path_, ignored);
+	}
+	[[nodiscard]]
+	const char *path() const
+	{
+		return path_.c_str();
+	}
+	[[nodiscard]]
+	std::string text() const
+	{
+		std::ifstream in{path_, std::ios::binary};
+		return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+	}
+};
+
+constexpr std::int32_t step_at_30{2184};
+
+auto open_recording(const char *const path, const dcx::harness_record_ticks &ticks = {},
+                    const std::int32_t step = step_at_30)
+{
+	return dcx::open_harness_recording(path, step, ticks, false, key_name, key_of);
+}
+
+}
+
+/* Test that a run closed without an end line is ended where no tick reached. */
+BOOST_AUTO_TEST_CASE(a_run_ending_without_an_end_line_ends_where_no_tick_reached)
+{
+	const temporary_path file{"dxx-input-recorder-test.txt"};
+	{
+		auto recording{open_recording(file.path())};
+		BOOST_REQUIRE(recording.has_value());
+		auto &r{*recording.value()};
+		BOOST_TEST(std::to_underlying(r.next_tick()) == 0u);
+		BOOST_TEST(std::to_underlying(r.next_tick()) == 1u);
+		r.recorder().record({.tick = r.tick(), .action = input_action::key_down, .key = key_esc});
+		BOOST_TEST(std::to_underlying(r.next_tick()) == 2u);
+	}
+	const std::vector<input_event> expected{
+	    {.tick = harness_tick{1}, .action = input_action::key_down, .key = key_esc},
+	    {.tick = harness_tick{3}, .action = input_action::end, .key = {}},
+	};
+	BOOST_TEST(parsed(file.text()) == expected, boost::test_tools::per_element());
+}
+
+/* Test that the ticks limit ends the run at the tick it names. */
+BOOST_AUTO_TEST_CASE(the_ticks_limit_names_the_tick_the_run_ends_at)
+{
+	const temporary_path file{"dxx-input-recorder-ticks.txt"};
+	auto recording{open_recording(file.path(), {.value = "1800", .end = harness_tick{1800}})};
+	BOOST_REQUIRE(recording.has_value());
+	BOOST_TEST(recording.value()->ends_at(harness_tick{1800}));
+	BOOST_TEST(!recording.value()->ends_at(harness_tick{1799}));
+}
+
+/* Test that a recording that cannot be made says why. */
+BOOST_AUTO_TEST_CASE(a_recording_that_cannot_be_made_says_why)
+{
+	const temporary_path file{"dxx-input-recorder-refused.txt"};
+	const auto why{[](const auto &r) { return r.has_value() ? std::string{} : r.error(); }};
+	BOOST_TEST(why(open_recording(file.path(), {}, 0)).find("DXX_DBG_FIXED_FRAMETIME") !=
+	           std::string::npos);
+	BOOST_TEST(why(open_recording(file.path(), {.value = "soon", .end = std::nullopt}))
+	               .find("DXX_DBG_RECORD_INPUT_TICKS=\"soon\"") != std::string::npos);
+	BOOST_TEST(why(open_recording("/nonexistent-dir/r.txt")).find("cannot write") !=
+	           std::string::npos);
 }
