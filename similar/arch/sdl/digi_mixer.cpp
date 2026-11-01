@@ -318,10 +318,10 @@ constexpr int MIX_OUTPUT_CHANNELS{2};
  * straightforward.
  */
 constexpr auto digi_sample_rate{underlying_value(sound_sample_rate::_44k)};
-enumerated_bitset<64, sound_channel> channels;
+enumerated_bitset<digi_voices, sound_channel> channels;
 
 /* channel management */
-static sound_channel digi_mixer_find_channel(const enumerated_bitset<64, sound_channel> &channels, const unsigned max_channels)
+static sound_channel digi_mixer_find_channel(const enumerated_bitset<digi_voices, sound_channel> &channels, const unsigned max_channels)
 {
 	uint8_t i{};
 	for (; i < max_channels; ++i)

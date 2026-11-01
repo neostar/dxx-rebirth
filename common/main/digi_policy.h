@@ -81,4 +81,9 @@ constexpr digi_stereo_levels digi_pan_levels(const fix pan)
 	return {.left = F1_0, .right = pan * 2};
 }
 
+/* The voices every backend plays on: the channels SDL_mixer asks for, the
+ * plain backend's slots and the SDL3 build's tracks.
+ */
+constexpr std::size_t digi_voices{64};
+
 }
