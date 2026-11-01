@@ -413,9 +413,10 @@ tidy_headers()
 	read -ra flags <<<"$(python3 "$dev_dir/fork_warnings.py")"
 	[[ $dev_os == darwin ]] && flags+=(-isysroot "$(xcrun --show-sdk-path)")
 	# The top, for fork headers included by their path from it
-	# (conventions.md), and a staged header's own directory, for the
-	# includes beside it.
-	flags+=(-I "$root")
+	# (conventions.md); upstream's include path and build/dev's
+	# dxxsconf.h, for the upstream headers a fork header includes; and a
+	# staged header's own directory, for the includes beside it.
+	flags+=(-I "$root" -I "$root/common/include" -I "$root/common/main" -I "$database")
 	for f in "${sel[@]}"; do
 		flags+=(-I "$root/$(dirname "$(rel "$f")")")
 	done
