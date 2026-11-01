@@ -141,6 +141,7 @@ void digi_audio_set_digi_volume(int)
 #include "compiler-range_for.h"
 #include "d_sdl_audio.h"
 #include "d_underlying_value.h"
+#include "digi_policy.h"
 
 namespace dcx {
 
@@ -263,18 +264,10 @@ static void audio_mixcallback(void *, Uint8 *stream, int len)
 			auto sldata = std::next(sl.samples.begin(), sl.position), slend = sl.samples.end();
 			Uint8 *sp = stream, s;
 			signed char v;
-			fix vl, vr;
-
-			if (const auto x = static_cast<fix>(sl.pan); x & 0x8000) {
-				vl = 0x20000 - x * 2;
-				vr = 0x10000;
-			} else {
-				vl = 0x10000;
-				vr = x * 2;
-			}
+			const auto levels = digi_pan_levels(static_cast<fix>(sl.pan));
 			const auto sl_volume{sl.volume};
-			vl = fixmul(vl, sl_volume);
-			vr = fixmul(vr, sl_volume);
+			const fix vl = fixmul(levels.left, sl_volume);
+			const fix vr = fixmul(levels.right, sl_volume);
 			while (sp < streamend) {
 				if (sldata == slend) {
 					if (!sl.looped) {
