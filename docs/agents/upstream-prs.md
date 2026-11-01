@@ -19,6 +19,23 @@ PR #878 (MVE audio sign extension) is the model; vLKp's verdict on it: "looks go
 - Two spaces after each sentence, in the body, replies and commit messages, as vLKp writes
   (185 of 193 sentence breaks in vLKp's last 200 upstream commits).
 
+## How vLKp writes and merges
+
+Observed in upstream history, as against what vLKp has said above:
+
+- **Tiny commits.** 579 of vLKp's own non-merge commits since 2025-06: median 11 changed lines,
+  90th percentile 67. Subject `` `symbol`: verb phrase ``, usually with no body.
+- **Every commit stands alone.** vLKp merges topic branches and rebases a contributor's commits
+  himself, dropping one that conflicts with his unpublished work (3285a3de9's merge note).
+- **Prefactor, behaviour, test.** Accepted multi-commit PRs open with the extraction that makes
+  the change testable and end with the test: #860 ("homing: extract turn kernel for testing"),
+  #856, #849. Tests live in `common/unittest/` (or `d2x-rebirth/unittest/`) as a `RuntimeTest`.
+- **What his review asks.** Reuse the utility that exists (`unique_span` taking ownership instead
+  of a `memcpy`, #849); keep a lock off the common path (#849); delete what the change made dead
+  (#849); the circumstances behind a claimed crash (#840).
+- **Modern idiom.** He converts as he goes (`enum class`, generic enum bit operations, `static
+  operator()`), so new code in that idiom needs no later pass.
+
 ## vLKp's stated preferences
 
 - **Build each source file once.** vLKp prefers no `.cpp` included into another source. #878's

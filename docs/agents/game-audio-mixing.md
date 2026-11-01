@@ -399,11 +399,13 @@ clipping on the demo:
 | 16 voices, identical sounds in one buffer dropped | −5.9 dB |
 | **64 voices, original rules** (pan law, oldest unprotected stolen; the demo replays every sound at `F1_0`) | **−15.8 dB** (−15.9 dB with music); peak 6.17× full scale |
 
-**Chosen:** 64 voices with the original's rules, effects and music both −18 dB against today's
-levels (gain 1/8). At full sliders the demo's effects then peak at 0.77 of full scale: 2.2 dB
-to spare without music, 1.1 dB when music at full scale peaks at the same moment (0.77 plus
-0.125, about 0.90). On its own, a volley of up to about 15 in-phase copies of the impact sound
-fits; the demo's volleys reach 6.
+**Chosen:** 64 voices with the original's rules, effects and music both −20.6 dB against today's
+levels (gain 3/32). Offline, the demo's effects then peak at 0.58 of full scale. In the game,
+peaks follow the frame timing: a real-time capture peaked at 0.63–0.78, so the worst case with
+music at full scale is about 0.78 plus 0.094, 0.88 (1.1 dB to spare). On its own, a volley of up
+to about 20 in-phase copies of the impact sound fits; the demo's volleys reach 6. The first
+choice, −18 dB (1/8), failed review: one run peaked at 0.888 without music, which music would
+have pushed past full scale (#104).
 
 **Volumes above 1.0 follow Parallax's Windows 95 code from the source release** (owner,
 2026-11-01: the later Parallax-sanctioned version wins over DOS). A Windows 95 upgrade shipped in
