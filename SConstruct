@@ -5121,6 +5121,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-homing', (
 			'common/unittest/homing.cpp',
 			)),
+		RuntimeTest('test-digi-policy', (
+			'common/unittest/digi_policy.cpp',
+			)),
 		RuntimeTest('test-enumerate', (
 			'common/unittest/enumerate.cpp',
 			)),
