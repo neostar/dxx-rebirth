@@ -185,7 +185,6 @@ struct sound_slot {
 	sound_effect soundno;
 	bool playing;   // Is there a sample playing on this channel?
 	bool looped;    // Play this sample looped?
-	bool persistent; // This can't be pre-empted
 	sound_pan pan;       // 0 = far left, 1 = far right
 	fix volume;    // 0 = nothing, 1 = fully on
 	//changed on 980905 by adb from char * to unsigned char *
@@ -199,21 +198,11 @@ static void digi_audio_stop_sound(sound_slot &s)
 {
 	s.playing = 0;
 	s.soundobj = sound_object_none;
-	s.persistent = 0;
 }
 
-static enumerated_array<sound_slot, 32, sound_channel> SoundSlots;
+static enumerated_array<sound_slot, digi_voices, sound_channel> SoundSlots;
 static SDL_AudioSpec WaveSpec;
-static sound_channel next_channel;
-
-/* Return the next sound_channel after `c`, and roll back to 0 if incrementing
- * `c` exceeds the maximum available channels.
- */
-static sound_channel next(const sound_channel c)
-{
-	const std::underlying_type<sound_channel>::type v = underlying_value(c) + 1;
-	return (v >= digi_max_channels) ? sound_channel{} : sound_channel{v};
-}
+static digi_voice_table<digi_voices> voices;
 
 }
 
@@ -334,53 +323,42 @@ sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pa
 
 	RAII_SDL_LockAudio lock_audio{};
 
-	const auto starting_channel{next_channel};
-
-	while(1)
+	const auto v{voices.choose([](const std::size_t i) {
+		const auto c{SoundSlots.valid_index(i)};
+		return !c || SoundSlots[*c].playing;
+	}, SoundSlots.size())};
+	if (!v)
+		return sound_channel::None;
+	const auto c{SoundSlots.valid_index(*v)};
+	if (!c)
+		return sound_channel::None;
+	const sound_channel channel{*c};
+	if (SoundSlots[channel].playing)
 	{
-		if (!SoundSlots[next_channel].playing)
-			break;
-
-		if (!SoundSlots[next_channel].persistent)
-			break;	// use this channel!
-
-		next_channel = next(next_channel);
-		if (next_channel == starting_channel)
+		SoundSlots[channel].playing = 0;
+		if (SoundSlots[channel].soundobj != sound_object_none)
 		{
-			return sound_channel::None;
+			digi_end_soundobj(*SoundSlots[channel].soundobj);
 		}
-	}
-	if (SoundSlots[next_channel].playing)
-	{
-		SoundSlots[next_channel].playing = 0;
-		if (SoundSlots[next_channel].soundobj != sound_object_none)
-		{
-			digi_end_soundobj(*SoundSlots[next_channel].soundobj);
-		}
-		if (SoundQ_channel == next_channel)
+		if (SoundQ_channel == channel)
 			SoundQ_end();
 	}
 
 #ifndef NDEBUG
-	verify_sound_channel_free(next_channel);
+	verify_sound_channel_free(channel);
 #endif
 
-	SoundSlots[next_channel].soundno = soundnum;
-	SoundSlots[next_channel].samples = GameSounds[soundnum].span();
-	SoundSlots[next_channel].volume = fixmul(digi_volume, digi_effect_level(volume));
-	SoundSlots[next_channel].pan = pan;
-	SoundSlots[next_channel].position = 0;
-	SoundSlots[next_channel].looped = looping;
-	SoundSlots[next_channel].playing = 1;
-	SoundSlots[next_channel].soundobj = soundobj;
-	SoundSlots[next_channel].persistent = 0;
-	if (soundobj || looping || volume > F1_0)
-		SoundSlots[next_channel].persistent = 1;
+	SoundSlots[channel].soundno = soundnum;
+	SoundSlots[channel].samples = GameSounds[soundnum].span();
+	SoundSlots[channel].volume = fixmul(digi_volume, digi_effect_level(volume));
+	SoundSlots[channel].pan = pan;
+	SoundSlots[channel].position = 0;
+	SoundSlots[channel].looped = looping;
+	SoundSlots[channel].playing = 1;
+	SoundSlots[channel].soundobj = soundobj;
+	voices.start(*v, digi_sound_is_protected(soundobj, looping, volume));
 
-	const auto i{next_channel};
-	next_channel = next(next_channel);
-
-	return i;
+	return channel;
 }
 
 //added on 980905 by adb from original source to make sfx volume work
@@ -404,7 +382,7 @@ int digi_audio_is_channel_playing(const sound_channel channel)
 
 unsigned digi_audio_get_max_channels()
 {
-	return digi_max_channels;
+	return SoundSlots.size();
 }
 
 void digi_audio_set_channel_volume(const sound_channel channel, int volume)
@@ -443,7 +421,7 @@ void digi_audio_end_sound(const sound_channel channel)
 		return;
 
 	SoundSlots[channel].soundobj = sound_object_none;
-	SoundSlots[channel].persistent = 0;
+	voices.unprotect(underlying_value(channel));
 }
 
 }

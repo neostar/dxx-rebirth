@@ -15,7 +15,6 @@ enum class sound_pan : int;
 enum class sound_channel : uint8_t;
 enum sound_effect : uint8_t;
 struct sound_object;
-constexpr std::integral_constant<int, 16> digi_max_channels{};
 }
 namespace dsx {
 int digi_audio_init();
