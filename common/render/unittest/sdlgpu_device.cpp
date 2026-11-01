@@ -130,6 +130,16 @@ std::vector<std::uint8_t> drawing(render::device &d)
 	return rgb;
 }
 
+/* The image last presented by d, a device for target, as RGB. */
+[[nodiscard]]
+std::vector<std::uint8_t> presented(render::device &d)
+{
+	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
+	d.read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
+	              render::pixel_format::rgb8, rgb);
+	return rgb;
+}
+
 /* How many pixels of rgb are not p. */
 [[nodiscard]]
 std::size_t pixels_other_than(const std::span<const std::uint8_t> rgb,
@@ -308,10 +318,7 @@ std::vector<std::uint8_t> draw_movie_frame(sdlgpu::device &d, const render::text
 	if (flushes != nullptr)
 		*flushes = d.ledger()->flush_count();
 	d.present();
-	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
-	d.read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
-	              render::pixel_format::rgb8, rgb);
-	return rgb;
+	return presented(d);
 }
 
 /* M6 (research #71): how long the pipeline set took to build from MSL. */
@@ -1621,9 +1628,7 @@ BOOST_AUTO_TEST_CASE(released_slot_given_an_image_after_a_draw_keeps_the_draw)
 	d->texture(movie, &again);
 	BOOST_TEST(ledger->flush_count() == flushes + 1);
 	d->present();
-	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
-	d->read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
-	               render::pixel_format::rgb8, rgb);
+	const auto rgb{presented(*d)};
 	BOOST_TEST(rgb.at(0) == first.rgba.at(std::size_t{3} * 8 * 4));
 	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 1u);
 }
