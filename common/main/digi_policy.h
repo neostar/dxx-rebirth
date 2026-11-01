@@ -131,6 +131,11 @@ public:
 		start_order[i] = ++starts;
 		protect[i] = is_protected;
 	}
+	/* The sound on voice i may now give way, as when its object died. */
+	void unprotect(const std::size_t i)
+	{
+		protect[i] = false;
+	}
 };
 
 }

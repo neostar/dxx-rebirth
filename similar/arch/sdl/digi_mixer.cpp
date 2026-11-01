@@ -831,8 +831,9 @@ void digi_mixer_stop_sound(const sound_channel channel)
 
 void digi_mixer_end_sound(const sound_channel channel)
 {
-	digi_mixer_stop_sound(channel);
-	channels.reset(channel);
+	/* The sound finishes, and may now give way to a new one. */
+	if (const auto o = channels.valid_index(underlying_value(channel)))
+		voices.unprotect(underlying_value(*o));
 }
 
 void digi_mixer_set_digi_volume( int dvolume )
