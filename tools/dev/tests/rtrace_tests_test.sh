@@ -42,6 +42,7 @@ make_rtrace_repo()
 	printf 'a stand-in for the fonts trace\n' > "$r/common/render/rtrace/synthetic/fonts.rtr"
 	printf 'a stand-in for the filters trace\n' > "$r/common/render/rtrace/synthetic/filters.rtr"
 	printf 'a stand-in for the overlay trace\n' > "$r/common/render/rtrace/synthetic/overlay.rtr"
+	printf 'a stand-in for the movie trace\n' > "$r/common/render/rtrace/synthetic/movie.rtr"
 	cp "$DEV_DIR/rtrace-tests.sh" "$DEV_DIR/rtrace-pins.sh" "$r/tools/dev/"
 	cat > "$r/tools/dev/build.sh" <<'EOF'
 #!/usr/bin/env bash

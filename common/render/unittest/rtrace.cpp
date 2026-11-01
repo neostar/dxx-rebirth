@@ -366,16 +366,16 @@ namespace {
  * tools/dev/rtrace-tests.sh passes the sample's, the overbright
  * trace's, the flash trace's, the walls trace's, the alpha trace's, the
  * lines trace's, the oversize trace's, the fonts trace's, the filters
- * trace's, then the overlay trace's.
+ * trace's, the overlay trace's, then the movie trace's.
  */
 [[nodiscard]]
 bytes committed_trace(const std::size_t i)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
 	BOOST_REQUIRE_MESSAGE(
-	    suite.argc == 11,
+	    suite.argc == 12,
 	    "usage: test-rtrace [BOOST OPTIONS] -- SAMPLE OVERBRIGHT FLASH WALLS ALPHA LINES OVERSIZE "
-	    "FONTS FILTERS OVERLAY");
+	    "FONTS FILTERS OVERLAY MOVIE");
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	std::ifstream in{args[i], std::ios::binary};
@@ -463,6 +463,45 @@ BOOST_AUTO_TEST_CASE(filters_trace_is_the_writers)
 BOOST_AUTO_TEST_CASE(overlay_trace_is_the_writers)
 {
 	BOOST_TEST((committed_trace(10) == render::rtrace::overlay_trace()));
+}
+
+/* Test that the committed movie trace is the writer's: its bytes are what
+ * movie_trace() writes.
+ */
+BOOST_AUTO_TEST_CASE(movie_trace_is_the_writers)
+{
+	BOOST_TEST((committed_trace(11) == render::rtrace::movie_trace()));
+}
+
+/* Test the movie trace on GL (#36), the baseline test-sdlgpu holds Metal to:
+ * seven frames, each its own, and none shows a texel of the padding past
+ * the visible ones (magenta), which the quad's texture coordinates stop
+ * short of.  Frame 0 covers its 48x40 rectangle with movie texels and
+ * leaves the rest of the target clear.
+ */
+BOOST_AUTO_TEST_CASE(movie_frames_show_their_texels_and_no_padding_on_gl)
+{
+	const auto o{replay_on_gl(render::rtrace::movie_trace())};
+	BOOST_TEST(o.ok);
+	BOOST_REQUIRE(o.frames.size() == 7u);
+	const auto count{[](const std::vector<std::uint8_t> &rgb, const std::uint8_t r,
+	                    const std::uint8_t g, const std::uint8_t b) {
+		std::size_t n{0};
+		for (std::size_t i{0}; i + 2 < rgb.size(); i += 3)
+			if (rgb[i] == r && rgb[i + 1] == g && rgb[i + 2] == b)
+				++n;
+		return n;
+	}};
+	for (std::size_t f{0}; f != o.frames.size(); ++f)
+	{
+		BOOST_TEST_CONTEXT("frame " << f)
+		{
+			BOOST_TEST(count(o.frames[f].rgb, 255, 0, 255) == 0u);
+			for (std::size_t g{0}; g != f; ++g)
+				BOOST_TEST(o.frames[f].hash != o.frames[g].hash);
+		}
+	}
+	BOOST_TEST(count(o.frames[0].rgb, 0, 0, 0) >= std::size_t{64} * 48 - std::size_t{48} * 40);
 }
 
 /* Test the lines trace on GL (#32): the pixels each frame covers and their
@@ -1299,7 +1338,7 @@ BOOST_AUTO_TEST_CASE(glyph_blits_its_window_of_the_texture)
 BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE(suite.argc == 11);
+	BOOST_REQUIRE(suite.argc == 12);
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	const auto dir{std::filesystem::temp_directory_path() /
@@ -1348,7 +1387,7 @@ BOOST_AUTO_TEST_CASE(replay_writes_each_frame_to_the_frames_directory)
 BOOST_AUTO_TEST_CASE(replay_logs_the_games_bottom_first_hashes)
 {
 	const auto &suite{boost::unit_test::framework::master_test_suite()};
-	BOOST_REQUIRE(suite.argc == 11);
+	BOOST_REQUIRE(suite.argc == 12);
 	// NOLINTNEXTLINE(clang-diagnostic-unsafe-buffer-usage-in-container): argv holds argc pointers
 	const std::span<char *const> args{suite.argv, static_cast<std::size_t>(suite.argc)};
 	const auto dir{std::filesystem::temp_directory_path() /

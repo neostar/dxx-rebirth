@@ -52,3 +52,6 @@ filters=$root/common/render/rtrace/synthetic/filters.rtr
 # lost), depth on and off, and a mid-frame depth-only clear.
 expected_overlay=('0 64x48 05e274e5f1dcfcc2' '1 64x48 333469174330ccf5' '2 64x48 e13acd3b02aeb89b' '3 64x48 b4ebcd39fcdecf0d' '4 64x48 cd8367e8073a5325')
 overlay=$root/common/render/rtrace/synthetic/overlay.rtr
+# The movie trace (#36): movie frames streamed through one texture slot, seven frames of
+# three movies of two sizes, the slot released after each frame's draw, as the game does.
+movie=$root/common/render/rtrace/synthetic/movie.rtr

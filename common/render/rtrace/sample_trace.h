@@ -17,7 +17,8 @@
  * reaching past the target (#18); and fonts.rtr, the font formats' ramps
  * and text (#33); and filters.rtr, minified textures under each texture
  * filter (#34); and overlay.rtr, walls with the second texture of
- * _g3_draw_tmap_2 drawn over them, and depth switched off (#31).
+ * _g3_draw_tmap_2 drawn over them, and depth switched off (#31); and
+ * movie.rtr, movie frames streamed through one texture slot (#36).
  * test-rtrace checks each committed file is its writer's output;
  * test-sdlgpu and tools/dev/rtrace-tests.sh replay them on SDL_GPU (R3).
  */
@@ -1177,6 +1178,115 @@ inline std::vector<std::uint8_t> overlay_trace()
 	w.clear({.color = false, .depth = true});
 	w.draw(wall_draw(wall(-6, {{0, 0.8f, 0, 1}}, 1.5f)));
 	w.present({.frame = 4});
+	return w.take();
+}
+
+/* One movie frame as the front end uploads it: a texture of size, a power of
+ * two, of which the top left visible.width x visible.height texels are the
+ * frame, the rest the padding the front end fills (magenta here, so a quad
+ * that shows any shows it).  Each texel's colour tells its column, its row
+ * and the frame's number n apart.  Opaque RGBA8 and nearest-filtered, as
+ * ogl_ubitblt_i's classic filter makes it.
+ */
+struct movie_texture
+{
+	std::vector<std::uint8_t> rgba;
+	texture_image image;
+	static std::vector<std::uint8_t> texels(const extent size, const extent visible,
+	                                        const unsigned n)
+	{
+		std::vector<std::uint8_t> p;
+		p.reserve(std::size_t{size.width} * size.height * 4);
+		for (std::uint32_t y{0}; y != size.height; ++y)
+			for (std::uint32_t x{0}; x != size.width; ++x)
+			{
+				if (x < visible.width && y < visible.height)
+				{
+					p.push_back(static_cast<std::uint8_t>(x * 7 + n * 40));
+					p.push_back(static_cast<std::uint8_t>(y * 9 + n * 25));
+					p.push_back(static_cast<std::uint8_t>((x ^ y) * 10 + n * 5));
+				}
+				else
+				{
+					p.insert(p.end(), {255, 0, 255});
+				}
+				p.push_back(255);
+			}
+		return p;
+	}
+	movie_texture(const extent size, const extent visible, const unsigned n)
+	    : rgba{texels(size, visible, n)}, image{{.size = size,
+		                                         .format = texture_format::rgba8,
+		                                         .filter = filter::nearest,
+		                                         .anisotropic = false,
+		                                         .has_transparency = false},
+		                                        rgba}
+	{}
+	movie_texture(const movie_texture &) = delete;
+	movie_texture &operator=(const movie_texture &) = delete;
+	movie_texture(movie_texture &&) = delete;
+	movie_texture &operator=(movie_texture &&) = delete;
+	~movie_texture() = default;
+};
+
+/* The slot the movie trace streams through, as the front end's movie frame
+ * slot after a pool of 40 textures (texture_slots.h).
+ */
+inline constexpr texture_slot movie_slot{41};
+
+/* A movie frame n of a texture of size, visible texels of it shown, drawn as
+ * ogl_ubitblt_i draws it: after the texture's upload to the movie slot, one
+ * fan over the screen rectangle (x, y, w, h) of the target, blending off,
+ * the texture coordinates 0 to the visible fraction; then the slot's
+ * release, which ogl_ubitblt_i's destructor makes before the frame is
+ * presented, and the present.  frame is the frame number the trace
+ * presents.
+ */
+inline void movie_frame(trace::writer &w, const extent size, const extent visible, const unsigned n,
+                        const unsigned x, const unsigned y, const unsigned dw, const unsigned dh,
+                        const std::uint32_t frame)
+{
+	const movie_texture t{size, visible, n};
+	w.texture(movie_slot, &t.image);
+	w.clear({.color = true, .depth = true});
+	const auto vertices{
+	    blit_vertices(movie_rect(x, y, dw, dh, sample_target),
+		              {.u1 = 0,
+		               .u2 = static_cast<float>(visible.width) / static_cast<float>(size.width),
+		               .v1 = 0,
+		               .v2 = static_cast<float>(visible.height) / static_cast<float>(size.height)},
+		              {{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}})};
+	ambient state;
+	state.blending = false;
+	state.viewport = {.x = 0, .y = 0, .size = sample_target};
+	w.draw(state.fan(vertices, movie_slot));
+	w.texture(movie_slot, nullptr);
+	w.present({.frame = frame});
+}
+
+/* The movie trace's bytes (#36): movies streamed through one texture slot,
+ * as ogl_ubitblt_i does, each frame a texture uploaded to the slot, drawn
+ * and released before its present.  Frames 0 to 3, a movie of 32x32
+ * textures showing 24x20 texels, drawn at twice the size at (8, 4): four
+ * frames of one size, four uploads, one texture on SDL_GPU, which the
+ * release keeps as a spare for the next frame.  Frames 4 and 5, a movie of
+ * another size, 64x32 textures showing 48x30 texels at their own size at
+ * (8, 9): the texture made again for the new size.  Frame 6, a third movie
+ * of the first size at (4, 2), the texture made again.  Each frame differs
+ * from the last, and the padding past the visible texels, which no pixel
+ * may show, is magenta.
+ */
+[[nodiscard]]
+inline std::vector<std::uint8_t> movie_trace()
+{
+	trace::writer w{sample_target};
+	constexpr extent first{.width = 32, .height = 32}, first_visible{.width = 24, .height = 20};
+	constexpr extent second{.width = 64, .height = 32}, second_visible{.width = 48, .height = 30};
+	for (std::uint32_t f{0}; f != 4; ++f)
+		movie_frame(w, first, first_visible, f, 8, 4, 48, 40, f);
+	for (std::uint32_t f{4}; f != 6; ++f)
+		movie_frame(w, second, second_visible, f, 8, 9, 48, 30, f);
+	movie_frame(w, first, first_visible, 6, 4, 2, 48, 40, 6);
 	return w.take();
 }
 
