@@ -47,6 +47,34 @@ inline bool cursor_visible()
 	return SDL_CursorVisible();
 }
 
+/* Starts an SDL subsystem and quits it with the guard; started() is false,
+ * with SDL's error, when it did not start.
+ */
+class sdl_subsystem
+{
+	SDL_InitFlags flags_;
+	bool started_;
+
+  public:
+	explicit sdl_subsystem(const SDL_InitFlags flags)
+	    : flags_{flags}, started_{SDL_InitSubSystem(flags)}
+	{}
+	~sdl_subsystem()
+	{
+		if (started_)
+			SDL_QuitSubSystem(flags_);
+	}
+	sdl_subsystem(const sdl_subsystem &) = delete;
+	sdl_subsystem &operator=(const sdl_subsystem &) = delete;
+	sdl_subsystem(sdl_subsystem &&) = delete;
+	sdl_subsystem &operator=(sdl_subsystem &&) = delete;
+	[[nodiscard]]
+	bool started() const
+	{
+		return started_;
+	}
+};
+
 }
 
 #endif
