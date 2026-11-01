@@ -69,14 +69,16 @@ struct digi_stereo_levels
 	fix left, right;
 };
 
-/* The level of each side for pan, 0 (left) to 0xffff (right): each side
- * falls linearly to silence at the other end, as Mix_SetPanning was given
- * it.
+/* The DOS pan law: the near side plays at full level and the far side
+ * falls linearly to silence at the other end.  pan is 0 (left) to 0xffff
+ * (right); the centre plays at full level on both sides.
  */
 [[nodiscard]]
 constexpr digi_stereo_levels digi_pan_levels(const fix pan)
 {
-	return {.left = 0xffff - pan, .right = pan};
+	if (pan & 0x8000)
+		return {.left = 2 * F1_0 - pan * 2, .right = F1_0};
+	return {.left = F1_0, .right = pan * 2};
 }
 
 }
