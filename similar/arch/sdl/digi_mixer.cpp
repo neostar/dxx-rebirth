@@ -785,9 +785,9 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 
 	mixdigi_convert_sound(soundnum);
 
-	const int mix_pan = fix2byte(static_cast<fix>(pan));
+	const auto mix_pan = digi_pan_levels(static_cast<fix>(pan));
 #if MIX_DIGI_DEBUG
-	con_printf(CON_DEBUG, "digi_start_sound %d, volume=%d, pan %d (start=%d, end=%d)", soundnum, volume, mix_pan, loop_start, loop_end);
+	con_printf(CON_DEBUG, "digi_start_sound %d, volume=%d, pan %d (start=%d, end=%d)", soundnum, volume, static_cast<fix>(pan), loop_start, loop_end);
 #else
 	(void)loop_start;
 	(void)loop_end;
@@ -795,7 +795,7 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 
 	const int mix_loop = looping * -1;
 	Mix_PlayChannel(channel, &(SoundChunks[soundnum]), mix_loop);
-	Mix_SetPanning(channel, 255-mix_pan, mix_pan);
+	Mix_SetPanning(channel, fix2byte(mix_pan.left), fix2byte(mix_pan.right));
 	Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));
 	channels.set(c);
 	return c;
@@ -813,8 +813,8 @@ void digi_mixer_set_channel_volume(const sound_channel channel, const int volume
 
 void digi_mixer_set_channel_pan(const sound_channel channel, const sound_pan pan)
 {
-	int mix_pan = fix2byte(static_cast<fix>(pan));
-	Mix_SetPanning(underlying_value(channel), 255 - mix_pan, mix_pan);
+	const auto mix_pan = digi_pan_levels(static_cast<fix>(pan));
+	Mix_SetPanning(underlying_value(channel), fix2byte(mix_pan.left), fix2byte(mix_pan.right));
 }
 
 void digi_mixer_stop_sound(const sound_channel channel)

@@ -64,4 +64,19 @@ constexpr int digi_midi_volume(const int step)
 	return digi_midi_volume_table[static_cast<std::size_t>(std::clamp(step, 0, 8))];
 }
 
+struct digi_stereo_levels
+{
+	fix left, right;
+};
+
+/* The level of each side for pan, 0 (left) to 0xffff (right): each side
+ * falls linearly to silence at the other end, as Mix_SetPanning was given
+ * it.
+ */
+[[nodiscard]]
+constexpr digi_stereo_levels digi_pan_levels(const fix pan)
+{
+	return {.left = 0xffff - pan, .right = pan};
+}
+
 }
