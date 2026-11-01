@@ -319,16 +319,7 @@ constexpr int MIX_OUTPUT_CHANNELS{2};
  */
 constexpr auto digi_sample_rate{underlying_value(sound_sample_rate::_44k)};
 enumerated_bitset<digi_voices, sound_channel> channels;
-
-/* channel management */
-static sound_channel digi_mixer_find_channel(const enumerated_bitset<digi_voices, sound_channel> &channels, const unsigned max_channels)
-{
-	uint8_t i{};
-	for (; i < max_channels; ++i)
-		if (!channels[(sound_channel{i})])
-			break;
-	return sound_channel{i};
-}
+digi_voice_table<digi_voices> voices;
 
 struct RAIIMix_Chunk : public Mix_Chunk
 {
@@ -767,7 +758,7 @@ static Mix_Chunk &mixdigi_convert_sound(const sound_effect i)
 }
 
 // Volume 0-F1_0
-sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, const sound_pan pan, const int looping, const int loop_start, const int loop_end, sound_object *)
+sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, const sound_pan pan, const int looping, const int loop_start, const int loop_end, sound_object *const soundobj)
 {
 	if (!digi_initialised)
 		return sound_channel::None;
@@ -778,10 +769,19 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 	const unsigned max_channels = digi_mixer_max_channels;
 	if (max_channels > channels.size())
 		return sound_channel::None;
-	const auto c = digi_mixer_find_channel(channels, max_channels);
-	const auto channel = underlying_value(c);
-	if (channel >= max_channels)
+	const auto v = voices.choose([](const std::size_t i) {
+		const auto c = channels.valid_index(i);
+		return !c || channels[*c];
+	}, max_channels);
+	if (!v)
 		return sound_channel::None;
+	const auto vc = channels.valid_index(*v);
+	if (!vc)
+		return sound_channel::None;
+	const sound_channel c = *vc;
+	const auto channel = underlying_value(c);
+	if (channels[c])
+		digi_mixer_stop_sound(c);
 
 	mixdigi_convert_sound(soundnum);
 
@@ -798,6 +798,7 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 	Mix_SetPanning(channel, fix2byte(mix_pan.left), fix2byte(mix_pan.right));
 	Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));
 	channels.set(c);
+	voices.start(channel, digi_sound_is_protected(soundobj, looping, volume));
 	return c;
 }
 

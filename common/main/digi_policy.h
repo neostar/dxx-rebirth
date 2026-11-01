@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include "maths.h"
 
@@ -85,5 +87,50 @@ constexpr digi_stereo_levels digi_pan_levels(const fix pan)
  * plain backend's slots and the SDL3 build's tracks.
  */
 constexpr std::size_t digi_voices{64};
+
+/* Whether a sound keeps its voice when a new sound needs one: sound
+ * objects, loops and sounds above full scale, as in Parallax's Windows code
+ * (windigi.c digi_start_sound) and the plain SDL backend.
+ */
+[[nodiscard]]
+constexpr bool digi_sound_is_protected(const bool sound_object, const bool looping, const fix volume)
+{
+	return sound_object || looping || volume > F1_0;
+}
+
+/* Which voice each new sound takes, of N voices.  A free voice if there is
+ * one; when all are busy, the unprotected sound started longest ago gives
+ * way; when every busy voice is protected, the new sound is not played.
+ */
+template <std::size_t N>
+class digi_voice_table
+{
+	std::array<uint64_t, N> start_order{};
+	std::bitset<N> protect;
+	uint64_t starts{};
+public:
+	/* is_playing(i) tells whether voice i still plays; only the first
+	 * granted voices are chosen from.
+	 */
+	template <typename F>
+	[[nodiscard]]
+	std::optional<std::size_t> choose(F &&is_playing, const std::size_t granted) const
+	{
+		std::optional<std::size_t> oldest;
+		for (std::size_t i{}, e{std::min(granted, N)}; i != e; ++i)
+		{
+			if (!is_playing(i))
+				return i;
+			if (!protect[i] && (!oldest || start_order[i] < start_order[*oldest]))
+				oldest = i;
+		}
+		return oldest;
+	}
+	void start(const std::size_t i, const bool is_protected)
+	{
+		start_order[i] = ++starts;
+		protect[i] = is_protected;
+	}
+};
 
 }
