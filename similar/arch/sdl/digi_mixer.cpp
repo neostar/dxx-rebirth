@@ -346,6 +346,36 @@ static uint8_t fix2byte(const fix f)
 uint8_t digi_initialised;
 unsigned digi_mixer_max_channels = std::size(channels);
 
+/* A looping sound with loop points plays from its start, then between its
+ * loop points, as Parallax's Windows code passed them on (windigi.c).  An
+ * effect, registered before the panning, replaces what the chunk would
+ * play with the chunk read at the effect's own position; the chunk itself
+ * loops, which keeps the channel playing.
+ */
+struct loop_points
+{
+	const uint8_t *data;
+	std::size_t begin, end, position;
+};
+
+std::array<loop_points, digi_voices> channel_loops;
+
+void digi_mixer_play_loop(int, void *const stream, int len, void *const udata)
+{
+	auto &l = *static_cast<loop_points *>(udata);
+	auto out = static_cast<uint8_t *>(stream);
+	while (len > 0)
+	{
+		if (l.position >= l.end)
+			l.position = l.begin;
+		const std::size_t n = std::min<std::size_t>(len, l.end - l.position);
+		memcpy(out, l.data + l.position, n);
+		out += n;
+		len -= n;
+		l.position += n;
+	}
+}
+
 void digi_mixer_free_channel(const int channel_num)
 {
 	if (const auto o = channels.valid_index(channel_num))
@@ -788,13 +818,25 @@ sound_channel digi_mixer_start_sound(sound_effect soundnum, const fix volume, co
 	const auto mix_pan = digi_pan_levels(static_cast<fix>(pan));
 #if MIX_DIGI_DEBUG
 	con_printf(CON_DEBUG, "digi_start_sound %d, volume=%d, pan %d (start=%d, end=%d)", soundnum, volume, static_cast<fix>(pan), loop_start, loop_end);
-#else
-	(void)loop_start;
-	(void)loop_end;
 #endif
 
 	const int mix_loop = looping * -1;
 	Mix_PlayChannel(channel, &(SoundChunks[soundnum]), mix_loop);
+	if (const std::size_t length = GameSounds[soundnum].span().size(); const auto loop = digi_loop_points(looping, loop_start, loop_end, length))
+	{
+		/* Loop points count the sound's samples; the chunk holds 16-bit
+		 * stereo frames at the output rate.
+		 */
+		auto &chunk = SoundChunks[soundnum];
+		constexpr std::size_t frame = sizeof(int16_t) * MIX_OUTPUT_CHANNELS;
+		const auto offset = [&](const std::size_t point) {
+			return (std::size_t{chunk.alen} / frame * point / length) * frame;
+		};
+		auto &l = channel_loops[channel];
+		l = {chunk.abuf, offset(loop->begin), offset(loop->end), 0};
+		if (l.end > l.begin)
+			Mix_RegisterEffect(channel, digi_mixer_play_loop, nullptr, &l);
+	}
 	Mix_SetPanning(channel, fix2byte(mix_pan.left), fix2byte(mix_pan.right));
 	Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));
 	channels.set(c);

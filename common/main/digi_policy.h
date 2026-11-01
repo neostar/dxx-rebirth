@@ -148,4 +148,22 @@ constexpr int digi_ambient_sound_limit(const unsigned granted)
 	return std::max(1, static_cast<int>(granted / 4));
 }
 
+/* The part of a looping sound that repeats, in samples of the sound. */
+struct digi_loop_range
+{
+	std::size_t begin, end;
+};
+
+/* A looping sound plays from its start, then between its loop points, as
+ * Parallax's Windows code passed them on (windigi.c); none when the sound
+ * does not loop or the points (-1 for none) do not lie inside its length.
+ */
+[[nodiscard]]
+constexpr std::optional<digi_loop_range> digi_loop_points(const bool looping, const int start, const int end, const std::size_t length)
+{
+	if (!looping || start < 0 || end <= start || static_cast<std::size_t>(end) > length)
+		return std::nullopt;
+	return digi_loop_range{static_cast<std::size_t>(start), static_cast<std::size_t>(end)};
+}
+
 }
