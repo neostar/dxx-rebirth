@@ -409,8 +409,11 @@ class frame
 	}
 	/* Gives slot image, copied, uploaded when the frame is encoded with
 	 * levels of GL's mip chain (mip_levels_of); a null image releases the
-	 * slot.  A slot given twice uploads the last image.  Change no slot
-	 * that samples() names: the device encodes the frame first.  Throws
+	 * slot: later draws of it are refused, and draws recorded before keep
+	 * the image they sample, whose upload stays for the encode (#36: a
+	 * movie releases its slot after each frame's draw).  A slot given twice
+	 * uploads the last image.  Give no image to a slot that samples()
+	 * names: the device encodes the frame first.  Throws
 	 * std::invalid_argument on texture_slot::none.
 	 */
 	void texture(texture_slot slot, const texture_image *image, std::uint32_t levels);

@@ -256,6 +256,64 @@ std::vector<std::uint64_t> replayed_hashes(const std::vector<std::uint8_t> &trac
 	return hashes;
 }
 
+/* A w x h nearest-filtered movie frame: each pixel's colour tells its column
+ * and row apart and the frame's number n, so a skewed row, a stale frame
+ * or a swapped channel shows.
+ */
+struct movie_frame
+{
+	render::extent size;
+	std::vector<std::uint8_t> rgba;
+	movie_frame(const render::extent s, const unsigned n) : size{s}
+	{
+		for (std::uint32_t y{0}; y != s.height; ++y)
+			for (std::uint32_t x{0}; x != s.width; ++x)
+			{
+				rgba.push_back(static_cast<std::uint8_t>(10 + n * 20 + x));
+				rgba.push_back(static_cast<std::uint8_t>(40 + y * 30));
+				rgba.push_back(static_cast<std::uint8_t>(200 - x * 9 - y));
+				rgba.push_back(255);
+			}
+	}
+	[[nodiscard]]
+	render::texture_image image() const
+	{
+		return {{.size = size,
+		         .format = render::texture_format::rgba8,
+		         .filter = render::filter::nearest,
+		         .anisotropic = false,
+		         .has_transparency = false},
+		        rgba};
+	}
+};
+
+/* One movie frame as ogl_ubitblt_i makes it: the frame uploaded to slot,
+ * drawn over the whole target with blending off, then the slot released,
+ * and the frame presented.  Returns the target read back as RGB.  flushes,
+ * when given, takes the device's flush count after the release and before
+ * the present.
+ */
+[[nodiscard]]
+std::vector<std::uint8_t> draw_movie_frame(sdlgpu::device &d, const render::texture_slot slot,
+                                           const movie_frame &frame,
+                                           std::size_t *const flushes = nullptr)
+{
+	const auto image{frame.image()};
+	d.texture(slot, &image);
+	d.clear({.color = true, .depth = true});
+	textured_quad q{slot};
+	q.call.state.blend = render::blend::none;
+	d.draw(q.call);
+	d.texture(slot, nullptr);
+	if (flushes != nullptr)
+		*flushes = d.ledger()->flush_count();
+	d.present();
+	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
+	d.read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
+	              render::pixel_format::rgb8, rgb);
+	return rgb;
+}
+
 /* M6 (research #71): how long the pipeline set took to build from MSL. */
 void print_m6(const char *which, const sdlgpu::device &d)
 {
@@ -345,7 +403,16 @@ BOOST_AUTO_TEST_CASE(no_resource_outlives_the_device)
 	const auto image{checker()};
 	d->texture({1}, &image.image);
 	BOOST_TEST(ledger->counts().textures == 5u);
+	/* A release keeps the texture as a spare, which the next image takes
+	 * back; the present after a frame that gave the slot none destroys it.
+	 */
 	d->texture({1}, nullptr);
+	BOOST_TEST(ledger->counts().textures == 5u);
+	d->texture({1}, &image.image);
+	BOOST_TEST(ledger->counts().textures == 5u);
+	d->texture({1}, nullptr);
+	d->present();
+	d->present();
 	BOOST_TEST(ledger->counts().textures == 4u);
 	d->texture({1}, &image.image);
 	d->clear({.color = true, .depth = true});
@@ -1370,6 +1437,150 @@ BOOST_AUTO_TEST_CASE(texture_changed_mid_frame_keeps_earlier_draws)
 	BOOST_TEST(block_other_than(rgb, 32, 0, 32, 12, white) == 0u);
 	BOOST_TEST(block_other_than(rgb, 0, 12, 32, 12, red) == 0u);
 	BOOST_TEST(block_other_than(rgb, 0, 24, 64, 24, green) == 0u);
+}
+
+/* Test that the frames of a movie stream through one texture as the game
+ * streams them (#36): ogl_ubitblt_i uploads each frame to the movie slot,
+ * draws it and releases the slot, before the present.  Ten such frames
+ * create the texture once, submit no command buffer before each present,
+ * and read back as themselves.  The release keeps the texture as a spare,
+ * which stays alive until a frame ends with the slot given no image: the
+ * present after the last frame's destroys it.  The count is of
+ * creations, not of live textures, which a texture made again each frame
+ * would keep at one.
+ */
+BOOST_AUTO_TEST_CASE(movie_frames_stream_through_one_texture)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	using kind = sdlgpu::resource_ledger::kind;
+	const auto base_live{ledger->counts().textures};
+	const auto base_created{ledger->created_count(kind::texture)};
+	constexpr render::texture_slot movie{900};
+	std::vector<std::uint8_t> previous;
+	for (unsigned n{0}; n != 10; ++n)
+	{
+		const movie_frame frame{{8, 4}, n};
+		const auto before{ledger->flush_count()};
+		std::size_t before_present{0};
+		const auto rgb{draw_movie_frame(*d, movie, frame, &before_present)};
+		BOOST_TEST_CONTEXT("frame " << n)
+		{
+			BOOST_TEST(before_present == before);
+			BOOST_TEST(ledger->flush_count() == before + 1);
+			/* The target's first pixel, top left, is the frame's last row's
+			 * first texel (v grows upward, nearest filtering).
+			 */
+			BOOST_TEST(rgb.at(0) == frame.rgba.at(std::size_t{3} * 8 * 4));
+			BOOST_TEST(rgb != previous);
+			BOOST_TEST(ledger->created_count(kind::texture) - base_created == 1u);
+			BOOST_TEST(ledger->counts().textures == base_live + 1);
+		}
+		previous = rgb;
+	}
+	/* The movie ends: the last frame's present left the spare alive, and
+	 * the next present, of a frame that gave the slot no image, destroys
+	 * it.
+	 */
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live);
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 1u);
+}
+
+/* Test that a movie's texture is made again when the frame size changes and
+ * not otherwise (#36): a second movie of another size gets one texture of
+ * its own, which replaces the first's spare, and a movie of the first size
+ * after the spare's destruction makes a third.
+ */
+BOOST_AUTO_TEST_CASE(movie_texture_is_remade_when_the_frame_size_changes)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	using kind = sdlgpu::resource_ledger::kind;
+	const auto base_live{ledger->counts().textures};
+	const auto base_created{ledger->created_count(kind::texture)};
+	constexpr render::texture_slot movie{900};
+	for (unsigned n{0}; n != 3; ++n)
+		(void)draw_movie_frame(*d, movie, movie_frame{{8, 4}, n});
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 1u);
+	for (unsigned n{0}; n != 3; ++n)
+	{
+		const movie_frame frame{{16, 8}, n};
+		const auto rgb{draw_movie_frame(*d, movie, frame)};
+		/* The 16x8 frame's own pixels, not the 8x4 frame's: the last
+		 * column of its top row, at the target's top right.
+		 */
+		BOOST_TEST(rgb.at(std::size_t{63} * 3) == frame.rgba.at((std::size_t{7} * 16 + 15) * 4));
+	}
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 2u);
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live);
+	/* The next movie, of the first size, makes its own texture. */
+	(void)draw_movie_frame(*d, movie, movie_frame{{8, 4}, 0});
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 3u);
+}
+
+/* Test that a spare's one-frame lifetime counts from its latest release
+ * (#36): a slot released, left through a present, given an image again and
+ * released a second time (twice in a row, the second a no-op) outlives that
+ * present and the next, not a texture the first release's present would have
+ * destroyed, and goes with the second present after the last release.
+ */
+BOOST_AUTO_TEST_CASE(spare_lifetime_counts_from_the_latest_release)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	const auto base_live{ledger->counts().textures};
+	constexpr render::texture_slot movie{900};
+	const auto image{movie_frame{{8, 4}, 0}.image()};
+	d->texture(movie, &image);
+	d->texture(movie, nullptr);
+	d->present();
+	d->texture(movie, &image);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->texture(movie, nullptr);
+	d->texture(movie, nullptr);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live);
+}
+
+/* Test that a slot released and given an image in the same frame, after a
+ * draw of it, still draws the earlier image (#36): the new image's upload
+ * encodes the recorded draw first, as before the release kept a spare, and
+ * the spare is taken back, not made again.
+ */
+BOOST_AUTO_TEST_CASE(released_slot_given_an_image_after_a_draw_keeps_the_draw)
+{
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	using kind = sdlgpu::resource_ledger::kind;
+	const auto base_created{ledger->created_count(kind::texture)};
+	constexpr render::texture_slot movie{900};
+	const movie_frame first{{8, 4}, 0}, second{{8, 4}, 5};
+	const auto image{first.image()};
+	d->texture(movie, &image);
+	d->clear({.color = true, .depth = true});
+	textured_quad q{movie};
+	q.call.state.blend = render::blend::none;
+	d->draw(q.call);
+	d->texture(movie, nullptr);
+	const auto flushes{ledger->flush_count()};
+	const auto again{second.image()};
+	d->texture(movie, &again);
+	BOOST_TEST(ledger->flush_count() == flushes + 1);
+	d->present();
+	std::vector<std::uint8_t> rgb(render::image_bytes(target, render::pixel_format::rgb8));
+	d->read_pixels(render::read_source::presented, {.x = 0, .y = 0, .size = target},
+	               render::pixel_format::rgb8, rgb);
+	BOOST_TEST(rgb.at(0) == first.rgba.at(std::size_t{3} * 8 * 4));
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 1u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

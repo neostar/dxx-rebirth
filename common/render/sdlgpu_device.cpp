@@ -543,6 +543,15 @@ struct slot_texture
 	std::uint32_t levels{0};
 };
 
+/* A released slot whose texture stays as a spare (device::texture): the slot,
+ * and whether a present has ended since the release.
+ */
+struct spare_slot
+{
+	std::uint32_t slot;
+	bool survived_a_present;
+};
+
 /* The GPU command seam's SDL_GPU adapter (sdlgpu_frame.h): one frame's
  * calls into one command buffer.  The upload is the transfer ring: the
  * frame's one transfer buffer, laid out by the frame's upload plan, is
@@ -746,12 +755,15 @@ struct device::state
 	texture_handle white;
 	/* The closed sampler set, indexed by sampler_key. */
 	std::array<sampler_handle, sampler_set_size> samplers;
-	/* Each slot's texture, by slot index.  Invariant: it holds a slot
-	 * exactly when the frame record's description does (frame::texture),
-	 * at that description's size; device::texture keeps the two in step by
-	 * its order.
+	/* Each slot's texture, by slot index.  Invariant: it holds every slot
+	 * the frame record's description does (frame::texture), at that
+	 * description's size, and the spares of released slots besides, which
+	 * the record has no description of; device::texture keeps the two in
+	 * step by its order.
 	 */
 	std::map<std::uint32_t, slot_texture> textures;
+	/* The released slots, each once; present sweeps only these. */
+	std::vector<spare_slot> spares;
 	std::vector<pipeline_handle> pipelines;
 	std::chrono::nanoseconds pipeline_time{};
 	/* The transfer ring and the vertex buffer, made by the first frame
@@ -789,6 +801,7 @@ struct device::state
 	/* Marks the targets drawn to, once flush's buffer is submitted. */
 	void flushed()
 	{
+		ledger->flushed();
 		color_defined = true;
 		depth_defined = true;
 	}
@@ -859,6 +872,21 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 	auto &s{*state_};
 	if (slot == texture_slot::none)
 		throw std::invalid_argument("sdlgpu: texture_slot::none holds no texture");
+	/* A release keeps the slot's texture as a spare and flushes nothing:
+	 * a draw recorded before it still samples the texture, and the frame
+	 * keeps its upload (#36, a movie releases its slot after each frame's
+	 * draw, and the next frame's upload takes the spare back).  present
+	 * destroys a spare nothing took back in a whole frame.
+	 */
+	if (image == nullptr)
+	{
+		s.record.texture(slot, nullptr, 1);
+		if (s.textures.contains(slot.index) &&
+		    std::ranges::none_of(s.spares,
+		                         [&](const spare_slot &p) { return p.slot == slot.index; }))
+			s.spares.push_back({slot.index, false});
+		return;
+	}
 	/* A draw recorded before this call samples the slot's earlier image:
 	 * encode and submit it first (research #71, area 2, item 4).
 	 */
@@ -868,12 +896,6 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 		s.flush(cb.get());
 		cb.submit();
 		s.flushed();
-	}
-	if (image == nullptr)
-	{
-		s.record.texture(slot, nullptr, 1);
-		s.textures.erase(slot.index);
-		return;
 	}
 	const extent size{image->desc().size};
 	const std::uint32_t levels{mip_levels_of(image->desc(), s.caps)};
@@ -898,6 +920,7 @@ void device::texture(const texture_slot slot, const texture_image *const image)
 	}
 	if (fresh)
 		t->second = {.handle = std::move(fresh.value()), .size = size, .levels = levels};
+	std::erase_if(s.spares, [&](const spare_slot &p) { return p.slot == slot.index; });
 }
 
 void device::clear(const clear_targets targets)
@@ -923,6 +946,21 @@ void device::present()
 	cb.submit();
 	s.flushed();
 	s.has_presented = true;
+	/* The spares: kept through the frame that released them, and through the
+	 * next, so that a movie's next frame takes its slot's back; destroyed
+	 * when that frame ends with no image given to the slot.  Its draws are
+	 * submitted, and SDL keeps a texture alive while a submitted buffer
+	 * uses it.
+	 */
+	std::erase_if(s.spares, [&](spare_slot &p) {
+		if (!p.survived_a_present)
+		{
+			p.survived_a_present = true;
+			return false;
+		}
+		s.textures.erase(p.slot);
+		return true;
+	});
 }
 
 void device::read_pixels(const read_source source, const read_rect &rect, const pixel_format format,

@@ -102,10 +102,21 @@ cannot sit inside a render pass (S4 `:2550-2575`, `:8869-8925`). D3D12 without o
    already have 256-byte rows; narrower ones cost D3D12 a realignment copy without options 13.
    Every mip chain adds such levels: each one under 64 px wide is narrow (#34).
 4. A slot re-uploaded after a draw in the same frame used it ends the render pass; the next pass
-   loads colour and depth (area 3). Rare; M3 counts it.
+   loads colour and depth (area 3). Rare; M3 counts it. A release is no re-upload: it flushes
+   nothing (item 5).
 5. **Movies (#36)**: one persistent texture, uploaded with `cycle=true` per movie frame. With
    MovieTexFilt on, a movie frame is trilinear and gets GL's whole mip chain every frame, as GL
-   builds it (#34).
+   builds it (#34). Built: the game uploads a movie frame to the movie slot, draws it and releases
+   the slot, before `present` (`ogl_ubitblt_i`). The adapter's `texture(slot, nullptr)` flushes
+   nothing and keeps the slot's texture as a spare, so draws already recorded still sample it. The
+   next `texture(slot, image)` takes the spare back when the size and mip levels match, so a movie
+   makes one texture per frame size, and no frame submits more than its `present`
+   (`created_count`, `flush_count`). `present` destroys a spare that no image took back for one
+   whole frame, so a movie's end frees its texture one frame later; the ledger counts the spare as
+   live until then. A new size makes a new texture. The adapter uploads tight rows
+   (`pixels_per_row` 0) and the front end's `ogl_filltexbuf` already removes the bitmap's pitch
+   while it expands the palette, so SDL #16474 (Metal ignores `pixels_per_row`) does not reach
+   movies.
 6. `read_pixels` downloads from the offscreen target, since "The swapchain texture is write-only"
    (S0 `:4337`), and waits on a fence.
 

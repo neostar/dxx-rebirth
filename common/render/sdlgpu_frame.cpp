@@ -175,7 +175,12 @@ void frame::texture(const texture_slot slot, const texture_image *const image,
 	const auto pending{[slot](const pending_upload &u) { return u.slot == slot; }};
 	if (image == nullptr)
 	{
-		std::erase_if(uploads_, pending);
+		/* A draw already recorded samples the slot's image: its upload stays
+		 * for the encode, and the device keeps the texture it goes to
+		 * (device::texture).  Later draws of the slot are refused.
+		 */
+		if (!sampled_.contains(slot.index))
+			std::erase_if(uploads_, pending);
 		textures_.erase(slot.index);
 		return;
 	}

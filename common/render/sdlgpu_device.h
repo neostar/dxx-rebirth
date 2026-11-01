@@ -93,6 +93,8 @@ struct resource_counts
 class resource_ledger
 {
 	std::array<std::size_t, 5> live_{};
+	std::array<std::size_t, 5> created_{};
+	std::size_t flushes_{0};
 	std::size_t bad_releases_{0};
 
   public:
@@ -107,6 +109,30 @@ class resource_ledger
 	void created(const kind k)
 	{
 		++live_.at(std::to_underlying(k));
+		++created_.at(std::to_underlying(k));
+	}
+	/* How many objects of kind k were ever created, released or not: a
+	 * test reads the difference over a run, to see that the run made none
+	 * (#36: a movie frame is no new texture).
+	 */
+	[[nodiscard]]
+	std::size_t created_count(const kind k) const
+	{
+		return created_.at(std::to_underlying(k));
+	}
+	void flushed() noexcept
+	{
+		++flushes_;
+	}
+	/* How many times the recorded frame was encoded and its command buffer
+	 * submitted: a present is one, and a read_pixels of the drawing or a
+	 * texture change under a recorded draw adds one.  A test reads that a
+	 * movie frame adds none besides its present (#36).
+	 */
+	[[nodiscard]]
+	std::size_t flush_count() const
+	{
+		return flushes_;
 	}
 	/* A release of a kind with none alive counts as bad, not as a wrap. */
 	void released(const kind k) noexcept
@@ -166,6 +192,14 @@ class device final : public render::device
 	 * its red in all four channels; no format is quantized (ADR 2).  A
 	 * texture whose sampler reads mipmaps also gets GL's (mipmaps.h,
 	 * mip_levels_of).  Throws std::invalid_argument on texture_slot::none.
+	 *
+	 * A null image releases the slot and flushes nothing: draws already
+	 * recorded still sample its texture.  The texture stays as a spare,
+	 * which the slot's next image takes back when its size and mip levels
+	 * match (a movie's frame, ogl_ubitblt_i: upload, draw, release, each
+	 * frame, one texture, #36), and present destroys a spare no image
+	 * took back in a whole frame, so a movie's end frees it one frame
+	 * later.  Spares count as live in the ledger until then.
 	 */
 	void texture(texture_slot slot, const texture_image *image) override;
 
