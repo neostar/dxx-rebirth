@@ -19,6 +19,7 @@
 #include "dxxsconf.h"
 // clang-format on
 #include <SDL.h>
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -31,6 +32,7 @@
 #include <string_view>
 #include <tuple>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 // clang-format off
@@ -117,10 +119,7 @@ void read_pilot(const std::string_view name)
 	BOOST_REQUIRE(read_player_file() == EZERO);
 }
 
-/* Every binding and joystick setting a pilot file holds.  The .plx's weapon keys (`rebirth`)
- * never load, on any build: read_player_dxx scans the text after the `=` with "%d=", so a load
- * keeps the defaults, and the pilot is given none of its own.
- */
+/* Every binding and joystick setting a pilot file holds. */
 struct bindings
 {
 	std::uint8_t control_type{0};
@@ -297,7 +296,8 @@ BOOST_AUTO_TEST_CASE(a_new_pilot_with_a_gamepad_gets_sdl2s_defaults)
 }
 
 /* Test that a pilot file this build writes reads back with every binding: a new pilot with a
- * gamepad open, given the stick bindings, written and read.
+ * gamepad open, given the stick bindings and a value no default has for each of the 30 weapon
+ * key bindings, written and read.
  */
 BOOST_AUTO_TEST_CASE(a_pilot_file_written_here_reads_back_the_same)
 {
@@ -305,10 +305,38 @@ BOOST_AUTO_TEST_CASE(a_pilot_file_written_here_reads_back_the_same)
 	use_pilot(name);
 	make_new_pilot();
 	give_stick_bindings();
+	std::uint8_t weapon_value{0x20};
+	for (auto &k : PlayerCfg.KeySettingsRebirth)
+		k = weapon_value++;
 	const auto want{bindings_of_player_config()};
 	write_player_file();
 	read_pilot(name);
 	check_equal(bindings_of_player_config(), want);
+}
+
+/* Test that the .plx's weapon keys load: a pilot file with a [weapon keys v2] section in the
+ * format write_player_file writes, a line for keys 1, 5 and 0 with values no default has, loads
+ * those values into the weapon key bindings they name, and leaves the other bindings alone.
+ */
+BOOST_AUTO_TEST_CASE(a_pilot_files_weapon_keys_load)
+{
+	constexpr std::string_view name{"wpnkeys"};
+	constexpr std::string_view plx{"[weapon keys v2]\n"
+	                               "1=0x11,0x12,0x13\n"
+	                               "5=0x51,0x52,0x53\n"
+	                               "0=0x01,0x02,0x03\n"
+	                               "[end]\n"};
+	write_file(pilot_path(name, ".plr"), pilot_plr);
+	write_file(pilot_path(name, ".plx"), std::vector<std::uint8_t>(plx.begin(), plx.end()));
+	make_new_pilot();
+	auto want{to_vector<unsigned>(PlayerCfg.KeySettingsRebirth)};
+	/* Key N holds the three bindings from index (N - 1) * 3; key 0 holds those from index 27. */
+	constexpr std::array<std::pair<std::size_t, std::array<unsigned, 3>>, 3> given{
+	    {{0, {0x11, 0x12, 0x13}}, {12, {0x51, 0x52, 0x53}}, {27, {0x01, 0x02, 0x03}}}};
+	for (const auto &[index, values] : given)
+		std::ranges::copy(values, want.begin() + static_cast<std::ptrdiff_t>(index));
+	read_pilot(name);
+	BOOST_TEST(bindings_of_player_config().rebirth == want, boost::test_tools::per_element());
 }
 
 /* The rest of the game, which playsave.cpp, kconfig.cpp and physfsx.cpp name.  The globals hold
