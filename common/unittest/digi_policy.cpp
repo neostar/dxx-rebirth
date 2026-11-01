@@ -113,3 +113,13 @@ BOOST_AUTO_TEST_CASE(pan_law_keeps_the_near_side_at_full_level)
 	BOOST_TEST(hard_left.left == 0x10000);
 	BOOST_TEST(hard_left.right == 0);
 }
+
+/* Test that ambience stops at a quarter of the voices granted, and never
+ * below one: 16 of 64, 4 of 16.
+ */
+BOOST_AUTO_TEST_CASE(ambience_stops_at_a_quarter_of_the_granted_voices)
+{
+	BOOST_TEST(digi_ambient_sound_limit(64) == 16);
+	BOOST_TEST(digi_ambient_sound_limit(16) == 4);
+	BOOST_TEST(digi_ambient_sound_limit(2) == 1);
+}

@@ -138,4 +138,14 @@ public:
 	}
 };
 
+/* How many sound objects may hold a voice before level ambience
+ * (permanent sound objects) starts no more: a quarter of the voices the
+ * backend was granted, as the original's digi_get_max_channels() / 4.
+ */
+[[nodiscard]]
+constexpr int digi_ambient_sound_limit(const unsigned granted)
+{
+	return std::max(1, static_cast<int>(granted / 4));
+}
+
 }

@@ -77,6 +77,7 @@ struct sound_function_table_t
 	void (*stop_sound)(sound_channel);
 	void (*end_sound)(sound_channel);
 	int  (*is_channel_playing)(sound_channel);
+	unsigned (*max_channels)();
 	void (*stop_all_channels)();
 	void (*set_digi_volume)(int);
 };
@@ -165,6 +166,7 @@ constexpr sound_function_table_t digi_mixer_table{
 	&digi_mixer_stop_sound,
 	&digi_mixer_end_sound,
 	&digi_mixer_is_channel_playing,
+	&digi_mixer_get_max_channels,
 	&digi_mixer_stop_all_channels,
 	&digi_mixer_set_digi_volume,
 };
@@ -179,6 +181,7 @@ constexpr sound_function_table_t digi_audio_table{
 	&digi_audio_stop_sound,
 	&digi_audio_end_sound,
 	&digi_audio_is_channel_playing,
+	&digi_audio_get_max_channels,
 	&digi_audio_stop_all_channels,
 	&digi_audio_set_digi_volume,
 };
@@ -285,6 +288,11 @@ void digi_end_sound(const sound_channel channel)
 int  digi_is_channel_playing(const sound_channel channel)
 {
 	return fptr->is_channel_playing(channel);
+}
+
+unsigned digi_get_max_channels()
+{
+	return fptr->max_channels();
 }
 
 void digi_stop_all_channels() { fptr->stop_all_channels(); }

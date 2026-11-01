@@ -35,7 +35,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "common/sdl/audio_frame.h"
 #endif
 #include "digi.h"
-#include "digi_audio.h"
+#include "digi_policy.h"
 #include "sounds.h"
 #include "args.h"
 #include "newdemo.h"
@@ -391,8 +391,8 @@ static void digi_start_sound_object(sound_object &s)
 	if ( Dont_start_sound_objects )
 		return;
 
-	// only use up to half the sound channels for "permanent" sounts
-	if (+(s.flags & sound_object_flag::permanent) && (N_active_sound_objects >= max(1, digi_max_channels / 4)))
+	// only use up to a quarter of the sound channels for "permanent" sounds
+	if (+(s.flags & sound_object_flag::permanent) && (N_active_sound_objects >= digi_ambient_sound_limit(digi_get_max_channels())))
 		return;
 
 	// start the sample playing

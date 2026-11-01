@@ -438,6 +438,11 @@ int digi_audio_is_channel_playing(const sound_channel channel)
 	return SoundSlots[channel].playing;
 }
 
+unsigned digi_audio_get_max_channels()
+{
+	return digi_max_channels;
+}
+
 void digi_audio_set_channel_volume(const sound_channel channel, int volume)
 {
 	if (!digi_initialised)

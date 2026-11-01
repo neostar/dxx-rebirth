@@ -853,6 +853,11 @@ int digi_mixer_is_channel_playing(const sound_channel c)
 	return channels[c];
 }
 
+unsigned digi_mixer_get_max_channels()
+{
+	return digi_mixer_max_channels;
+}
+
 void digi_mixer_stop_all_channels()
 {
 	channels = {};

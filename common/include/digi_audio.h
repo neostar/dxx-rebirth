@@ -28,5 +28,6 @@ void digi_audio_set_channel_pan(sound_channel, sound_pan);
 void digi_audio_stop_sound(sound_channel);
 void digi_audio_end_sound(sound_channel);
 void digi_audio_set_digi_volume(int);
+unsigned digi_audio_get_max_channels();
 }
 #endif

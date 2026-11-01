@@ -69,6 +69,8 @@ void digi_mixer_stop_sound(sound_channel);
 void digi_mixer_end_sound(sound_channel);
 void digi_mixer_set_digi_volume(int);
 int digi_mixer_is_channel_playing(sound_channel);
+/* The channels the mixer was granted. */
+unsigned digi_mixer_get_max_channels();
 void digi_mixer_stop_all_channels();
 int digi_mixer_init();
 #if SDL_MAJOR_VERSION == 3
