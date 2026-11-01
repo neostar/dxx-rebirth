@@ -21,6 +21,7 @@
 #include "common/sdl/audio_gains.h"
 #include "common/sdl/dxx-sdl.h"
 #include "common/sdl/sdl_deleter.h"
+#include "common/sdl/sdl_properties.h"
 
 namespace dcx::sdl {
 
@@ -126,30 +127,41 @@ class effect_mixer
 	{
 		return mixer_.get();
 	}
-	/* Starts audio on the first of the first max_tracks tracks neither
-	 * playing nor stopped in this frame, at gains, looping forever or once;
-	 * nothing when there is none.
-	 */
-	std::optional<track_index> start(MIX_Audio *const audio, const stereo_gains gains,
-	                                 const bool looping, const std::size_t max_tracks)
+	/* Track i, when there is one. */
+	[[nodiscard]]
+	static constexpr std::optional<track_index> track_of(const std::size_t i)
 	{
-		if (!usable_ || audio == nullptr)
+		if (i >= effect_track_count)
 			return std::nullopt;
-		const std::size_t limit{std::min(max_tracks, effect_track_count)};
-		for (std::size_t i{0}; i < limit; ++i)
-		{
-			if (playing_.test(i) || stopping_.test(i))
-				continue;
-			const auto t{static_cast<track_index>(i)};
-			playing_.set(i);
-			queue_.push_back({.kind = command_kind::play,
-			                  .track = t,
-			                  .audio = audio,
-			                  .gains = gains,
-			                  .looping = looping});
-			return t;
-		}
-		return std::nullopt;
+		return static_cast<track_index>(i);
+	}
+	/* Whether the next start may take t: neither playing nor stopped in
+	 * this frame.
+	 */
+	[[nodiscard]]
+	bool available(const track_index t) const
+	{
+		return t < effect_track_count && !playing_.test(t) && !stopping_.test(t);
+	}
+	/* Starts audio on track t at gains, looping forever or once, in place of
+	 * what t plays (the sound a new one steals the track from).  A looping
+	 * sound with a loop range (frames of audio, digi_loop_points) plays from
+	 * its start, then within the range.
+	 */
+	void start_on(const track_index t, MIX_Audio *const audio, const stereo_gains gains,
+	              const bool looping, const std::optional<digi_loop_range> loop = std::nullopt)
+	{
+		if (!usable_ || audio == nullptr || t >= effect_track_count)
+			return;
+		if (playing_.test(t) || stopping_.test(t))
+			stealing_.set(t);
+		playing_.set(t);
+		queue_.push_back({.kind = command_kind::play,
+		                  .track = t,
+		                  .audio = audio,
+		                  .gains = gains,
+		                  .looping = looping,
+		                  .loop = loop});
 	}
 	void set_gains(const track_index t, const stereo_gains gains)
 	{
@@ -330,6 +342,19 @@ class effect_mixer
 				music_failed_ = SDL_GetError();
 			}
 		}
+		if (stealing_.any())
+		{
+			/* A stolen track stops in its own short batch, as a song
+			 * replacing another does, so that the new sound's audio goes to
+			 * a track that is not playing.
+			 */
+			MIX_LockMixer(m);
+			for (std::size_t i{0}; i < effect_track_count; ++i)
+				if (stealing_.test(i))
+					MIX_StopTrack(tracks_[i].get(), 0);
+			MIX_UnlockMixer(m);
+			stealing_.reset();
+		}
 		for (auto &c : queue_)
 			if (c.kind == command_kind::play || c.kind == command_kind::voice_play)
 			{
@@ -422,6 +447,7 @@ class effect_mixer
 		stereo_gains gains{};
 		bool looping{false};
 		float gain{0};
+		std::optional<digi_loop_range> loop{};
 	};
 	static void set_stereo(MIX_Track *const t, const stereo_gains g)
 	{
@@ -437,7 +463,18 @@ class effect_mixer
 				break;
 			MIX_Track *const t{tracks_[c.track].get()};
 			set_stereo(t, c.gains);
-			MIX_PlayTrack(t, 0);
+			if (c.looping && c.loop)
+			{
+				const sdl_properties options;
+				SDL_SetNumberProperty(options.get(), MIX_PROP_PLAY_LOOPS_NUMBER, -1);
+				SDL_SetNumberProperty(options.get(), MIX_PROP_PLAY_MAX_FRAME_NUMBER,
+				                      static_cast<Sint64>(c.loop->end));
+				SDL_SetNumberProperty(options.get(), MIX_PROP_PLAY_LOOP_START_FRAME_NUMBER,
+				                      static_cast<Sint64>(c.loop->begin));
+				MIX_PlayTrack(t, options.get());
+			}
+			else
+				MIX_PlayTrack(t, 0);
 			/* After the play, which sets the loop count from its options. */
 			MIX_SetTrackLoops(t, c.looping ? -1 : 0);
 			break;
@@ -450,7 +487,7 @@ class effect_mixer
 			break;
 		case command_kind::volume:
 			MIX_SetTagGain(m, effect_tag, c.gain);
-			MIX_SetTagGain(m, voice_tag, c.gain);
+			MIX_SetTagGain(m, voice_tag, c.gain * voice_gain);
 			break;
 		case command_kind::voice_play:
 			if (c.audio != nullptr)
@@ -481,6 +518,8 @@ class effect_mixer
 	std::bitset<effect_track_count> playing_;
 	/* Tracks whose stop the next commit applies. */
 	std::bitset<effect_track_count> stopping_;
+	/* Tracks a new sound takes while they play, stopped first at commit. */
+	std::bitset<effect_track_count> stealing_;
 	/* The voice track of the last voice. */
 	track_index voice_{0};
 	bool voice_playing_{false};

@@ -7,10 +7,12 @@
 
 #include "common/sdl/effect_mixer.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -28,8 +30,8 @@
  */
 namespace {
 
-using dcx::sdl::effect_mixer;
-using dcx::sdl::stereo_gains;
+using ::dcx::sdl::effect_mixer;
+using ::dcx::sdl::stereo_gains;
 
 constexpr int mix_rate{22050};
 /* U8 0xc0 is (0xc0 - 0x80) / 0x80 = 0.5 as float. */
@@ -57,16 +59,16 @@ struct mixer_init
 effect_mixer make_mixer(const int rate = mix_rate)
 {
 	const SDL_AudioSpec spec{.format = SDL_AUDIO_F32, .channels = 2, .freq = rate};
-	return effect_mixer{dcx::sdl::mix_mixer_ptr{MIX_CreateMixer(&spec)}};
+	return effect_mixer{::dcx::sdl::mix_mixer_ptr{MIX_CreateMixer(&spec)}};
 }
 
 /* frames of the effect level, U8 mono at rate. */
-dcx::sdl::mix_audio_ptr make_effect(MIX_Mixer *const m, const std::size_t frames,
-                                    const int rate = mix_rate)
+::dcx::sdl::mix_audio_ptr make_effect(MIX_Mixer *const m, const std::size_t frames,
+                                      const int rate = mix_rate)
 {
 	const std::vector<uint8_t> data(frames, effect_level);
 	const SDL_AudioSpec spec{.format = SDL_AUDIO_U8, .channels = 1, .freq = rate};
-	return dcx::sdl::mix_audio_ptr{MIX_LoadRawAudio(m, data.data(), data.size(), &spec)};
+	return ::dcx::sdl::mix_audio_ptr{MIX_LoadRawAudio(m, data.data(), data.size(), &spec)};
 }
 
 struct side_means
@@ -103,12 +105,28 @@ bool near(const float a, const float b)
 	return std::fabs(a - b) < 1e-4f;
 }
 
+/* Starts audio as the game would on the first of the first max_tracks
+ * tracks that available() offers; none when there is none.
+ */
+std::optional<effect_mixer::track_index> start_free(effect_mixer &mixer, MIX_Audio *const audio,
+                                                    const stereo_gains gains, const bool looping,
+                                                    const std::size_t max_tracks)
+{
+	for (std::size_t i{0}; i < std::min(max_tracks, ::dcx::sdl::effect_track_count); ++i)
+		if (const auto t{static_cast<effect_mixer::track_index>(i)}; mixer.available(t))
+		{
+			mixer.start_on(t, audio, gains, looping);
+			return t;
+		}
+	return std::nullopt;
+}
+
 }
 
 BOOST_GLOBAL_FIXTURE(mixer_init);
 
-/* Test that an effect plays at the stereo gains the game computed, linear on
- * each side: the centre is half per side, hard left is silent on the right.
+/* Test that an effect plays at the stereo gains the game computed: the
+ * centre at full level per side, hard left silent on the right.
  */
 BOOST_AUTO_TEST_CASE(effect_plays_at_its_stereo_gains)
 {
@@ -116,13 +134,14 @@ BOOST_AUTO_TEST_CASE(effect_plays_at_its_stereo_gains)
 	BOOST_REQUIRE(mixer.usable());
 	const auto effect{make_effect(mixer.mixer(), 4096)};
 	BOOST_REQUIRE(effect);
-	const auto centre{dcx::sdl::effect_gains(0x10000, 0x7fff)};
-	BOOST_REQUIRE(mixer.start(effect.get(), centre, false, 64).has_value());
+	const auto centre{::dcx::sdl::effect_gains(0x10000, 0x7fff)};
+	BOOST_REQUIRE(start_free(mixer, effect.get(), centre, false, 64).has_value());
 	mixer.commit_frame();
 	const auto m{means(generate(mixer.mixer(), 1024))};
 	BOOST_TEST(near(m.left, effect_value * centre.left));
 	BOOST_TEST(near(m.right, effect_value * centre.right));
-	const auto left{mixer.start(effect.get(), dcx::sdl::effect_gains(0x10000, 0), false, 64)};
+	const auto left{
+	    start_free(mixer, effect.get(), ::dcx::sdl::effect_gains(0x10000, 0), false, 64)};
 	BOOST_REQUIRE(left.has_value());
 	mixer.stop(0);
 	mixer.commit_frame();
@@ -136,7 +155,7 @@ BOOST_AUTO_TEST_CASE(commands_take_effect_at_the_commit)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 4096)};
-	BOOST_REQUIRE(mixer.start(effect.get(), unit, false, 64).has_value());
+	BOOST_REQUIRE(start_free(mixer, effect.get(), unit, false, 64).has_value());
 	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, 0.0f));
 	mixer.commit_frame();
 	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
@@ -149,7 +168,7 @@ BOOST_AUTO_TEST_CASE(stop_silences_and_set_gains_changes_the_level)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 8192)};
-	const auto t{mixer.start(effect.get(), unit, true, 64)};
+	const auto t{start_free(mixer, effect.get(), unit, true, 64)};
 	BOOST_REQUIRE(t.has_value());
 	mixer.commit_frame();
 	mixer.set_gains(t.value(), {.left = 0.25f, .right = 0.75f});
@@ -174,12 +193,12 @@ BOOST_AUTO_TEST_CASE(a_stopped_track_is_not_reused_in_its_frame)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 8192)};
-	const auto old{mixer.start(effect.get(), {.left = 1.0f, .right = 0.0f}, true, 64)};
+	const auto old{start_free(mixer, effect.get(), {.left = 1.0f, .right = 0.0f}, true, 64)};
 	BOOST_REQUIRE(old.has_value());
 	mixer.commit_frame();
 	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
 	mixer.stop(old.value());
-	const auto restarted{mixer.start(effect.get(), {.left = 0.0f, .right = 1.0f}, true, 64)};
+	const auto restarted{start_free(mixer, effect.get(), {.left = 0.0f, .right = 1.0f}, true, 64)};
 	BOOST_REQUIRE(restarted.has_value());
 	mixer.commit_frame();
 	const auto m{means(generate(mixer.mixer(), 512))};
@@ -195,7 +214,7 @@ BOOST_AUTO_TEST_CASE(stop_all_silences_at_once)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 8192)};
-	const auto t{mixer.start(effect.get(), unit, true, 64)};
+	const auto t{start_free(mixer, effect.get(), unit, true, 64)};
 	BOOST_REQUIRE(t.has_value());
 	mixer.commit_frame();
 	mixer.stop_all();
@@ -212,8 +231,8 @@ BOOST_AUTO_TEST_CASE(one_shot_ends_and_looping_plays_on)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 1000)};
-	const auto once{mixer.start(effect.get(), {.left = 1.0f, .right = 0.0f}, false, 64)};
-	const auto loop{mixer.start(effect.get(), {.left = 0.0f, .right = 1.0f}, true, 64)};
+	const auto once{start_free(mixer, effect.get(), {.left = 1.0f, .right = 0.0f}, false, 64)};
+	const auto loop{start_free(mixer, effect.get(), {.left = 0.0f, .right = 1.0f}, true, 64)};
 	BOOST_REQUIRE(once.has_value());
 	BOOST_REQUIRE(loop.has_value());
 	BOOST_TEST(once.value() != loop.value());
@@ -227,20 +246,23 @@ BOOST_AUTO_TEST_CASE(one_shot_ends_and_looping_plays_on)
 	BOOST_TEST(mixer.playing(loop.value()));
 }
 
-/* Test that the volume scales every effect track and the voice. */
+/* Test that the volume scales every effect track and the voice, the voice
+ * also by the effects gain, which the effects carry in their samples.
+ */
 BOOST_AUTO_TEST_CASE(volume_scales_effects_and_voice)
 {
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 8192)};
-	mixer.set_volume(dcx::sdl::effect_volume_gain(0x8000));
-	BOOST_REQUIRE(mixer.start(effect.get(), {.left = 1.0f, .right = 0.0f}, true, 64).has_value());
+	mixer.set_volume(::dcx::sdl::effect_volume_gain(0x8000));
+	BOOST_REQUIRE(
+	    start_free(mixer, effect.get(), {.left = 1.0f, .right = 0.0f}, true, 64).has_value());
 	mixer.play_voice(make_effect(mixer.mixer(), 8192));
 	mixer.commit_frame();
 	BOOST_TEST(mixer.voice_playing());
 	const auto m{means(generate(mixer.mixer(), 512))};
-	/* Effect left alone at 0.5; the voice at unit stereo gains on both. */
-	BOOST_TEST(near(m.left, 0.5f * effect_value * 2));
-	BOOST_TEST(near(m.right, 0.5f * effect_value));
+	/* Effect left alone at 0.5; the voice at 3/32 of that on both sides. */
+	BOOST_TEST(near(m.left, 0.5f * effect_value + 0.5f * effect_value * 3 / 32));
+	BOOST_TEST(near(m.right, 0.5f * effect_value * 3 / 32));
 	mixer.stop_voice();
 	mixer.commit_frame();
 	BOOST_TEST(!mixer.voice_playing());
@@ -277,16 +299,16 @@ BOOST_AUTO_TEST_CASE(tracks_run_out_at_the_limit)
 	auto mixer{make_mixer()};
 	const auto effect{make_effect(mixer.mixer(), 64)};
 	for (std::size_t i{0}; i < 8; ++i)
-		BOOST_TEST(mixer.start(effect.get(), unit, true, 8).value() == i);
-	BOOST_TEST(!mixer.start(effect.get(), unit, true, 8).has_value());
+		BOOST_TEST(start_free(mixer, effect.get(), unit, true, 8).value() == i);
+	BOOST_TEST(!start_free(mixer, effect.get(), unit, true, 8).has_value());
 	mixer.stop(3);
 	/* Its stop reaches the mixer only at the commit. */
-	BOOST_TEST(!mixer.start(effect.get(), unit, true, 8).has_value());
+	BOOST_TEST(!start_free(mixer, effect.get(), unit, true, 8).has_value());
 	mixer.commit_frame();
-	BOOST_TEST(mixer.start(effect.get(), unit, true, 8).value() == 3);
-	for (std::size_t i{8}; i < dcx::sdl::effect_track_count; ++i)
-		BOOST_TEST(mixer.start(effect.get(), unit, true, 1000).has_value());
-	BOOST_TEST(!mixer.start(effect.get(), unit, true, 1000).has_value());
+	BOOST_TEST(start_free(mixer, effect.get(), unit, true, 8).value() == 3);
+	for (std::size_t i{8}; i < ::dcx::sdl::effect_track_count; ++i)
+		BOOST_TEST(start_free(mixer, effect.get(), unit, true, 1000).has_value());
+	BOOST_TEST(!start_free(mixer, effect.get(), unit, true, 1000).has_value());
 }
 
 /* Test that an effect at the sounds' own 11025 Hz keeps its duration when
@@ -296,7 +318,8 @@ BOOST_AUTO_TEST_CASE(effect_keeps_its_duration_at_the_device_rate)
 {
 	auto mixer{make_mixer(48000)};
 	const auto effect{make_effect(mixer.mixer(), 11025 / 4, 11025)};
-	BOOST_REQUIRE(mixer.start(effect.get(), {.left = 1.0f, .right = 0.0f}, false, 64).has_value());
+	BOOST_REQUIRE(
+	    start_free(mixer, effect.get(), {.left = 1.0f, .right = 0.0f}, false, 64).has_value());
 	mixer.commit_frame();
 	const auto out{generate(mixer.mixer(), 24000)};
 	std::size_t sounding{0};
@@ -329,9 +352,9 @@ BOOST_AUTO_TEST_CASE(game_and_mix_threads_share_only_the_batch)
 	}};
 	for (unsigned frame{0}; frame < 400; ++frame)
 	{
-		const auto t{mixer.start(effect.get(),
-		                         dcx::sdl::effect_gains(0x8000, static_cast<int32_t>(frame * 160)),
-		                         frame % 3 == 0, 64)};
+		const auto t{start_free(mixer, effect.get(),
+		                        ::dcx::sdl::effect_gains(0x8000, static_cast<int32_t>(frame * 160)),
+		                        frame % 3 == 0, 64)};
 		if (t.has_value() && frame % 5 == 0)
 			mixer.set_gains(t.value(), unit);
 		if (frame % 7 == 0)
@@ -346,7 +369,7 @@ BOOST_AUTO_TEST_CASE(game_and_mix_threads_share_only_the_batch)
 	done.store(true);
 	mix.join();
 	BOOST_TEST(pulls.load() > 0u);
-	for (std::size_t i{0}; i < dcx::sdl::effect_track_count; ++i)
+	for (std::size_t i{0}; i < ::dcx::sdl::effect_track_count; ++i)
 		BOOST_TEST(!mixer.playing(static_cast<effect_mixer::track_index>(i)));
 }
 
@@ -414,11 +437,11 @@ BOOST_AUTO_TEST_CASE(music_ducks_while_the_voice_plays)
 	/* A silent voice (U8 0x80), so only the music's level shows. */
 	const std::vector<uint8_t> quiet(2000, 0x80);
 	const SDL_AudioSpec spec{.format = SDL_AUDIO_U8, .channels = 1, .freq = mix_rate};
-	mixer.play_voice(dcx::sdl::mix_audio_ptr{
+	mixer.play_voice(::dcx::sdl::mix_audio_ptr{
 	    MIX_LoadRawAudio(mixer.mixer(), quiet.data(), quiet.size(), &spec)});
 	mixer.commit_frame();
 	BOOST_TEST(
-	    near(means(generate(mixer.mixer(), 512)).left, dcx::sdl::music_duck_gain * effect_value));
+	    near(means(generate(mixer.mixer(), 512)).left, ::dcx::sdl::music_duck_gain * effect_value));
 	generate(mixer.mixer(), 2000);
 	mixer.commit_frame();
 	BOOST_TEST(!mixer.voice_playing());
@@ -448,7 +471,7 @@ BOOST_AUTO_TEST_CASE(music_paused_at_its_start_stays_paused)
  */
 BOOST_AUTO_TEST_CASE(an_unusable_mixer_names_the_failed_call)
 {
-	const effect_mixer none{dcx::sdl::mix_mixer_ptr{}};
+	const effect_mixer none{::dcx::sdl::mix_mixer_ptr{}};
 	BOOST_TEST(std::string{none.failed_call()} == "MIX_CreateMixer");
 	const auto fine{make_mixer()};
 	BOOST_TEST(fine.failed_call() == nullptr);
@@ -474,4 +497,90 @@ BOOST_AUTO_TEST_CASE(an_end_seen_by_stop_all_is_not_reported_later)
 	mixer.stop_music();
 	mixer.commit_frame();
 	BOOST_TEST(!mixer.take_music_ended());
+}
+
+namespace {
+
+/* Mono U8 audio at mix_rate holding data. */
+::dcx::sdl::mix_audio_ptr make_audio(MIX_Mixer *const m, const std::vector<uint8_t> &data)
+{
+	const SDL_AudioSpec spec{.format = SDL_AUDIO_U8, .channels = 1, .freq = mix_rate};
+	return ::dcx::sdl::mix_audio_ptr{MIX_LoadRawAudio(m, data.data(), data.size(), &spec)};
+}
+
+}
+
+/* Test that a sound started on a playing track takes it over at that
+ * frame's commit: the stolen sound stops and the new one plays alone.
+ */
+BOOST_AUTO_TEST_CASE(start_on_a_playing_track_replaces_its_sound)
+{
+	auto mixer{make_mixer()};
+	const auto old_sound{make_effect(mixer.mixer(), 8192)};
+	/* U8 0xa0 is 0.25 as float. */
+	const auto new_sound{make_audio(mixer.mixer(), std::vector<uint8_t>(8192, 0xa0))};
+	mixer.start_on(5, old_sound.get(), unit, false);
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+	BOOST_REQUIRE(!mixer.available(5));
+	mixer.start_on(5, new_sound.get(), unit, false);
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, 0.25f));
+	BOOST_TEST(mixer.playing(5));
+}
+
+/* Test that a looping sound with loop points plays from its start, then
+ * only between its loop points.
+ */
+BOOST_AUTO_TEST_CASE(loop_points_replay_only_the_loop)
+{
+	auto mixer{make_mixer()};
+	constexpr std::size_t part{1024};
+	/* The head at 0.5, the loop at 0.25, a tail at 0.75 never played. */
+	std::vector<uint8_t> data(part, effect_level);
+	data.resize(2 * part, 0xa0);
+	data.resize(3 * part, 0xe0);
+	const auto sound{make_audio(mixer.mixer(), data)};
+	mixer.start_on(0, sound.get(), unit, true, ::dcx::digi_loop_range{part, 2 * part});
+	mixer.commit_frame();
+	const auto first{generate(mixer.mixer(), 2 * part)};
+	BOOST_TEST(near(means(std::span{first}.first(part * 2)).left, effect_value));
+	BOOST_TEST(near(means(std::span{first}.subspan(part * 2)).left, 0.25f));
+	for (int pass{0}; pass < 3; ++pass)
+		BOOST_TEST(near(means(generate(mixer.mixer(), part)).left, 0.25f));
+}
+
+/* Test that a loop range's end is exclusive, as the other backends play it:
+ * on a ramp of distinct frames, after the head the output repeats exactly
+ * frames begin..end-1, so MIX_PROP_PLAY_MAX_FRAME_NUMBER is the first frame
+ * not played.
+ */
+BOOST_AUTO_TEST_CASE(loop_range_end_is_exclusive)
+{
+	auto mixer{make_mixer()};
+	constexpr std::size_t begin{8}, end{40}, length{64};
+	std::vector<uint8_t> ramp(length);
+	for (std::size_t i{0}; i < length; ++i)
+		ramp[i] = static_cast<uint8_t>(0x80 + 2 * i);
+	const auto sound{make_audio(mixer.mixer(), ramp)};
+	mixer.start_on(0, sound.get(), unit, true, ::dcx::digi_loop_range{begin, end});
+	mixer.commit_frame();
+	constexpr std::size_t frames{end + 3 * (end - begin)};
+	const auto out{generate(mixer.mixer(), frames)};
+	const auto expected{[&ramp](const std::size_t f) {
+		const std::size_t i{f < end ? f : begin + (f - end) % (end - begin)};
+		return (static_cast<float>(ramp[i]) - 128.0f) / 128.0f;
+	}};
+	std::size_t mismatches{0};
+	for (std::size_t f{0}; f < frames; ++f)
+		if (!near(out[2 * f], expected(f)))
+			++mismatches;
+	BOOST_TEST(mismatches == 0u);
+}
+
+/* Test that only the 64 tracks convert to a track index. */
+BOOST_AUTO_TEST_CASE(only_the_tracks_have_an_index)
+{
+	BOOST_TEST(effect_mixer::track_of(63).value() == 63);
+	BOOST_TEST(!effect_mixer::track_of(::dcx::sdl::effect_track_count).has_value());
 }
