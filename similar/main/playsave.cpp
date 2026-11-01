@@ -465,7 +465,7 @@ static void read_player_dxx(const char *filename)
 				if (!value)
 					continue;
 				unsigned weapon_text_key, weapon_value[3];
-				if (sscanf(value, "%d=" WEAPON_KEYv2_VALUE_TEXT, &weapon_text_key, &weapon_value[0], &weapon_value[1], &weapon_value[2]) != 4)
+				if (sscanf(line, "%u", &weapon_text_key) != 1 || sscanf(value, WEAPON_KEYv2_VALUE_TEXT, &weapon_value[0], &weapon_value[1], &weapon_value[2]) != 3)
 					continue;
 				dxx_kconfig_ui_kc_rebirth weapon_key_settings_index;
 				switch (weapon_text_key)
