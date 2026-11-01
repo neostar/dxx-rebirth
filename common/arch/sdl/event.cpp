@@ -36,6 +36,7 @@
 #include <utility>
 #include "common/debug/hidden_window.h"
 #include "common/debug/input_script_harness.h"
+#include "common/debug/sound_stimulus.h"
 #include "common/sdl/harness_record.h"
 #if SDL_MAJOR_VERSION >= 2
 #include "common/sdl/virtual_joystick.h"
@@ -541,6 +542,8 @@ window_event_result event_process(void)
 #endif
 #if DXX_USE_DBG_HARNESS
 	harness_push_input();
+	if (harness_frame_hook)
+		harness_frame_hook();
 #endif
 
 	highest_result = event_poll();	// send input events first

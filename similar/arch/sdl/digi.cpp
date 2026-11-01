@@ -9,6 +9,7 @@
  * Library-independent stub for dynamic selection of sound system
  */
 
+#include <optional>
 #include <stdexcept>
 #include "dxxerror.h"
 #include "vecmat.h"
@@ -35,6 +36,8 @@
 #include <SDL.h>
 #include "common/debug/audio_driver_report.h"
 #include "common/debug/hidden_window.h"
+#include "common/debug/sound_stimulus.h"
+#include "timer.h"
 #endif
 
 namespace dcx {
@@ -235,6 +238,35 @@ void digi_select_system()
 		fptr = digi_audio_table;
 }
 
+#if DXX_USE_DBG_HARNESS
+namespace {
+
+int64_t timer_query_ms()
+{
+	return (timer_query() * 1000) >> 16;
+}
+
+/* The crafted sound stimulus, timed from its first frame. */
+std::optional<sound_stimulus_schedule> sound_stimulus;
+
+/* Plays the steps of the crafted sound stimulus (sound_stimulus.h) as they
+ * fall due.
+ */
+void harness_play_sound_stimulus()
+{
+	if (!sound_stimulus)
+		sound_stimulus.emplace(timer_query_ms());
+	const auto [first, last]{sound_stimulus->take_due(timer_query_ms())};
+	for (auto i{first}; i != last; ++i)
+	{
+		con_printf(CON_NORMAL, "DXX_DBG_SOUND_STIMULUS: step %u at volume %i", static_cast<unsigned>(i), sound_stimulus_steps[i].volume);
+		digi_play_sample(sound_effect::SOUND_BADASS_EXPLOSION, sound_stimulus_steps[i].volume);
+	}
+}
+
+}
+#endif
+
 /* Stub functions */
 
 int  digi_init()
@@ -252,6 +284,8 @@ int  digi_init()
 		if (const auto refusal = audio_driver_refusal(driver, getenv("NO_WINDOW_SOUND")); !refusal.empty())
 			UserError("%s", refusal.c_str());
 	}
+	if (read_harness_sound_stimulus())
+		harness_frame_hook = &harness_play_sound_stimulus;
 	return r;
 #else
 	return fptr->init();
