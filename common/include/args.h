@@ -96,6 +96,10 @@ struct CArg : prohibit_void_ptr<>
 	 * digi_mixer_method has nothing to choose (digi_select_system says so).
 	 */
 	bool SndMixerMethodGiven;
+	/* -soundfont: the SoundFont MIDI music plays with (FluidSynth); SDL3_mixer
+	 * reads no environment variable for it (docs/agents/sdl-audio.md area 6).
+	 */
+	std::string SndSoundFont;
 #endif
 #else
 	static constexpr std::true_type SndDisableSdlMixer{};

@@ -14,7 +14,7 @@
 /* Test that a stub reports itself once: the first use logs, every later use is silent. */
 BOOST_AUTO_TEST_CASE(a_stub_logs_on_its_first_use_only)
 {
-	dcx::sdl::link_stub stub{"the SDL_mixer music", "#46"};
+	dcx::sdl::link_stub stub{"the example stub", "#1"};
 	BOOST_TEST(stub.first_use());
 	BOOST_TEST(!stub.first_use());
 	BOOST_TEST(!stub.first_use());
@@ -23,7 +23,7 @@ BOOST_AUTO_TEST_CASE(a_stub_logs_on_its_first_use_only)
 /* Test that two stubs log independently, so one stub's first use does not hide another's. */
 BOOST_AUTO_TEST_CASE(stubs_log_independently)
 {
-	dcx::sdl::link_stub a{"the SDL_mixer music", "#46"};
+	dcx::sdl::link_stub a{"the example stub", "#1"};
 	dcx::sdl::link_stub b{"the movie audio", "#47"};
 	BOOST_TEST(a.first_use());
 	BOOST_TEST(b.first_use());

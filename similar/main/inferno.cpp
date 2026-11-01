@@ -185,6 +185,12 @@ static void print_commandline_help()
 #define DXX_COMMAND_LINE_HELP_SDL(V)	V
 #endif
 
+#if SDL_MAJOR_VERSION == 3
+#define DXX_COMMAND_LINE_HELP_SDL3(V)	V
+#else
+#define DXX_COMMAND_LINE_HELP_SDL3(V)
+#endif
+
 #define DXX_COMMAND_LINE_HELP(VERB)	\
 	VERB("\n System Options:\n\n")	\
 	VERB("  -nonicefps                    Don't free CPU-cycles\n")	\
@@ -219,6 +225,9 @@ static void print_commandline_help()
 	)	\
 	DXX_if_defined_01(DXX_USE_SDLMIXER, (	\
 		VERB("  -nosdlmixer                   Disable Sound output via SDL_mixer\n")	\
+		DXX_COMMAND_LINE_HELP_SDL3(	\
+			VERB("  -soundfont <file>             Play MIDI music with SoundFont <file>\n")	\
+		)	\
 	))	\
 	VERB("\n Graphics:\n\n")	\
 	VERB("  -lowresfont                   Force use of low resolution fonts\n")	\

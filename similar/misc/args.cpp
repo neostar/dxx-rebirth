@@ -277,6 +277,10 @@ static void ReadCmdArgs(Inilist &ini, Arglist &&Args)
 		else if (!d_stricmp(p, "-sound11k"))
 			GameArg.SndDigiSampleRate = sound_sample_rate::_11k;
 #endif
+#if DXX_USE_SDLMIXER && SDL_MAJOR_VERSION == 3
+		else if (!d_stricmp(p, "-soundfont"))
+			CGameArg.SndSoundFont = arg_string(pp, end);
+#endif
 		else if (!d_stricmp(p, "-nosdlmixer"))
 		{
 #if DXX_USE_SDLMIXER

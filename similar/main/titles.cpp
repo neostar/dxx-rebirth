@@ -696,8 +696,8 @@ struct briefing : window
 #if DXX_BUILD_DESCENT == 1 && DXX_USE_SDLMIXER
 #if SDL_MAJOR_VERSION == 3
 /* SDL3_mixer has no Mix_Chunk or Mix_PlayChannel: the voice-over plays on
- * the effect mixer's voice track (digi_mixer.cpp).  Ducking the music while
- * it plays is the music's (#46).
+ * the effect mixer's voice track (digi_mixer.cpp), which halves the music
+ * while it plays.
  */
 static void briefing_audio_stop(briefing *)
 {

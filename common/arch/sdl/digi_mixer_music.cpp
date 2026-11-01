@@ -16,46 +16,203 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 #if SDL_MAJOR_VERSION == 3
-#include "common/sdl/link_stub.h"
+#include <array>
+#include <string>
+#include <utility>
+#include <vector>
+#include "args.h"
 #include "console.h"
 #include "digi_mixer_music.h"
+#include "hmp.h"
+#include "physfsx.h"
+#include "strutil.h"
+#include "common/sdl/audio_gains.h"
+#include "common/sdl/effect_mixer.h"
+#include "common/sdl/music_hook.h"
+#include "common/sdl/music_source.h"
 
-/* SDL3_mixer's music API is MIX_Audio and MIX_Track.  Until #46 ports the
- * music, no track plays: mix_play_file reports failure, as for a song the
- * mixer cannot load, and the rest do nothing.
+/* The music on SDL3_mixer (#46, docs/agents/sdl-audio.md area 6): a song,
+ * built-in (HMP, which the game turns into MIDI), MIDI, Ogg Vorbis, FLAC or
+ * MP3, plays on the music track of the effect mixer (digi_mixer.cpp), so it
+ * mixes with the effects and ducks under the briefing voice.  MIDI
+ * plays through FluidSynth with the SoundFont -soundfont names; SDL3_mixer
+ * reads no environment variable for it.  The end of a song reaches the
+ * game's hook on the game thread, from mix_music_frame, not from the mixing
+ * thread.  ADLMIDI is not ported yet: an SDL3 build has none.
  */
 namespace dcx {
 
-int mix_play_file(const char *, int, void (*)())
+namespace {
+
+struct music_state
 {
-	static dcx::sdl::link_stub stub{"the SDL_mixer music", "#46"};
-	if (stub.first_use())
-		con_printf(CON_NORMAL, "%s", stub.message().c_str());
-	return 0;
+	sdl::music_hook hook;
+	/* The song mix_play_file started, for the message when it cannot start. */
+	std::string filename;
+	/* 0..1, the menu's 0..8 as the SDL2 build sets it. */
+	float volume{1.0f};
+	bool midi_decoder{false};
+};
+
+music_state music;
+
+/* Above any normal song: a guard against a very large allocation, as in the
+ * SDL2 build.
+ */
+constexpr PHYSFS_sint64 music_file_limit{1024 * 1024 * 256};
+
+std::vector<uint8_t> read_filesystem_file(const char *const path)
+{
+	auto data{sdl::read_whole_file(path, music_file_limit)};
+	if (data)
+		return std::move(data).value();
+	if (data.error() == sdl::file_read_error::over_limit)
+		con_printf(CON_NORMAL, "error: music file \"%s\" exceeds size limit of 256MB", path);
+	return {};
 }
 
-void mix_set_music_volume(int)
+/* A whole music file: a filesystem path, ~ for the home folder (the Mac OS X
+ * jukebox's descent.m3u), or a PhysFS path, in the SDL2 build's order.
+ */
+std::vector<uint8_t> read_music_file(const char *const filename)
 {
+	if (auto data{read_filesystem_file(filename)}; !data.empty())
+		return data;
+	if (*filename == '~')
+	{
+		const auto sep{PHYSFS_getDirSeparator()};
+		const auto lensep{strlen(sep)};
+		std::array<char, PATH_MAX> full_path;
+		snprintf(full_path.data(), full_path.size(), "%s%s", PHYSFS_getUserDir(), &filename[1 + (!strncmp(&filename[1], sep, lensep) ? lensep : 0)]);
+		if (auto data{read_filesystem_file(full_path.data())}; !data.empty())
+			return data;
+	}
+	RAIIPHYSFS_File f{PHYSFS_openRead(filename)};
+	if (!f)
+		return {};
+	const auto len{PHYSFS_fileLength(f)};
+	if (len <= 0 || len > music_file_limit)
+	{
+		con_printf(CON_NORMAL, "error: music PhysFS file \"%s\" is empty or exceeds size limit of 256MB", filename);
+		return {};
+	}
+	std::vector<uint8_t> data(static_cast<std::size_t>(len));
+	const auto got{PHYSFSX_readBytes(f, data.data(), len)};
+	data.resize(got > 0 ? static_cast<std::size_t>(got) : 0);
+	return data;
 }
 
+}
+
+void mix_music_init()
+{
+	const auto decoders{sdl::audio_decoders()};
+	std::string list;
+	for (const auto &d : decoders)
+	{
+		if (!list.empty())
+			list += ", ";
+		list += d;
+	}
+	con_printf(CON_NORMAL, "SDL audio: decoders: %s", list.c_str());
+	music.midi_decoder = sdl::has_midi_decoder(decoders);
+	if (!music.midi_decoder)
+		con_printf(CON_URGENT, "SDL audio: error: this SDL3_mixer build lists no MIDI decoder (FLUIDSYNTH or TIMIDITY): MIDI music will not play");
+}
+
+void mix_music_frame()
+{
+	auto *const e{mix_effect_mixer()};
+	if (e == nullptr)
+		return;
+	const auto failed{e->take_music_failed()};
+	if (failed)
+		/* The SDL2 build's message for a song that does not load. */
+		con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", music.filename.c_str(), failed->c_str());
+	music.hook.frame(e->take_music_ended(), failed.has_value());
+}
+
+int mix_play_file(const char *filename, int loop, void (*const entry_hook_finished_track)())
+{
+	mix_free_music();
+	auto *const e{mix_effect_mixer()};
+	if (e == nullptr)
+		return 0;
+	std::vector<uint8_t> data;
+	if (const auto fptr{strrchr(filename, '.')}; fptr && !d_stricmp(fptr, ".hmp"))
+	{
+		auto &&[v, hoe]{hmp2mid(filename)};
+		if (hoe != hmp_open_error::None)
+			/* hmp2mid printed an error message. */
+			return 0;
+		data = std::move(v);
+	}
+	else
+		data = read_music_file(filename);
+	if (data.empty())
+	{
+		con_printf(CON_CRITICAL, "Music %s could not be loaded: not found or empty", filename);
+		return 0;
+	}
+	const char *const soundfont{CGameArg.SndSoundFont.empty() ? nullptr : CGameArg.SndSoundFont.c_str()};
+	auto loaded{sdl::load_music(e->mixer(), data, soundfont, music.midi_decoder)};
+	if (!loaded.audio)
+	{
+		con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", filename, loaded.error.c_str());
+		return 0;
+	}
+	music.hook.arm(entry_hook_finished_track ? entry_hook_finished_track : mix_free_music);
+	music.filename = filename;
+	e->set_music_volume(music.volume);
+	e->play_music(std::move(loaded.audio), loop != 0);
+	return 1;
+}
+
+void mix_set_music_volume(int vol)
+{
+	music.volume = sdl::music_volume_gain(vol);
+	if (auto *const e{mix_effect_mixer()})
+		e->set_music_volume(music.volume);
+}
+
+/* Unlike the SDL2 build's Mix_HaltMusic, this runs no finished-song hook:
+ * no caller relies on one (songs.cpp, jukebox.cpp), and running it here
+ * would start the next song from inside a stop.  A jukebox stopped mid-song
+ * may so pick its next song differently from the SDL2 build.
+ */
 void mix_stop_music()
 {
+	if (auto *const e{mix_effect_mixer()})
+		e->stop_music();
 }
 
 void mix_pause_music()
 {
+	if (auto *const e{mix_effect_mixer()})
+		e->pause_music();
 }
 
 void mix_resume_music()
 {
+	if (auto *const e{mix_effect_mixer()})
+		e->resume_music();
 }
 
 void mix_pause_resume_music()
 {
+	auto *const e{mix_effect_mixer()};
+	if (e == nullptr)
+		return;
+	if (e->music_paused())
+		e->resume_music();
+	else if (e->music_playing())
+		e->pause_music();
 }
 
 void mix_free_music()
 {
+	music.hook.disarm();
+	mix_stop_music();
 }
 
 }

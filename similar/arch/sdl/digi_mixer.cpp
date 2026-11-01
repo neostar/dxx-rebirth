@@ -113,8 +113,10 @@ void log_device_event(const SDL_AudioDeviceEvent &e)
 
 void commit_frame()
 {
-	if (effects)
-		effects->mixer.commit_frame();
+	if (!effects)
+		return;
+	effects->mixer.commit_frame();
+	mix_music_frame();
 }
 
 int open_failed(const char *const why)
@@ -148,15 +150,21 @@ int digi_mixer_init()
 	auto e{std::make_unique<sdl3_effects>(sdl::effect_mixer{std::move(m)})};
 	if (!e->mixer.usable())
 	{
+		const int r{open_failed(e->mixer.failed_call())};
 		e.reset();
-		const int r{open_failed("MIX_CreateTrack")};
 		MIX_Quit();
 		return r;
 	}
 	effects = std::move(e);
+	mix_music_init();
 	sdl::audio_hooks = {.commit_frame = &commit_frame, .device_event = &log_device_event};
 	digi_mixer_set_digi_volume((CGameCfg.DigiVolume * 32768) / 8);
 	return 0;
+}
+
+sdl::effect_mixer *mix_effect_mixer()
+{
+	return effects ? &effects->mixer : nullptr;
 }
 
 void digi_mixer_close()

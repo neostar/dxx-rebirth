@@ -25,4 +25,23 @@ void mix_pause_resume_music();
 void mix_free_music();
 
 }
+#if defined(SDL_MAJOR_VERSION) && SDL_MAJOR_VERSION == 3
+namespace dcx::sdl {
+class effect_mixer;
+}
+namespace dcx {
+
+/* The SDL3 build's mixer, whose music track plays the songs, or nullptr
+ * while audio is closed (digi_mixer.cpp).
+ */
+sdl::effect_mixer *mix_effect_mixer();
+/* At open: logs the SDL3_mixer decoders and notes whether one plays MIDI. */
+void mix_music_init();
+/* Once per frame, after the commit: runs the finished-song hook on the game
+ * thread when a song ended.
+ */
+void mix_music_frame();
+
+}
+#endif
 #endif

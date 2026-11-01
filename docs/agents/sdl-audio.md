@@ -146,7 +146,9 @@ thread that stopped the track.
 
 **Device-lock check.** The calls #45 needs (`MIX_PlayTrack`, `MIX_StopTrack`,
 `MIX_SetTrackStereo`, `MIX_SetTrackGain`, `MIX_SetTagGain`, `MIX_TrackPlaying`,
-`MIX_SetTrackLoops`, `MIX_SetTrackAudio`) make no device-level SDL call: in `SDL_mixer.c` those
+`MIX_SetTrackLoops`, `MIX_SetTrackAudio`) and those #46 adds (`MIX_PauseTrack`,
+`MIX_ResumeTrack`, `MIX_TrackPaused`, which take the track lock only, `SDL_mixer.c:2483-2499`,
+`:2543-2559`, `:2614-2623`) make no device-level SDL call: in `SDL_mixer.c` those
 appear only in mixer create/destroy and the format watcher (`:809`, `:863-869`, `:903-906`), and
 track streams are never bound to a device. Open: `MIX_SetTrackAudio` may create a stream
 (`SDL_CreateAudioStream`, `:1610`), whose registration lock was not traced.
@@ -203,6 +205,24 @@ tracks at start (`enumerated_bitset<64>`, `digi_mixer.cpp:73`); tags `sfx` and `
 volume by `MIX_SetTagGain`; briefing ducking by the music track's gain. On a surround device
 effects stay on front left/right (M8). Informs #45.
 
+**Level (#46).** SDL3 effects and music play at SDL2's level: no master gain, no offset in the
+gain kernel (on the 10 ms windows where neither build clips, SDL3 / SDL2 RMS is 0.995). Both
+mixers clamp after each add, SDL2 through sdl2-compat in SDL3's `SDL_MixAudio`
+(`SDL_mixer.c:137-160` in SDL 3.4.18, the F32 case `:235-257`) and SDL3_mixer in
+`MixFloat32Audio` (`SDL3_mixer SDL_mixer.c:528-533`, which calls `SDL_MixAudio`), so dense
+scenes clip on both builds alike; the fix, for every build, is #102. **R12 comparisons against
+SDL2 apply no offset.**
+
+**Ducking differs from SDL2 (#46).** SDL2 (`titles.cpp`, `briefing_audio_play` and
+`briefing_audio_stop`) sets the music to an absolute `MIX_MAX_VOLUME / 2` when a briefing voice
+starts, whatever the player's music volume, holds it until `briefing_audio_stop` (`titles.cpp:742`),
+and then sets `MIX_MAX_VOLUME`, not the player's volume. SDL3 halves the player's music volume
+(`music_duck_gain`) while the `voice` track plays and restores the player's volume when the voice
+ends. **R12 briefing comparisons**: at full music volume the two agree while the voice plays; at
+a lower volume SDL3's ducked music is quieter than SDL2's, after the voice SDL3 returns to the
+player's volume and SDL2 to full, and between the voice's end and `briefing_audio_stop` SDL2
+stays ducked where SDL3 does not. Compare only the voice's span, at full music volume.
+
 ## 6. Music: decoders, MIDI and SoundFonts
 
 **SDL_mixer does.** "Native MIDI has been removed." (`sdl3_mixer/README-migration.md:33`).
@@ -228,6 +248,14 @@ stream" (`sdl3_mixer/README-migration.md:343`). HMP to MIDI stays in the game. S
 silently plays a system SoundFont); define the three strings locally. Keep `synth.gain` 1.0; the
 limiter only if the saturation scan flags music (M6). ADLMIDI generates at its own fixed rate into
 a stream (area 3). Song-start cost: M5. Informs #46.
+
+**Done in #46.** `common/sdl/music_source.h` defines the three strings, checks the SoundFont
+`-soundfont` names before every MIDI load, logs the decoder list at open and refuses MIDI when
+no MIDI decoder is listed; a SoundFont must be RIFF form `sfbk`, and a song FluidSynth still
+cannot start (it parses the SoundFont only at `MIX_SetTrackAudio`) is logged as "could not be
+loaded" at that commit and runs no finished-song hook, as a failed load in SDL2; the song plays on the effect mixer's `music` track, halved while
+the `voice` track plays (`music_duck_gain`). ADLMIDI is not ported: `adlmidi=none` is the
+default, and an `sdl3=1` build with `adlmidi=runtime` plays MIDI through FluidSynth only.
 
 ## 7. Movie audio and video sync
 
