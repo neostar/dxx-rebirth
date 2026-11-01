@@ -38,6 +38,16 @@ inline constexpr SDL_AudioDeviceID default_playback_device{SDL_AUDIO_DEVICE_DEFA
 inline constexpr std::size_t effect_track_count{64};
 inline constexpr const char *effect_tag{"sfx"};
 inline constexpr const char *voice_tag{"voice"};
+inline constexpr const char *music_tag{"music"};
+/* The music's share of the player's music volume while a voice plays.  The
+ * SDL2 build ducks differently (titles.cpp): it sets the music to an absolute
+ * Mix_VolumeMusic(MIX_MAX_VOLUME / 2) whatever the player's volume, holds it
+ * until briefing_audio_stop, and then restores MIX_MAX_VOLUME, not the
+ * player's volume.  The SDL3 build halves the player's volume while the voice
+ * track plays and restores it when the voice ends (docs/agents/sdl-audio.md
+ * area 5).
+ */
+inline constexpr float music_duck_gain{0.5f};
 
 /* "name: F32 2 ch 48000 Hz", what the game logs of a device at open and on
  * each SDL_EVENT_AUDIO_DEVICE_* event (docs/agents/sdl-audio.md area 3).
@@ -56,14 +66,15 @@ inline std::string audio_device_text(const char *const name, const SDL_AudioSpec
 	return text;
 }
 
-/* The sound effects and the briefing voice of the SDL3 build, on one
- * SDL3_mixer mixer: 64 effect tracks tagged "sfx" and two voice tracks
- * tagged "voice" (docs/agents/sdl-audio.md areas 4 and 5).
+/* The sound effects, the briefing voice and the music of the SDL3 build,
+ * on one SDL3_mixer mixer: 64 effect tracks tagged "sfx", two voice tracks
+ * tagged "voice" and one music track tagged "music"
+ * (docs/agents/sdl-audio.md areas 4, 5 and 6).
  *
  * The game thread calls everything here; SDL_mixer's mixing thread reads
  * only SDL_mixer's own state.  A call queues a command, and commit_frame,
  * once per frame, hands the frame's commands to the mixer: first
- * MIX_SetTrackAudio for each start, outside the mixer lock (its stream
+ * MIX_SetTrackAudio for each start (and a new song), outside the mixer lock (its stream
  * creation was not traced for device locks), then one batch under
  * MIX_LockMixer holding only track calls (play, stop, stereo, gain, loops,
  * playing), so the mix sees a frame's changes at one sample frame and
@@ -78,7 +89,10 @@ inline std::string audio_device_text(const char *const name, const SDL_AudioSpec
  * reused until the commit has stopped it, a new voice goes to the voice
  * track that is not playing, and a start that would still find its track
  * playing is dropped.  Whether a track still plays is polled in that batch
- * (MIX_TrackPlaying), not reported by a callback on the mixing thread.
+ * (MIX_TrackPlaying), not reported by a callback on the mixing thread; so
+ * is a song's end, which take_music_ended reports on the game thread.  The
+ * music track's gain is the player's music volume, halved while a voice
+ * plays (not the SDL2 build's absolute duck; see music_duck_gain).
  *
  * The mixer is a device's (MIX_CreateMixerDevice) in the game and a
  * generated one (MIX_CreateMixer, pulled by MIX_Generate) in the tests.
@@ -212,11 +226,104 @@ class effect_mixer
 	{
 		return voice_playing_;
 	}
+	/* Plays audio as the song, looping forever or once, in place of the
+	 * one playing; the mixer keeps the audio until the next song.
+	 */
+	void play_music(mix_audio_ptr audio, const bool looping)
+	{
+		if (!usable_ || !audio)
+			return;
+		music_audio_ = std::move(audio);
+		music_looping_ = looping;
+		music_start_ = true;
+		music_paused_ = false;
+	}
+	void stop_music()
+	{
+		if (!usable_)
+			return;
+		music_start_ = false;
+		music_playing_ = false;
+		music_paused_ = false;
+		queue_.push_back({.kind = command_kind::music_stop});
+	}
+	void pause_music()
+	{
+		if (!usable_ || !(music_playing_ || music_start_))
+			return;
+		music_paused_ = true;
+		queue_.push_back({.kind = command_kind::music_pause});
+	}
+	void resume_music()
+	{
+		if (!usable_ || !music_paused_)
+			return;
+		music_paused_ = false;
+		queue_.push_back({.kind = command_kind::music_resume});
+	}
+	[[nodiscard]]
+	bool music_paused() const
+	{
+		return music_paused_;
+	}
+	/* The music's gain before ducking (the music volume). */
+	void set_music_volume(const float gain)
+	{
+		music_volume_ = gain;
+	}
+	/* Whether a song plays (or is paused), as of the last commit_frame. */
+	[[nodiscard]]
+	bool music_playing() const
+	{
+		return music_playing_ || music_start_;
+	}
+	/* True once after a one-shot song ended by itself, at the commit that
+	 * saw it end.
+	 */
+	[[nodiscard]]
+	bool take_music_ended()
+	{
+		return std::exchange(music_ended_, false);
+	}
+	/* SDL's error, once, when the last commit could not start the song:
+	 * SDL3_mixer starts a decoder only then (FluidSynth parses the SoundFont
+	 * in MIX_SetTrackAudio), after the load succeeded.
+	 */
+	[[nodiscard]]
+	std::optional<std::string> take_music_failed()
+	{
+		return std::exchange(music_failed_, std::nullopt);
+	}
 	/* Hands the queued commands to the mixer, as described above. */
 	void commit_frame()
 	{
 		if (!usable_)
 			return;
+		MIX_Mixer *const m{mixer_.get()};
+		MIX_Track *const music{music_.get()};
+		if (music_start_)
+		{
+			/* A song replaces the playing one: stop it in its own short
+			 * batch, so the new audio goes to a track that is not playing.
+			 * No test shows this stop missing: MIX_Generate mixes on the
+			 * caller's thread, so a test never runs a mix between here and
+			 * MIX_SetTrackAudio, and on the device's mixing thread the
+			 * difference is at most one device buffer of the old song
+			 * mixed from the new song's decoder state.
+			 */
+			if (MIX_TrackPlaying(music) || MIX_TrackPaused(music))
+			{
+				MIX_LockMixer(m);
+				MIX_StopTrack(music, 0);
+				MIX_UnlockMixer(m);
+			}
+			if (!MIX_SetTrackAudio(music, music_audio_.get()))
+			{
+				music_start_ = false;
+				music_playing_ = false;
+				music_failed_ = SDL_GetError();
+			}
+		}
 		for (auto &c : queue_)
 			if (c.kind == command_kind::play || c.kind == command_kind::voice_play)
 			{
@@ -230,15 +337,33 @@ class effect_mixer
 				if (MIX_TrackPlaying(t) || !MIX_SetTrackAudio(t, c.audio))
 					c.audio = nullptr;
 			}
-		MIX_Mixer *const m{mixer_.get()};
 		MIX_LockMixer(m);
 		for (const auto &c : queue_)
 			apply(m, c);
+		if (std::exchange(music_start_, false))
+		{
+			MIX_PlayTrack(music, 0);
+			MIX_SetTrackLoops(music, music_looping_ ? -1 : 0);
+			music_playing_ = true;
+			if (music_paused_)
+				MIX_PauseTrack(music);
+		}
 		for (std::size_t i{0}; i < effect_track_count; ++i)
 			if (playing_.test(i) && !MIX_TrackPlaying(tracks_[i].get()))
 				playing_.reset(i);
 		if (voice_playing_ && !MIX_TrackPlaying(voices_[voice_].get()))
 			voice_playing_ = false;
+		if (music_playing_ && !music_paused_ && !MIX_TrackPlaying(music))
+		{
+			music_playing_ = false;
+			music_ended_ = true;
+		}
+		const float music_gain{voice_playing_ ? music_volume_ * music_duck_gain : music_volume_};
+		if (music_gain != music_gain_)
+		{
+			MIX_SetTrackGain(music, music_gain);
+			music_gain_ = music_gain;
+		}
 		MIX_UnlockMixer(m);
 		queue_.clear();
 		stopping_.reset();
@@ -255,7 +380,7 @@ class effect_mixer
 		for (auto &v : voices_)
 			if (!add_track(v, voice_tag))
 				return false;
-		return true;
+		return add_track(music_, music_tag);
 	}
 	bool add_track(mix_track_ptr &t, const char *const tag)
 	{
@@ -279,6 +404,9 @@ class effect_mixer
 		volume,
 		voice_play,
 		voice_stop,
+		music_stop,
+		music_pause,
+		music_resume,
 	};
 	struct command
 	{
@@ -325,13 +453,24 @@ class effect_mixer
 		case command_kind::voice_stop:
 			MIX_StopTrack(voices_[c.track].get(), 0);
 			break;
+		case command_kind::music_stop:
+			MIX_StopTrack(music_.get(), 0);
+			break;
+		case command_kind::music_pause:
+			MIX_PauseTrack(music_.get());
+			break;
+		case command_kind::music_resume:
+			MIX_ResumeTrack(music_.get());
+			break;
 		}
 	}
 	/* Declared first, destroyed last: the tracks go before their mixer. */
 	mix_mixer_ptr mixer_;
 	std::array<mix_audio_ptr, 2> voice_audio_{};
+	mix_audio_ptr music_audio_;
 	std::array<mix_track_ptr, effect_track_count> tracks_{};
 	std::array<mix_track_ptr, 2> voices_{};
+	mix_track_ptr music_;
 	std::vector<command> queue_;
 	std::bitset<effect_track_count> playing_;
 	/* Tracks whose stop the next commit applies. */
@@ -339,6 +478,17 @@ class effect_mixer
 	/* The voice track of the last voice. */
 	track_index voice_{0};
 	bool voice_playing_{false};
+	float music_volume_{1.0f};
+	/* The music track's gain as last set; SDL_mixer starts a track at 1. */
+	float music_gain_{1.0f};
+	/* A song to start at the next commit. */
+	bool music_start_{false};
+	bool music_looping_{false};
+	bool music_playing_{false};
+	bool music_paused_{false};
+	bool music_ended_{false};
+	/* Why the last song could not start, until taken. */
+	std::optional<std::string> music_failed_;
 	const char *failed_call_{nullptr};
 	bool usable_{false};
 };

@@ -350,6 +350,99 @@ BOOST_AUTO_TEST_CASE(game_and_mix_threads_share_only_the_batch)
 		BOOST_TEST(!mixer.playing(static_cast<effect_mixer::track_index>(i)));
 }
 
+/* Test that music plays at its volume and a looping song plays on past its
+ * end, while a one-shot song ends and the game learns it once.
+ */
+BOOST_AUTO_TEST_CASE(music_plays_at_its_volume_and_loops)
+{
+	auto mixer{make_mixer()};
+	mixer.set_music_volume(0.5f);
+	mixer.play_music(make_effect(mixer.mixer(), 1000), true);
+	mixer.commit_frame();
+	BOOST_TEST(mixer.music_playing());
+	const auto out{generate(mixer.mixer(), 4000)};
+	BOOST_TEST(
+	    near(means(std::span{out}.subspan(std::size_t{2} * 3000)).left, 0.5f * effect_value));
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.take_music_ended());
+	mixer.play_music(make_effect(mixer.mixer(), 1000), false);
+	mixer.commit_frame();
+	const auto once{generate(mixer.mixer(), 4000)};
+	BOOST_TEST(near(means(std::span{once}.subspan(std::size_t{2} * 3000)).left, 0.0f));
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.music_playing());
+	BOOST_TEST(mixer.take_music_ended());
+	BOOST_TEST(!mixer.take_music_ended());
+}
+
+/* Test that stop_music silences the song without reporting an end, and that
+ * pause and resume hold and continue it; stop_all leaves the music alone,
+ * as Mix_HaltChannel(-1) does.
+ */
+BOOST_AUTO_TEST_CASE(music_stops_pauses_and_resumes)
+{
+	auto mixer{make_mixer()};
+	mixer.play_music(make_effect(mixer.mixer(), 1000), true);
+	mixer.commit_frame();
+	mixer.stop_all();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+	mixer.pause_music();
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, 0.0f));
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.take_music_ended());
+	mixer.resume_music();
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+	mixer.stop_music();
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, 0.0f));
+	BOOST_TEST(!mixer.music_playing());
+	BOOST_TEST(!mixer.take_music_ended());
+}
+
+/* Test that the music drops to half while the voice plays and comes back
+ * when it ends, as the SDL2 build halves it during a briefing voice
+ * (titles.cpp).
+ */
+BOOST_AUTO_TEST_CASE(music_ducks_while_the_voice_plays)
+{
+	auto mixer{make_mixer()};
+	mixer.play_music(make_effect(mixer.mixer(), 1000), true);
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+	/* A silent voice (U8 0x80), so only the music's level shows. */
+	const std::vector<uint8_t> quiet(2000, 0x80);
+	const SDL_AudioSpec spec{.format = SDL_AUDIO_U8, .channels = 1, .freq = mix_rate};
+	mixer.play_voice(dcx::sdl::mix_audio_ptr{
+	    MIX_LoadRawAudio(mixer.mixer(), quiet.data(), quiet.size(), &spec)});
+	mixer.commit_frame();
+	BOOST_TEST(
+	    near(means(generate(mixer.mixer(), 512)).left, dcx::sdl::music_duck_gain * effect_value));
+	generate(mixer.mixer(), 2000);
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.voice_playing());
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+}
+
+/* Test that a song paused in the frame it starts in stays silent until
+ * resumed, and that its end is not reported while it is held.
+ */
+BOOST_AUTO_TEST_CASE(music_paused_at_its_start_stays_paused)
+{
+	auto mixer{make_mixer()};
+	mixer.play_music(make_effect(mixer.mixer(), 1000), false);
+	mixer.pause_music();
+	mixer.commit_frame();
+	BOOST_TEST(mixer.music_paused());
+	BOOST_TEST(near(means(generate(mixer.mixer(), 2000)).left, 0.0f));
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.take_music_ended());
+	mixer.resume_music();
+	mixer.commit_frame();
+	BOOST_TEST(near(means(generate(mixer.mixer(), 512)).left, effect_value));
+}
+
 /* Test that a mixer left unusable names the SDL call that failed: no mixer
  * is MIX_CreateMixer's.
  */
