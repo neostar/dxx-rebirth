@@ -58,6 +58,7 @@ COPYRIGHT 1993-1999 PARALLAX SOFTWARE CORPORATION.  ALL RIGHTS RESERVED.
 #include "physfsrwops.h"
 #if DXX_USE_SDLMIXER
 #include <SDL_mixer.h>
+#include "digi_policy.h"
 #endif
 #if SDL_MAJOR_VERSION == 3 && DXX_USE_SDLMIXER
 #include "digi_mixer.h"
@@ -739,7 +740,7 @@ static void briefing_audio_stop(briefing *br)
 		Mix_FreeChunk(br->briefing_audio);
 		br->briefing_audio = nullptr;
 		// Restore music volume
-		Mix_VolumeMusic(MIX_MAX_VOLUME);
+		Mix_VolumeMusic(digi_music_volume(8));
 	}
 }
 
@@ -771,7 +772,7 @@ static void briefing_audio_play(briefing *br, const char *filename)
 		return;
 	}
 	// Lower music volume while voiceover plays
-	Mix_VolumeMusic(MIX_MAX_VOLUME / 2);
+	Mix_VolumeMusic(digi_music_volume(4));
 	br->briefing_audio_channel = Mix_PlayChannel(-1, br->briefing_audio, 0);
 	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s> on channel %d", filename, br->briefing_audio_channel);
 }

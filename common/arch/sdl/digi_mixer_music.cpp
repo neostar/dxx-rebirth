@@ -222,6 +222,7 @@ void mix_free_music()
 #include "hmp.h"
 #include "adlmidi_dynamic.h"
 #include "digi_mixer_music.h"
+#include "digi_policy.h"
 #include "strutil.h"
 #include "u_mem.h"
 #include "config.h"
@@ -555,8 +556,8 @@ void mix_free_music()
 
 void mix_set_music_volume(int vol)
 {
-	vol *= MIX_MAX_VOLUME/8;
-	Mix_VolumeMusic(vol);
+	static_assert(MIX_MAX_VOLUME == 128);
+	Mix_VolumeMusic(digi_music_volume(vol));
 }
 
 void mix_stop_music()
@@ -686,7 +687,7 @@ void digi_win32_stop_midi_song()
 
 void digi_win32_set_midi_volume( int mvolume )
 {
-	hmp_setvolume(cur_hmp.get(), mvolume*MIDI_VOLUME_SCALE/8);
+	hmp_setvolume(cur_hmp.get(), digi_midi_volume(mvolume));
 }
 
 int digi_win32_play_midi_song( const char * filename, int loop )
