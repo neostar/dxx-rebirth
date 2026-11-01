@@ -94,3 +94,22 @@ BOOST_AUTO_TEST_CASE(each_music_step_gives_a_distinct_windows_midi_volume)
 	const double db{40.0 * std::log10(digi_midi_volume(8) / 128.0)};
 	BOOST_TEST(std::fabs(db - -20.56) <= 0.3);
 }
+
+/* Test that the pan law is the DOS game's: centre at full level on both
+ * sides, the near side at full level, the far side falling linearly.
+ */
+BOOST_AUTO_TEST_CASE(pan_law_keeps_the_near_side_at_full_level)
+{
+	const auto centre{digi_pan_levels(0x7fff)};
+	BOOST_TEST(centre.left == 0x10000);
+	BOOST_TEST(centre.right == 0xfffe);
+	const auto quarter_right{digi_pan_levels(0xc000)};
+	BOOST_TEST(quarter_right.left == 0x8000);
+	BOOST_TEST(quarter_right.right == 0x10000);
+	const auto quarter_left{digi_pan_levels(0x4000)};
+	BOOST_TEST(quarter_left.left == 0x10000);
+	BOOST_TEST(quarter_left.right == 0x8000);
+	const auto hard_left{digi_pan_levels(0)};
+	BOOST_TEST(hard_left.left == 0x10000);
+	BOOST_TEST(hard_left.right == 0);
+}
