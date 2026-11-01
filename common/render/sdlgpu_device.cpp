@@ -30,6 +30,7 @@
 #include "common/render/sdlgpu_probe.h"
 #include "common/sdl/dxx-sdl.h"
 #include "common/sdl/sdl_deleter.h"
+#include "common/sdl/sdl_properties.h"
 #include "common/sdl/sdl_wrap_gpu.h"
 #include "shaders/generated/pos_color_uv_vert.h"
 #include "shaders/generated/tex_modulate_frag.h"
@@ -47,22 +48,13 @@ void sdl_failed(const char *what)
 
 using gpu_device = sdl::sdl_unique_ptr<SDL_GPUDevice, SDL_DestroyGPUDevice>;
 /* An SDL property set, destroyed with the guard. */
-struct property_set
+struct property_set : sdl::sdl_properties
 {
-	SDL_PropertiesID id{SDL_CreateProperties()};
 	property_set()
 	{
-		if (id == 0)
+		if (get() == 0)
 			sdl_failed("SDL_CreateProperties");
 	}
-	~property_set()
-	{
-		SDL_DestroyProperties(id);
-	}
-	property_set(const property_set &) = delete;
-	property_set &operator=(const property_set &) = delete;
-	property_set(property_set &&) = delete;
-	property_set &operator=(property_set &&) = delete;
 };
 
 /* An SDL_GPU object of the device, released with it and counted in the
@@ -238,7 +230,7 @@ format_queries queries_of(SDL_GPUDevice *const d)
 gpu_device create_gpu_device(const config &c)
 {
 	const property_set props;
-	const SDL_PropertiesID id{props.id};
+	const SDL_PropertiesID id{props.get()};
 	/* Explicit, from the configuration (research #71, area 8). */
 	if (!SDL_SetBooleanProperty(id, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, c.debug_mode) ||
 	    !SDL_SetBooleanProperty(id, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true) ||
@@ -275,10 +267,10 @@ texture_handle create_target(SDL_GPUDevice *const d, resource_ledger &l,
                              const target_clears &clears, const std::uint32_t levels = 1)
 {
 	const property_set props;
-	if (!set_creation_clears(props.id, usage, clears))
+	if (!set_creation_clears(props.get(), usage, clears))
 		sdl_failed("SDL_SetFloatProperty");
 	SDL_GPUTextureCreateInfo info{};
-	info.props = props.id;
+	info.props = props.get();
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = format;
 	info.usage = usage;

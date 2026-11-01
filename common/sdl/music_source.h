@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "common/sdl/effect_mixer.h"
+#include "common/sdl/sdl_properties.h"
 
 namespace dcx::sdl {
 
@@ -133,31 +134,6 @@ struct music_load
 {
 	mix_audio_ptr audio;
 	std::string error;
-};
-
-/* Owns an SDL properties group. */
-class sdl_properties
-{
-  public:
-	sdl_properties() : id_{SDL_CreateProperties()}
-	{}
-	~sdl_properties()
-	{
-		if (id_ != 0)
-			SDL_DestroyProperties(id_);
-	}
-	sdl_properties(const sdl_properties &) = delete;
-	sdl_properties &operator=(const sdl_properties &) = delete;
-	sdl_properties(sdl_properties &&) = delete;
-	sdl_properties &operator=(sdl_properties &&) = delete;
-	[[nodiscard]]
-	SDL_PropertiesID get() const
-	{
-		return id_;
-	}
-
-  private:
-	SDL_PropertiesID id_;
 };
 
 /* Loads a whole music file held in memory (MIDI, Ogg Vorbis, FLAC, MP3) as
