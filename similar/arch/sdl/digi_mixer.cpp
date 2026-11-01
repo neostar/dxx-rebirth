@@ -29,6 +29,7 @@
 #include "digi.h"
 #include "digi_mixer.h"
 #include "digi_mixer_music.h"
+#include "digi_policy.h"
 #include "console.h"
 #include "config.h"
 #include "args.h"
@@ -739,6 +740,7 @@ static void mixdigi_convert_sound(const sound_effect sound_idx, RAIIMix_Chunk &s
 			break;
 #endif
 	}
+	digi_scale_effect_samples({reinterpret_cast<int16_t *>(cvtbuf.get()), cvtbuf.size() / sizeof(int16_t)});
 	sci.alen = cvtbuf.size();
 	sci.abuf = cvtbuf.release();
 	sci.allocated = 1;

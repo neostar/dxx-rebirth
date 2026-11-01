@@ -773,6 +773,8 @@ static void briefing_audio_play(briefing *br, const char *filename)
 	}
 	// Lower music volume while voiceover plays
 	Mix_VolumeMusic(digi_music_volume(4));
+	// The voice plays at the effects gain, as the sound effects do
+	digi_scale_effect_samples({reinterpret_cast<int16_t *>(br->briefing_audio->abuf), br->briefing_audio->alen / sizeof(int16_t)});
 	br->briefing_audio_channel = Mix_PlayChannel(-1, br->briefing_audio, 0);
 	con_printf(CON_NORMAL, "D1X: playing briefing audio <%s> on channel %d", filename, br->briefing_audio_channel);
 }
