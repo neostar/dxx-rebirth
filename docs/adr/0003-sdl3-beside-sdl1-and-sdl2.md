@@ -50,3 +50,14 @@ hours of rebase work a month; under ADR 1 that cost recurs indefinitely.
   wheel step (`mouse_wheel_handler`), and their compiled `event.cpp` and `mouse.cpp` differ from
   upstream's there; `mouse.h` declares the handler for SDL2 too. The fields come from the pinned
   SDL2 and sdl2-compat `SDL_events.h`.
+- #104's clipping fix, upstream fix 1 (dxx-rebirth#753), changes the SDL1.2, SDL2 and `-nosdlmixer`
+  builds on purpose, a deliberate R8 exception: one sound policy for every build
+  (`common/main/digi_policy.h`), with 64 voices, the oldest unprotected sound stolen when all are busy,
+  sound objects, loops and volumes above `F1_0` protected, the DOS pan law, loop points, and a sound
+  left to finish when its object dies. Effects and music play at fixed gains: the effect samples and
+  the music volume at 3/32 of today's (−20.6 dB), so at full sliders a centred effect plays at 3/64
+  of full scale per side (the channel gain: `Mix_Volume`'s 1/2 times 3/32), 14.5 dB below today's
+  1/4 (the pan law gives back 6 dB), and music at 3/32 of full scale. Their compiled `digi_mixer.cpp`,
+  `digi_audio.cpp` (now 16-bit output), `digi_mixer_music.cpp` (music steps rounded), `titles.cpp`
+  and `digiobj.cpp` (ambience stops at a quarter of the voices the backend was granted) differ from upstream's until upstream takes the fix. The SDL3 build
+  takes the same policy in `common/sdl/audio_gains.h` and `effect_mixer.h`.

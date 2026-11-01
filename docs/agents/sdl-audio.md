@@ -225,6 +225,20 @@ a lower volume SDL3's ducked music is quieter than SDL2's, after the voice SDL3 
 player's volume and SDL2 to full, and between the voice's end and `briefing_audio_stop` SDL2
 stays ducked where SDL3 does not. Compare only the voice's span, at full music volume.
 
+**Done in #104.** Every build shares one sound policy, `common/main/digi_policy.h`: 64 voices; a
+new sound takes a free voice, else the oldest unprotected one; sound objects, loops and volumes
+above `F1_0` are protected; the DOS pan law (near side at full level, centre at full level on both
+sides, +6 dB per side against the linear law above); volumes capped at `F1_0`; loop points; a sound
+whose object dies finishes. Effects play at 3/32 in their samples (16-bit at conversion, so every
+slider step stays), music at 3/32 in its volume (`Mix_VolumeMusic` 2, 3, 5, 6, 8, 9, 11, 12 for the
+menu's 1..8, rounded, `digi_music_volume`; `music_volume_gain`), the briefing voice at 3/32 too.
+Ambience stops at a quarter of the voices the backend was granted (`digi_ambient_sound_limit`). **R12 comparisons against an
+SDL2 build from before #104** expect a centred effect 14.5 dB lower (3/64 against 1/4 per side:
+−20.6 dB gain, +6 dB pan law) and music 20.6 dB lower. `tools/dev/clip-check.sh` checks a harness
+build for clipped samples and margin on the demo: an SDL3 build renders its mix with no device, frame
+by frame (`DXX_DBG_AUDIO_RENDER`, `common/debug/audio_render.h`, at `DXX_DBG_FIXED_FRAMETIME=30`), so
+two runs write the same bytes; an SDL2 build captures through the disk driver in real time.
+
 ## 6. Music: decoders, MIDI and SoundFonts
 
 **SDL_mixer does.** "Native MIDI has been removed." (`sdl3_mixer/README-migration.md:33`).
