@@ -349,3 +349,14 @@ BOOST_AUTO_TEST_CASE(game_and_mix_threads_share_only_the_batch)
 	for (std::size_t i{0}; i < dcx::sdl::effect_track_count; ++i)
 		BOOST_TEST(!mixer.playing(static_cast<effect_mixer::track_index>(i)));
 }
+
+/* Test that a mixer left unusable names the SDL call that failed: no mixer
+ * is MIX_CreateMixer's.
+ */
+BOOST_AUTO_TEST_CASE(an_unusable_mixer_names_the_failed_call)
+{
+	const effect_mixer none{dcx::sdl::mix_mixer_ptr{}};
+	BOOST_TEST(std::string{none.failed_call()} == "MIX_CreateMixer");
+	const auto fine{make_mixer()};
+	BOOST_TEST(fine.failed_call() == nullptr);
+}

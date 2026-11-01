@@ -92,26 +92,20 @@ class effect_mixer
 	 */
 	explicit effect_mixer(mix_mixer_ptr m) : mixer_{std::move(m)}
 	{
-		if (!mixer_)
-			return;
-		for (auto &t : tracks_)
-		{
-			t.reset(MIX_CreateTrack(mixer_.get()));
-			if (!t || !MIX_TagTrack(t.get(), effect_tag))
-				return;
-		}
-		for (auto &v : voices_)
-		{
-			v.reset(MIX_CreateTrack(mixer_.get()));
-			if (!v || !MIX_TagTrack(v.get(), voice_tag))
-				return;
-		}
-		usable_ = true;
+		usable_ = set_up();
 	}
 	[[nodiscard]]
 	bool usable() const
 	{
 		return usable_;
+	}
+	/* The SDL call that left the mixer unusable, for the message beside
+	 * SDL_GetError; nullptr while usable.
+	 */
+	[[nodiscard]]
+	const char *failed_call() const
+	{
+		return failed_call_;
 	}
 	[[nodiscard]]
 	MIX_Mixer *mixer() const
@@ -251,6 +245,32 @@ class effect_mixer
 	}
 
   private:
+	bool set_up()
+	{
+		if (!mixer_)
+			return fail("MIX_CreateMixer");
+		for (auto &t : tracks_)
+			if (!add_track(t, effect_tag))
+				return false;
+		for (auto &v : voices_)
+			if (!add_track(v, voice_tag))
+				return false;
+		return true;
+	}
+	bool add_track(mix_track_ptr &t, const char *const tag)
+	{
+		t.reset(MIX_CreateTrack(mixer_.get()));
+		if (!t)
+			return fail("MIX_CreateTrack");
+		if (!MIX_TagTrack(t.get(), tag))
+			return fail("MIX_TagTrack");
+		return true;
+	}
+	bool fail(const char *const call)
+	{
+		failed_call_ = call;
+		return false;
+	}
 	enum class command_kind : uint8_t
 	{
 		play,
@@ -319,6 +339,7 @@ class effect_mixer
 	/* The voice track of the last voice. */
 	track_index voice_{0};
 	bool voice_playing_{false};
+	const char *failed_call_{nullptr};
 	bool usable_{false};
 };
 
