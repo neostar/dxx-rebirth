@@ -200,6 +200,28 @@ BOOST_AUTO_TEST_CASE(a_song_that_cannot_start_is_reported)
 	BOOST_TEST(!mixer.take_music_ended());
 }
 
+/* Test that a song that could not start at stop_all's commit, with no
+ * frame to take the failure (a level load), is not reported against the
+ * next song.
+ */
+BOOST_AUTO_TEST_CASE(a_failure_seen_by_stop_all_is_not_reported_later)
+{
+	dcx::sdl::effect_mixer mixer{make_mixer()};
+	BOOST_REQUIRE(mixer.usable());
+	BOOST_REQUIRE(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+	const temp_file font{"dxx-empty.sf2", sfbk_header};
+	auto loaded{dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
+	BOOST_REQUIRE(static_cast<bool>(loaded.audio));
+	mixer.play_music(std::move(loaded.audio), false);
+	mixer.stop_all();
+	auto wav{dcx::sdl::load_music(mixer.mixer(), tiny_wav, nullptr, false)};
+	BOOST_REQUIRE(static_cast<bool>(wav.audio));
+	mixer.play_music(std::move(wav.audio), true);
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.take_music_failed().has_value());
+	BOOST_TEST(mixer.music_playing());
+}
+
 /* Test that a song in another format loads with no SoundFont at all. */
 BOOST_AUTO_TEST_CASE(other_formats_need_no_soundfont)
 {

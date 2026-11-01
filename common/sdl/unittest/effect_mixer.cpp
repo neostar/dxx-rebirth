@@ -453,3 +453,25 @@ BOOST_AUTO_TEST_CASE(an_unusable_mixer_names_the_failed_call)
 	const auto fine{make_mixer()};
 	BOOST_TEST(fine.failed_call() == nullptr);
 }
+
+/* Test that a song's end seen by stop_all's commit, with no frame to take
+ * it (a level load), is not reported against the next song, nor after
+ * stop_music.
+ */
+BOOST_AUTO_TEST_CASE(an_end_seen_by_stop_all_is_not_reported_later)
+{
+	auto mixer{make_mixer()};
+	mixer.play_music(make_effect(mixer.mixer(), 1000), false);
+	mixer.commit_frame();
+	generate(mixer.mixer(), 2000);
+	mixer.stop_all();
+	mixer.play_music(make_effect(mixer.mixer(), 1000), false);
+	mixer.commit_frame();
+	BOOST_TEST(mixer.music_playing());
+	BOOST_TEST(!mixer.take_music_ended());
+	generate(mixer.mixer(), 2000);
+	mixer.stop_all();
+	mixer.stop_music();
+	mixer.commit_frame();
+	BOOST_TEST(!mixer.take_music_ended());
+}

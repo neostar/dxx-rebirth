@@ -237,6 +237,11 @@ class effect_mixer
 		music_looping_ = looping;
 		music_start_ = true;
 		music_paused_ = false;
+		/* An end or failure stop_all's commit saw (a level load runs no
+		 * frame) was the old song's.
+		 */
+		music_ended_ = false;
+		music_failed_.reset();
 	}
 	void stop_music()
 	{
@@ -245,6 +250,7 @@ class effect_mixer
 		music_start_ = false;
 		music_playing_ = false;
 		music_paused_ = false;
+		music_ended_ = false;
 		queue_.push_back({.kind = command_kind::music_stop});
 	}
 	void pause_music()
