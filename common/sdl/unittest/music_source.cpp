@@ -81,10 +81,10 @@ const std::vector<uint8_t> tiny_wav{
     1,   0,   8,   0,   'd', 'a', 't', 'a', 4,    0,    0,   0,   0x80, 0x80, 0x80, 0x80,
 };
 
-dcx::sdl::mix_mixer_ptr make_mixer()
+::dcx::sdl::mix_mixer_ptr make_mixer()
 {
 	const SDL_AudioSpec spec{.format = SDL_AUDIO_F32, .channels = 2, .freq = 48000};
-	return dcx::sdl::mix_mixer_ptr{MIX_CreateMixer(&spec)};
+	return ::dcx::sdl::mix_mixer_ptr{MIX_CreateMixer(&spec)};
 }
 
 }
@@ -96,18 +96,18 @@ BOOST_GLOBAL_FIXTURE(mixer_init);
  */
 BOOST_AUTO_TEST_CASE(soundfont_problem_names_what_is_wrong)
 {
-	BOOST_TEST(dcx::sdl::soundfont_problem(nullptr).value().find("no SoundFont") !=
+	BOOST_TEST(::dcx::sdl::soundfont_problem(nullptr).value().find("no SoundFont") !=
 	           std::string::npos);
-	BOOST_TEST(dcx::sdl::soundfont_problem("").value().find("no SoundFont") != std::string::npos);
+	BOOST_TEST(::dcx::sdl::soundfont_problem("").value().find("no SoundFont") != std::string::npos);
 	const auto missing{(std::filesystem::temp_directory_path() / "dxx-no-such.sf2").string()};
-	BOOST_TEST(dcx::sdl::soundfont_problem(missing.c_str()).value().find("not readable") !=
+	BOOST_TEST(::dcx::sdl::soundfont_problem(missing.c_str()).value().find("not readable") !=
 	           std::string::npos);
 	const temp_file text{"dxx-not-a-soundfont.sf2", {'h', 'e', 'l', 'l', 'o'}};
 	BOOST_TEST(
-	    dcx::sdl::soundfont_problem(text.path.string().c_str()).value().find("not a SoundFont") !=
+	    ::dcx::sdl::soundfont_problem(text.path.string().c_str()).value().find("not a SoundFont") !=
 	    std::string::npos);
 	const temp_file riff{"dxx-riff.sf2", sfbk_header};
-	BOOST_TEST(!dcx::sdl::soundfont_problem(riff.path.string().c_str()).has_value());
+	BOOST_TEST(!::dcx::sdl::soundfont_problem(riff.path.string().c_str()).has_value());
 }
 
 /* Test that a RIFF file of another form (a WAV, a DLS) or one cut short of
@@ -118,11 +118,11 @@ BOOST_AUTO_TEST_CASE(soundfont_problem_wants_the_sfbk_form)
 {
 	const temp_file wav{"dxx-wav.sf2", {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E'}};
 	BOOST_TEST(
-	    dcx::sdl::soundfont_problem(wav.path.string().c_str()).value().find("not a SoundFont") !=
+	    ::dcx::sdl::soundfont_problem(wav.path.string().c_str()).value().find("not a SoundFont") !=
 	    std::string::npos);
 	const temp_file cut{"dxx-cut.sf2", {'R', 'I', 'F', 'F', 0, 0, 0, 0}};
 	BOOST_TEST(
-	    dcx::sdl::soundfont_problem(cut.path.string().c_str()).value().find("not a SoundFont") !=
+	    ::dcx::sdl::soundfont_problem(cut.path.string().c_str()).value().find("not a SoundFont") !=
 	    std::string::npos);
 }
 
@@ -131,8 +131,8 @@ BOOST_AUTO_TEST_CASE(soundfont_problem_wants_the_sfbk_form)
  */
 BOOST_AUTO_TEST_CASE(read_whole_file_reads_up_to_the_limit)
 {
-	using dcx::sdl::file_read_error;
-	using dcx::sdl::read_whole_file;
+	using ::dcx::sdl::file_read_error;
+	using ::dcx::sdl::read_whole_file;
 	const temp_file five{"dxx-five.bin", {1, 2, 3, 4, 5}};
 	const auto path{five.path.string()};
 	const auto whole{read_whole_file(path.c_str(), 5)};
@@ -155,10 +155,10 @@ BOOST_AUTO_TEST_CASE(midi_decoders_are_recognised)
 {
 	const std::vector<std::string> with{"WAV", "VORBIS", "FLUIDSYNTH"};
 	const std::vector<std::string> without{"WAV", "VORBIS", "RAW"};
-	BOOST_TEST(dcx::sdl::has_midi_decoder(with));
-	BOOST_TEST(!dcx::sdl::has_midi_decoder(without));
-	BOOST_TEST(dcx::sdl::is_midi_decoder("TIMIDITY"));
-	BOOST_TEST(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+	BOOST_TEST(::dcx::sdl::has_midi_decoder(with));
+	BOOST_TEST(!::dcx::sdl::has_midi_decoder(without));
+	BOOST_TEST(::dcx::sdl::is_midi_decoder("TIMIDITY"));
+	BOOST_TEST(::dcx::sdl::has_midi_decoder(::dcx::sdl::audio_decoders()));
 }
 
 /* Test that MIDI does not load without a usable SoundFont or a MIDI decoder,
@@ -169,12 +169,12 @@ BOOST_AUTO_TEST_CASE(midi_needs_a_soundfont_and_a_decoder)
 	const auto mixer{make_mixer()};
 	BOOST_REQUIRE(mixer);
 	const auto missing{(std::filesystem::temp_directory_path() / "dxx-no-such.sf2").string()};
-	const auto no_font{dcx::sdl::load_music(mixer.get(), tiny_midi, missing.c_str(), true)};
+	const auto no_font{::dcx::sdl::load_music(mixer.get(), tiny_midi, missing.c_str(), true)};
 	BOOST_TEST(!no_font.audio);
 	BOOST_TEST(no_font.error.find("not readable") != std::string::npos);
 	const temp_file riff{"dxx-riff.sf2", sfbk_header};
 	const auto no_decoder{
-	    dcx::sdl::load_music(mixer.get(), tiny_midi, riff.path.string().c_str(), false)};
+	    ::dcx::sdl::load_music(mixer.get(), tiny_midi, riff.path.string().c_str(), false)};
 	BOOST_TEST(!no_decoder.audio);
 	BOOST_TEST(no_decoder.error.find("no MIDI decoder") != std::string::npos);
 }
@@ -185,11 +185,11 @@ BOOST_AUTO_TEST_CASE(midi_needs_a_soundfont_and_a_decoder)
  */
 BOOST_AUTO_TEST_CASE(a_song_that_cannot_start_is_reported)
 {
-	dcx::sdl::effect_mixer mixer{make_mixer()};
+	::dcx::sdl::effect_mixer mixer{make_mixer()};
 	BOOST_REQUIRE(mixer.usable());
-	BOOST_REQUIRE(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+	BOOST_REQUIRE(::dcx::sdl::has_midi_decoder(::dcx::sdl::audio_decoders()));
 	const temp_file font{"dxx-empty.sf2", sfbk_header};
-	auto loaded{dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
+	auto loaded{::dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
 	BOOST_REQUIRE(static_cast<bool>(loaded.audio));
 	mixer.play_music(std::move(loaded.audio), false);
 	mixer.commit_frame();
@@ -206,15 +206,15 @@ BOOST_AUTO_TEST_CASE(a_song_that_cannot_start_is_reported)
  */
 BOOST_AUTO_TEST_CASE(a_failure_seen_by_stop_all_is_not_reported_later)
 {
-	dcx::sdl::effect_mixer mixer{make_mixer()};
+	::dcx::sdl::effect_mixer mixer{make_mixer()};
 	BOOST_REQUIRE(mixer.usable());
-	BOOST_REQUIRE(dcx::sdl::has_midi_decoder(dcx::sdl::audio_decoders()));
+	BOOST_REQUIRE(::dcx::sdl::has_midi_decoder(::dcx::sdl::audio_decoders()));
 	const temp_file font{"dxx-empty.sf2", sfbk_header};
-	auto loaded{dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
+	auto loaded{::dcx::sdl::load_music(mixer.mixer(), tiny_midi, font.path.string().c_str(), true)};
 	BOOST_REQUIRE(static_cast<bool>(loaded.audio));
 	mixer.play_music(std::move(loaded.audio), false);
 	mixer.stop_all();
-	auto wav{dcx::sdl::load_music(mixer.mixer(), tiny_wav, nullptr, false)};
+	auto wav{::dcx::sdl::load_music(mixer.mixer(), tiny_wav, nullptr, false)};
 	BOOST_REQUIRE(static_cast<bool>(wav.audio));
 	mixer.play_music(std::move(wav.audio), true);
 	mixer.commit_frame();
@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(other_formats_need_no_soundfont)
 {
 	const auto mixer{make_mixer()};
 	BOOST_REQUIRE(mixer);
-	const auto wav{dcx::sdl::load_music(mixer.get(), tiny_wav, nullptr, false)};
+	const auto wav{::dcx::sdl::load_music(mixer.get(), tiny_wav, nullptr, false)};
 	BOOST_TEST(static_cast<bool>(wav.audio));
 	BOOST_TEST(wav.error.empty());
 }

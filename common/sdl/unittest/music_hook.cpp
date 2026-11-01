@@ -7,6 +7,9 @@
 
 #include "common/sdl/music_hook.h"
 
+#include <array>
+#include <cstddef>
+
 #include "common/sdl/audio_gains.h"
 
 #define BOOST_TEST_DYN_LINK
@@ -23,7 +26,7 @@ namespace {
 unsigned finished_calls;
 unsigned chained_calls;
 /* The hook chain_next arms, as the game's one music hook. */
-dcx::sdl::music_hook chained;
+::dcx::sdl::music_hook chained;
 
 void finished()
 {
@@ -45,7 +48,7 @@ void chain_next()
 BOOST_AUTO_TEST_CASE(an_end_runs_the_hook_once)
 {
 	finished_calls = 0;
-	dcx::sdl::music_hook hook;
+	::dcx::sdl::music_hook hook;
 	hook.arm(&finished);
 	hook.frame(false, false);
 	BOOST_TEST(finished_calls == 0u);
@@ -77,7 +80,7 @@ BOOST_AUTO_TEST_CASE(a_hook_may_arm_the_next_song)
 BOOST_AUTO_TEST_CASE(a_failed_start_drops_the_hook)
 {
 	finished_calls = 0;
-	dcx::sdl::music_hook hook;
+	::dcx::sdl::music_hook hook;
 	hook.arm(&finished);
 	hook.frame(false, true);
 	BOOST_TEST(finished_calls == 0u);
@@ -86,20 +89,15 @@ BOOST_AUTO_TEST_CASE(a_failed_start_drops_the_hook)
 	BOOST_TEST(finished_calls == 0u);
 }
 
-/* Test that the music volume follows the SDL2 build's
- * Mix_VolumeMusic(vol * MIX_MAX_VOLUME / 8) over 128 at every menu step, and
- * clamps above them as SDL2_mixer does.
+/* Test that the music gain follows the SDL2 build's Mix_VolumeMusic over
+ * 128, the music gain of 3/32 included, at every menu step, and clamps
+ * above them.
  */
 BOOST_AUTO_TEST_CASE(music_volume_follows_the_sdl2_volume)
 {
-	constexpr int mix_max_volume{128};
-	/* The SDL2 build's vol *= MIX_MAX_VOLUME / 8, in integers. */
-	constexpr int sdl2_step{mix_max_volume / 8};
+	constexpr std::array<int, 9> sdl2_volume{{0, 2, 3, 5, 6, 8, 9, 11, 12}};
 	for (int vol{0}; vol <= 8; ++vol)
-	{
-		const int sdl2_volume{vol * sdl2_step};
-		BOOST_TEST(dcx::sdl::music_volume_gain(vol) ==
-		           static_cast<float>(sdl2_volume) / static_cast<float>(mix_max_volume));
-	}
-	BOOST_TEST(dcx::sdl::music_volume_gain(9) == 1.0f);
+		BOOST_TEST(::dcx::sdl::music_volume_gain(vol) ==
+		           static_cast<float>(sdl2_volume[static_cast<std::size_t>(vol)]) / 128.0f);
+	BOOST_TEST(::dcx::sdl::music_volume_gain(9) == 12.0f / 128.0f);
 }
