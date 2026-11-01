@@ -65,6 +65,11 @@ int digi_audio_is_channel_playing(const sound_channel channel)
 	return digi_mixer_is_channel_playing(channel);
 }
 
+unsigned digi_audio_get_max_channels()
+{
+	return digi_mixer_get_max_channels();
+}
+
 void digi_audio_set_channel_volume(const sound_channel channel, const int volume)
 {
 	digi_mixer_set_channel_volume(channel, volume);
@@ -111,6 +116,11 @@ sound_channel digi_audio_start_sound(sound_effect, fix, sound_pan, int, int, int
 }
 
 int digi_audio_is_channel_playing(sound_channel)
+{
+	return 0;
+}
+
+unsigned digi_audio_get_max_channels()
 {
 	return 0;
 }
