@@ -142,6 +142,18 @@ BOOST_AUTO_TEST_CASE(pan_law_keeps_the_near_side_at_full_level)
 	BOOST_TEST(hard_left.right == 0);
 }
 
+/* Test that a volume above F1_0 plays at full scale, and that its excess
+ * carries it farther: digi_get_sound_loc takes F1_0 off per max_distance of
+ * path, so at half the reach an F2_0 sound still plays at full scale where
+ * an F1_0 sound has dropped to half.
+ */
+BOOST_AUTO_TEST_CASE(volume_above_full_scale_plays_at_full_scale_and_reaches_farther)
+{
+	BOOST_TEST(digi_effect_level(F3_0) == F1_0);
+	BOOST_TEST(digi_effect_level(F2_0 - F1_0 / 2) == F1_0);
+	BOOST_TEST(digi_effect_level(F1_0 - F1_0 / 2) == F1_0 / 2);
+}
+
 /* Test that a sound above F1_0 survives a full set of 64 newer sounds. */
 BOOST_AUTO_TEST_CASE(volume_above_full_scale_survives_a_full_set_of_voices)
 {

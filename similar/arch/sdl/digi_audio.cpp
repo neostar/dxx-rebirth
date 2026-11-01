@@ -390,7 +390,7 @@ sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pa
 
 	SoundSlots[next_channel].soundno = soundnum;
 	SoundSlots[next_channel].samples = GameSounds[soundnum].span();
-	SoundSlots[next_channel].volume = fixmul(digi_volume, volume);
+	SoundSlots[next_channel].volume = fixmul(digi_volume, digi_effect_level(volume));
 	SoundSlots[next_channel].pan = pan;
 	SoundSlots[next_channel].position = 0;
 	SoundSlots[next_channel].looped = looping;
@@ -444,7 +444,7 @@ void digi_audio_set_channel_volume(const sound_channel channel, int volume)
 	if (!SoundSlots[channel].playing)
 		return;
 
-	SoundSlots[channel].volume = fixmuldiv(volume, digi_volume, F1_0);
+	SoundSlots[channel].volume = fixmuldiv(digi_effect_level(volume), digi_volume, F1_0);
 }
 
 void digi_audio_set_channel_pan(const sound_channel channel, const sound_pan pan)

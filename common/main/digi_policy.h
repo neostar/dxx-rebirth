@@ -83,6 +83,17 @@ constexpr digi_stereo_levels digi_pan_levels(const fix pan)
 	return {.left = F1_0, .right = pan * 2};
 }
 
+/* The level a sound plays at.  A volume above F1_0 plays at full scale, as
+ * Parallax's Windows 95 code capped it (XlatSSToDSVol); its value above
+ * F1_0 only carries it farther, since distance reduces the volume before
+ * this cap.
+ */
+[[nodiscard]]
+constexpr fix digi_effect_level(const fix volume)
+{
+	return std::min<fix>(volume, F1_0);
+}
+
 /* The voices every backend plays on: the channels SDL_mixer asks for, the
  * plain backend's slots and the SDL3 build's tracks.
  */
