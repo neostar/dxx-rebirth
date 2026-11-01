@@ -57,4 +57,14 @@ constexpr float effect_volume_gain(const int32_t digi_volume)
 	return static_cast<float>(std::min<uint8_t>(gain_byte(squared), 128)) / 128.0f;
 }
 
+/* The music track's gain for the game's music volume (the menu's 0..8), as
+ * the SDL2 build sets it: Mix_VolumeMusic(vol * MIX_MAX_VOLUME / 8), which
+ * SDL2_mixer clamps to 0..MIX_MAX_VOLUME, 128.
+ */
+[[nodiscard]]
+constexpr float music_volume_gain(const int volume)
+{
+	return static_cast<float>(std::clamp(volume, 0, 8)) / 8.0f;
+}
+
 }
