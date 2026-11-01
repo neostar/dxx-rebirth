@@ -54,4 +54,5 @@ expected_overlay=('0 64x48 05e274e5f1dcfcc2' '1 64x48 333469174330ccf5' '2 64x48
 overlay=$root/common/render/rtrace/synthetic/overlay.rtr
 # The movie trace (#36): movie frames streamed through one texture slot, seven frames of
 # three movies of two sizes, the slot released after each frame's draw, as the game does.
+expected_movie=('0 64x48 7dc3eb5193ae5c05' '1 64x48 1f4f88d2fff4aee5' '2 64x48 6452145f9f735705' '3 64x48 d673a38f7e296465' '4 64x48 3600badcc15ecd05' '5 64x48 6d8356161baf3415' '6 64x48 985afdf65eb832a5')
 movie=$root/common/render/rtrace/synthetic/movie.rtr

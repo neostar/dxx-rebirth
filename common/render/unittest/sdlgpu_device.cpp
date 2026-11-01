@@ -689,6 +689,51 @@ BOOST_AUTO_TEST_CASE(walls_trace_frames_match_gl)
 	           boost::test_tools::per_element());
 }
 
+/* Test that the movie trace's seven frames hash as GL draws them (#36, R3),
+ * bit for bit on Metal: the nearest-sampled movie texels of three movies of
+ * two sizes, drawn with blending off, and none of the padding past them.
+ * The pins are rtrace-pins.sh's expected_movie.
+ */
+BOOST_AUTO_TEST_CASE(movie_trace_frames_match_gl)
+{
+	const std::vector<std::uint64_t> gl{
+	    0x7dc3eb5193ae5c05u, 0x1f4f88d2fff4aee5u, 0x6452145f9f735705u, 0xd673a38f7e296465u,
+	    0x3600badcc15ecd05u, 0x6d8356161baf3415u, 0x985afdf65eb832a5u};
+	BOOST_TEST(replayed_hashes(dcx::render::rtrace::movie_trace()) == gl,
+	           boost::test_tools::per_element());
+}
+
+/* Test that replaying the movie trace makes one texture per size change, none
+ * per frame (#36): seven frames, each releasing the slot as the game does,
+ * make three textures, for the first movie, the second movie's other size and
+ * the third's return to the first: the release's spare is taken back by the
+ * next frame of its size and replaced by the next of another.  The last
+ * frame's spare is destroyed by the present after it.
+ */
+BOOST_AUTO_TEST_CASE(movie_trace_makes_one_texture_per_movie)
+{
+	const auto trace{dcx::render::rtrace::movie_trace()};
+	render::trace::reader r{trace};
+	auto d{sdlgpu::device::create(test_config(target))};
+	const auto ledger{d->ledger()};
+	using kind = sdlgpu::resource_ledger::kind;
+	const auto base_live{ledger->counts().textures};
+	const auto base_created{ledger->created_count(kind::texture)};
+	const auto base_flushes{ledger->flush_count()};
+	std::size_t frames{0};
+	const auto done{render::replay(r, *d, [&frames](const render::replayed_frame &) { ++frames; })};
+	BOOST_TEST(done.has_value());
+	BOOST_TEST(frames == 7u);
+	BOOST_TEST(ledger->created_count(kind::texture) - base_created == 3u);
+	/* Two submits per frame, the replay's readback of the drawing and the
+	 * present; the release adds none.
+	 */
+	BOOST_TEST(ledger->flush_count() - base_flushes == 14u);
+	BOOST_TEST(ledger->counts().textures == base_live + 1);
+	d->present();
+	BOOST_TEST(ledger->counts().textures == base_live);
+}
+
 namespace {
 
 /* How many pixels of a frame's top-first RGB image are p. */

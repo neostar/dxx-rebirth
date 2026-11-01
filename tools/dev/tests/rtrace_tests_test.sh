@@ -97,6 +97,10 @@ if [[ $1 == *overlay.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_OVERLAY0:-0 64x48 05e274e5f1dcfcc2}" '1 64x48 333469174330ccf5' '2 64x48 e13acd3b02aeb89b' '3 64x48 b4ebcd39fcdecf0d' '4 64x48 cd8367e8073a5325' > "$2"
 	exit 0
 fi
+if [[ $1 == *movie.rtr ]]; then
+	printf '%s\n' "${FAKE_GPU_MOVIE0:-0 64x48 7dc3eb5193ae5c05}" '1 64x48 1f4f88d2fff4aee5' '2 64x48 6452145f9f735705' '3 64x48 d673a38f7e296465' '4 64x48 3600badcc15ecd05' '5 64x48 6d8356161baf3415' '6 64x48 985afdf65eb832a5' > "$2"
+	exit 0
+fi
 if [[ $1 == *filters.rtr ]]; then
 	printf '%s\n' "${FAKE_GPU_FILTERS0:-0 64x48 0d33b500a6d9edb0}" '1 64x48 3c3b6542f0892545' '2 64x48 94b7bb5bbc66bd40' '3 64x48 6296affa12046ccd' '4 64x48 5a2c8b8fdd1d6b6c' '5 64x48 5ec9c859bccd8b27' > "$2"
 	if [[ -n ${RTRACE_FRAMES_DIR-} && ${FAKE_GPU_NO_FRAMES-} != 1 ]]; then
@@ -159,6 +163,10 @@ if [[ $1 == *oversize.rtr ]]; then
 fi
 if [[ $1 == *overlay.rtr ]]; then
 	printf '%s\n' "${FAKE_OVERLAY0:-0 64x48 05e274e5f1dcfcc2}" '1 64x48 333469174330ccf5' '2 64x48 e13acd3b02aeb89b' '3 64x48 b4ebcd39fcdecf0d' '4 64x48 cd8367e8073a5325' > "$2"
+	exit 0
+fi
+if [[ $1 == *movie.rtr ]]; then
+	printf '%s\n' "${FAKE_MOVIE0:-0 64x48 7dc3eb5193ae5c05}" '1 64x48 1f4f88d2fff4aee5' '2 64x48 6452145f9f735705' '3 64x48 d673a38f7e296465' '4 64x48 3600badcc15ecd05' '5 64x48 6d8356161baf3415' '6 64x48 985afdf65eb832a5' > "$2"
 	exit 0
 fi
 if [[ $1 == *filters.rtr ]]; then
@@ -502,6 +510,22 @@ test_overlay_lines_are_pinned()
 		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
 	assert_eq "$rc" 1 "$out"
 	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the overlay trace are not GL's:"
+}
+
+# Test that rtrace or rtrace-gpu logging other lines than the movie
+# trace's pins fails, naming the trace; both log GL's, which SDL_GPU matches.
+test_movie_lines_are_pinned()
+{
+	local r out rc
+	r=$(make_rtrace_repo) || die "make_rtrace_repo failed"
+	out=$(FAKE_MOVIE0='0 64x48 5555555555555555' "$r/tools/dev/rtrace-tests.sh" dev 2>&1) &&
+		rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: unexpected frame hashes of the movie trace:"
+	out=$(FAKE_GPU=1 FAKE_GPU_MOVIE0='0 64x48 5555555555555555' \
+		"$r/tools/dev/rtrace-tests.sh" dev 2>&1) && rc=0 || rc=$?
+	assert_eq "$rc" 1 "$out"
+	assert_contains "$out" "rtrace-tests: rtrace-gpu's frame hashes of the movie trace are not GL's:"
 }
 
 # Test that rtrace logging other lines than the filters trace's GL pins,
