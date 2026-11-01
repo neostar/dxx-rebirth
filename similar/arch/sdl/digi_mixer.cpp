@@ -116,7 +116,7 @@ void commit_frame()
 	if (!effects)
 		return;
 	effects->mixer.commit_frame();
-	mix_music_frame();
+	mix_music_frame(effects->mixer);
 }
 
 int open_failed(const char *const why)

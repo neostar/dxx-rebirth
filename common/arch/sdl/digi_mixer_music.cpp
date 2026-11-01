@@ -120,16 +120,13 @@ void mix_music_init()
 		con_printf(CON_URGENT, "SDL audio: error: this SDL3_mixer build lists no MIDI decoder (FLUIDSYNTH or TIMIDITY): MIDI music will not play");
 }
 
-void mix_music_frame()
+void mix_music_frame(sdl::effect_mixer &e)
 {
-	auto *const e{mix_effect_mixer()};
-	if (e == nullptr)
-		return;
-	const auto failed{e->take_music_failed()};
+	const auto failed{e.take_music_failed()};
 	if (failed)
 		/* The SDL2 build's message for a song that does not load. */
 		con_printf(CON_CRITICAL, "Music %s could not be loaded: %s", music.filename.c_str(), failed->c_str());
-	music.hook.frame(e->take_music_ended(), failed.has_value());
+	music.hook.frame(e.take_music_ended(), failed.has_value());
 }
 
 int mix_play_file(const char *filename, int loop, void (*const entry_hook_finished_track)())

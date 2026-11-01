@@ -37,10 +37,10 @@ namespace dcx {
 sdl::effect_mixer *mix_effect_mixer();
 /* At open: logs the SDL3_mixer decoders and notes whether one plays MIDI. */
 void mix_music_init();
-/* Once per frame, after the commit: runs the finished-song hook on the game
+/* Once per frame, after e's commit: runs the finished-song hook on the game
  * thread when a song ended.
  */
-void mix_music_frame();
+void mix_music_frame(sdl::effect_mixer &e);
 
 }
 #endif
