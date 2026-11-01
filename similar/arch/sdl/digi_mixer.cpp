@@ -50,6 +50,10 @@
 #include <vector>
 #include "common/sdl/audio_frame.h"
 #include "common/sdl/effect_mixer.h"
+#include "fwd-game.h"
+#if DXX_USE_DBG_HARNESS
+#include "common/debug/audio_render.h"
+#endif
 
 /* The sound effects on SDL3_mixer (#45, docs/agents/sdl-audio.md): this file
  * opens the default device at its own format, loads each effect once as raw
@@ -90,6 +94,19 @@ struct sdl3_effects
 
 std::unique_ptr<sdl3_effects> effects;
 
+#if DXX_USE_DBG_HARNESS
+/* The deterministic render (audio_render.h) and the SDL audio it starts. */
+struct harness_render
+{
+	sdl::sdl_subsystem audio{SDL_INIT_AUDIO};
+	audio_render render;
+	explicit harness_render(const char *const path) : render{path, GameTime64}
+	{}
+};
+
+std::unique_ptr<harness_render> render;
+#endif
+
 void log_device(const char *const what, const SDL_AudioDeviceID id)
 {
 	SDL_AudioSpec spec{};
@@ -119,6 +136,10 @@ void commit_frame()
 		return;
 	effects->mixer.commit_frame();
 	mix_music_frame(effects->mixer);
+#if DXX_USE_DBG_HARNESS
+	if (render && !render->render.render_frame(GameTime64, FrameTime, [m{effects->mixer.mixer()}](const std::span<int16_t> out) { return MIX_Generate(m, out.data(), static_cast<int>(out.size_bytes())) >= 0; }))
+		con_printf(CON_URGENT, "DXX_DBG_AUDIO_RENDER: render failed: %s", SDL_GetError());
+#endif
 }
 
 int open_failed(const char *const why)
@@ -135,20 +156,48 @@ int digi_mixer_init()
 {
 	if (!MIX_Init())
 		return open_failed("MIX_Init");
-	/* The default device at its own rate and format: SDL resamples each
-	 * effect once, and a default device follows the system's (area 2, 3).
-	 */
-	sdl::mix_mixer_ptr m{MIX_CreateMixerDevice(sdl::default_playback_device, nullptr)};
-	if (!m)
+	sdl::mix_mixer_ptr m;
+#if DXX_USE_DBG_HARNESS
+	if (const char *const path{read_harness_audio_render()})
 	{
-		const int r{open_failed("MIX_CreateMixerDevice")};
-		MIX_Quit();
-		return r;
+		/* No device: each game frame renders its audio (audio_render.h).
+		 * SDL's audio still starts, on the driver the run names (dummy
+		 * under no-window.sh), so that the hidden run's driver report
+		 * (audio_driver_report.h) names it; it opens nothing.
+		 */
+		auto r{std::make_unique<harness_render>(path)};
+		const SDL_AudioSpec spec{.format = SDL_AUDIO_S16LE, .channels = audio_render_channels, .freq = audio_render_rate};
+		if (r->audio.started())
+			m.reset(MIX_CreateMixer(&spec));
+		if (!m || !r->render.is_open())
+		{
+			const int failed{open_failed(!r->audio.started() ? "SDL_InitSubSystem" : m ? "DXX_DBG_AUDIO_RENDER file" : "MIX_CreateMixer")};
+			m.reset();
+			MIX_Quit();
+			return failed;
+		}
+		con_printf(CON_NORMAL, "DXX_DBG_AUDIO_RENDER: rendering to %s, no device", path);
+		render = std::move(r);
 	}
-	const auto id{static_cast<SDL_AudioDeviceID>(SDL_GetNumberProperty(MIX_GetMixerProperties(m.get()), MIX_PROP_MIXER_DEVICE_NUMBER, 0))};
-	const char *const driver{SDL_GetCurrentAudioDriver()};
-	con_printf(CON_NORMAL, "SDL audio: driver %s", driver ? driver : "none");
-	log_device("opened", id);
+	else
+#endif
+	{
+		/* The default device at its own rate and format: SDL resamples
+		 * each effect once, and a default device follows the system's
+		 * (area 2, 3).
+		 */
+		m.reset(MIX_CreateMixerDevice(sdl::default_playback_device, nullptr));
+		if (!m)
+		{
+			const int r{open_failed("MIX_CreateMixerDevice")};
+			MIX_Quit();
+			return r;
+		}
+		const auto id{static_cast<SDL_AudioDeviceID>(SDL_GetNumberProperty(MIX_GetMixerProperties(m.get()), MIX_PROP_MIXER_DEVICE_NUMBER, 0))};
+		const char *const driver{SDL_GetCurrentAudioDriver()};
+		con_printf(CON_NORMAL, "SDL audio: driver %s", driver ? driver : "none");
+		log_device("opened", id);
+	}
 	auto e{std::make_unique<sdl3_effects>(sdl::effect_mixer{std::move(m)})};
 	if (!e->mixer.usable())
 	{
@@ -175,6 +224,9 @@ void digi_mixer_close()
 		return;
 	sdl::audio_hooks = {};
 	effects.reset();
+#if DXX_USE_DBG_HARNESS
+	render.reset();
+#endif
 	MIX_Quit();
 }
 

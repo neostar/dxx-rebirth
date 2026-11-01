@@ -5136,6 +5136,9 @@ class DXXArchive(DXXCommon):
 		RuntimeTest('test-frame-time-policy', (
 			'common/debug/unittest/frame_time_policy.cpp',
 			)),
+		RuntimeTest('test-audio-render', (
+			'common/debug/unittest/audio_render.cpp',
+			)),
 		RuntimeTest('test-sound-stimulus', (
 			'common/debug/unittest/sound_stimulus.cpp',
 			)),
