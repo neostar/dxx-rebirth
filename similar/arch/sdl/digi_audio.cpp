@@ -192,6 +192,7 @@ struct sound_slot {
 	sound_object *soundobj;   // Which soundobject is on this channel
 	//end changes by adb
 	unsigned int position; // Position we are at at the moment.
+	std::optional<digi_loop_range> loop; // A looped sample plays from its start, then between these.
 };
 
 static void digi_audio_stop_sound(sound_slot &s)
@@ -228,7 +229,7 @@ static void audio_mixcallback(void *, Uint8 *const stream8, int len)
 	range_for (auto &sl, SoundSlots)
 	{
 		if (sl.playing) {
-			auto sldata = std::next(sl.samples.begin(), sl.position), slend = sl.samples.end();
+			auto sldata = std::next(sl.samples.begin(), sl.position), slend = sl.loop ? std::next(sl.samples.begin(), sl.loop->end) : sl.samples.end();
 			auto sp = stream;
 			const auto levels = digi_pan_levels(static_cast<fix>(sl.pan));
 			const auto sl_volume{sl.volume};
@@ -240,7 +241,7 @@ static void audio_mixcallback(void *, Uint8 *const stream8, int len)
 						sl.playing = 0;
 						break;
 					}
-					sldata = sl.samples.begin();
+					sldata = std::next(sl.samples.begin(), sl.loop ? sl.loop->begin : 0);
 				}
 				const uint8_t v = *(sldata++);
 				*sp = digi_audio_mix(*sp, v, vl);
@@ -313,7 +314,7 @@ void digi_audio_stop_all_channels()
 
 
 // Volume 0-F1_0
-sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pan pan, int looping, int, int, sound_object *const soundobj)
+sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pan pan, int looping, const int loop_start, const int loop_end, sound_object *const soundobj)
 {
 	if (!digi_initialised)
 		return sound_channel::None;
@@ -354,6 +355,7 @@ sound_channel digi_audio_start_sound(sound_effect soundnum, fix volume, sound_pa
 	SoundSlots[channel].pan = pan;
 	SoundSlots[channel].position = 0;
 	SoundSlots[channel].looped = looping;
+	SoundSlots[channel].loop = digi_loop_points(looping, loop_start, loop_end, SoundSlots[channel].samples.size());
 	SoundSlots[channel].playing = 1;
 	SoundSlots[channel].soundobj = soundobj;
 	voices.start(*v, digi_sound_is_protected(soundobj, looping, volume));
