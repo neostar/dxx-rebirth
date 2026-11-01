@@ -236,3 +236,19 @@ BOOST_AUTO_TEST_CASE(ambience_stops_at_a_quarter_of_the_granted_voices)
 	BOOST_TEST(digi_ambient_sound_limit(16) == 4);
 	BOOST_TEST(digi_ambient_sound_limit(2) == 1);
 }
+
+/* Test that loop points apply only to a looping sound whose points lie
+ * inside it, -1 meaning none.
+ */
+BOOST_AUTO_TEST_CASE(loop_points_apply_only_inside_a_looping_sound)
+{
+	const auto r{digi_loop_points(true, 100, 200, 300)};
+	BOOST_REQUIRE(r.has_value());
+	BOOST_TEST(r.value().begin == 100u);
+	BOOST_TEST(r.value().end == 200u);
+	BOOST_TEST(digi_loop_points(true, 0, 300, 300).has_value());
+	BOOST_TEST(!digi_loop_points(false, 100, 200, 300).has_value());
+	BOOST_TEST(!digi_loop_points(true, -1, -1, 300).has_value());
+	BOOST_TEST(!digi_loop_points(true, 200, 200, 300).has_value());
+	BOOST_TEST(!digi_loop_points(true, 100, 301, 300).has_value());
+}
