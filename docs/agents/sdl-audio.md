@@ -65,7 +65,7 @@ WASAPI's thread runs at MMCSS "Pro Audio" (`SDL_wasapi.c:933-936`); PipeWire's c
 the realtime thread (`SDL_pipewire.c:1084-1090`).
 
 **Left to us.** Whether to set the hint. The SDL2 build used 1024 frames on the Mac and 2048
-elsewhere, at 44.1 kHz (`similar/arch/sdl/digi_mixer.cpp:55-59`), so SDL3's default is equal or
+elsewhere, at 44.1 kHz (`similar/arch/sdl/digi_mixer.cpp:301-305`), so SDL3's default is equal or
 lower. The migration guide: "most apps should not risk messing with the defaults"
 (`sdl3/README-migration.md:217`).
 
@@ -95,7 +95,7 @@ introduces distortions" (`:733`). Microsoft lists only `EVENTCALLBACK` as a flag
 
 **Recommendation.** `MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr)`: native
 device rate, one resample per source in SDL. Drop the SDL2-era "always request 44Khz"
-(`digi_mixer.cpp:64-72`). Load effects as raw U8 mono at their own 11025/22050 Hz
+(`digi_mixer.cpp:310-318`). Load effects as raw U8 mono at their own 11025/22050 Hz
 (`MIX_LoadRawAudio`). R12 parity (M4) decides whether `DXX_FEATURE_INTERNAL_RESAMPLER*` stays on
 SDL3. Informs #45, #46, #47.
 
@@ -154,7 +154,7 @@ track streams are never bound to a device. Open: `MIX_SetTrackAudio` may create 
 (`SDL_CreateAudioStream`, `:1610`), whose registration lock was not traced.
 
 **Today's race.** `Mix_ChannelFinished(digi_mixer_free_channel)` clears bits of `channels` on the
-audio thread (`similar/arch/sdl/digi_mixer.cpp:110-114`, `:141`) while the game thread reads and
+audio thread (`similar/arch/sdl/digi_mixer.cpp:357-361`, `:388`) while the game thread reads and
 sets them.
 
 **Rules for #45.**
@@ -191,27 +191,29 @@ alternative, `MIX_SetTrack3DPosition`, normalises power:
 **The SDL2 baseline is linear too.** SDL2_mixer 2.8.2: `args->left_f = ((float) left) / 255.0f;`
 (`sdl2_mixer/src/effect_position.c:2002`), `distance = 255 - distance;  /* flip it to our scale. */`
 (`:2037`), `args->distance_f = ((float) distance) / 255.0f;` (`:2051`). The game opens
-`AUDIO_S16` (`MIX_OUTPUT_FORMAT{AUDIO_S16}`, `digi_mixer.cpp:61`), so the S16 stereo path
+`AUDIO_S16` (`MIX_OUTPUT_FORMAT{AUDIO_S16}`, `digi_mixer.cpp:308`), so the S16 stereo path
 applies: `Sint16 swapl = (Sint16) ((((float) (Sint16) SDL_SwapLE16(*(ptr+0))) *` …
 `left_f) * dist_f);` (`effect_position.c:799-800`). The game calls
 `Mix_SetPanning(channel, 255-mix_pan, mix_pan);` and
-`Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));` (`digi_mixer.cpp:549-550`). So K5's
+`Mix_SetDistance(channel, UINT8_MAX - fix2byte(volume));` (`digi_mixer.cpp:796-797`). So K5's
 -6 dB centre is what players hear today.
 
 **Recommendation.** The game computes `left = (255 - p) / 255 * v / 255`,
 `right = p / 255 * v / 255` with `fix2byte`'s byte quantisation, as a pure kernel with a unit
 test (R12 parity). Equal-power panning or 3D positions change the mix: a separate ticket. 64
-tracks at start (`enumerated_bitset<64>`, `digi_mixer.cpp:73`); tags `sfx` and `voice`; digi
+tracks at start (`enumerated_bitset<64>`, `digi_mixer.cpp:320`); tags `sfx` and `voice`; digi
 volume by `MIX_SetTagGain`; briefing ducking by the music track's gain. On a surround device
 effects stay on front left/right (M8). Informs #45.
 
 **Level (#46).** SDL3 effects and music play at SDL2's level: no master gain, no offset in the
-gain kernel (on the 10 ms windows where neither build clips, SDL3 / SDL2 RMS is 0.995). Both
-mixers clamp after each add, SDL2 through sdl2-compat in SDL3's `SDL_MixAudio`
-(`SDL_mixer.c:137-160` in SDL 3.4.18, the F32 case `:235-257`) and SDL3_mixer in
-`MixFloat32Audio` (`SDL3_mixer SDL_mixer.c:528-533`, which calls `SDL_MixAudio`), so dense
-scenes clip on both builds alike; the fix, for every build, is #102. **R12 comparisons against
-SDL2 apply no offset.**
+gain kernel (on the 10 ms windows where neither build clips, SDL3 / SDL2 RMS is 0.995). SDL2
+clamps after each add, through sdl2-compat in SDL3's `SDL_MixAudio` (`SDL_mixer.c:137-160` in
+SDL 3.4.18, the F32 case `:235-257`). SDL3_mixer adds `MIX_SetTrackStereo` tracks in float with
+no clamp (`MixForcedStereoFloat32Audio`, `sdl3_mixer/src/SDL_mixer.c:506-526`, called at `:608`),
+and the sum is clamped once on its way to S16. So the sample counts differ, but the share of
+audio past full scale is about 15 % on both builds on the D2 autodemo (#103). The fix, for
+every build, is #104: fixed effects and music gains with the original's rules at 64 voices.
+**R12 comparisons against SDL2 apply no offset.**
 
 **Ducking differs from SDL2 (#46).** SDL2 (`titles.cpp`, `briefing_audio_play` and
 `briefing_audio_stop`) sets the music to an absolute `MIX_MAX_VOLUME / 2` when a briefing voice

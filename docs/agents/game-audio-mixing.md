@@ -1,9 +1,9 @@
 # Game audio mixing: the original's sound model and current practice
 
-Grounding for #105 (a 64-channel effects mixer that never clips), asked for in #103's "Grounding
-first" comment. Three parts: what Descent 2 did with many sounds, read from its GPL code; how
-current engines limit voices and control loudness, from their vendors' docs; and a per-class map
-between the two that lists options without choosing one. The fork's SDL audio plumbing (devices,
+Grounding for #102's clipping fix (#104: 64 voices, the original's rules, fixed effects and music
+gains), asked for in #103's "Grounding first" comment. Four parts: what Descent 2 did with many sounds, read from
+its GPL code and measured in DOSBox; how current engines limit voices and control loudness, from
+their vendors' docs; a per-class map between the two; and the design #104 took from it. The fork's SDL audio plumbing (devices,
 tracks, threads, the pan law as SDL_mixer applies it) is in `sdl-audio.md`; this doc does not
 repeat it.
 
@@ -11,12 +11,16 @@ Sources: `game-audio-mixing-sources.md`. Code citations are `path:line`: `b94413
 the 2006 import of the D2X source (upstream commit, 2006-03-20, Parallax code "COPYRIGHT
 1993-1999"); a bare path is the fork's `sdl-gpu-port` as read on 2026-11-01.
 
-Owner's rules (#103, #105, 2026-11-01), the yardstick for Part 3:
+Owner's rules (#102–#104, 2026-11-01), the yardstick for Parts 3 and 4:
 
 - **R-clip**: digital clipping is never acceptable.
 - **R-duck**: ducking only where it matches how the sound feels in the world.
 - **R-pos**: a positional sound's level follows its position; it is never ducked while close and
   raised as it leaves because a channel freed up; a loop never pumps with unrelated sounds.
+- **R-balance**: the relative balance between classes of effects stays as it is.
+- **R-setting**: no user setting can clip. The defaults (both sliders at 8) keep today's DXX
+  balance of effects and music, and the sliders shift that balance either way.
+- **Loudness is not a goal**: a quieter game is fine; the player turns the volume up.
 
 ## Part 1. The original's sound model, from the code
 
@@ -36,7 +40,11 @@ device (`:210-218`), its mixer is an SDL-style 8-bit callback with a clamp table
 SDL/src/SDL_mixer.c" (`:76-80`), and its header log says "rip out digiobj stuff, use d2src system
 for persistent sounds" (`:14`, Bradley Bell, 2005-02-25). The channel rule it copies matches
 Parallax's Windows code line for line (below), so the **game logic** in this part is Parallax's;
-**how SOS summed and clipped** the channels is the DOSBox measurements' job.
+**how SOS summed and clipped** the channels was measured in DOSBox (#103): the voices add plainly,
+anything past 16-bit full scale hard-clips, and one centred `F1_0` voice peaks at 0.150 of full
+scale. On the D2 autodemo the original clips 9.15 % of frames; the same demo clips 7.85 % in the
+SDL2 build and 14.22 % in the SDL3 build. Only demo playback counts: the intro movie (DOS v1.2 has
+no `-nomovies`; demos need `-autodemo`) gave the retracted "never clips" figures.
 
 ### Channel count
 
@@ -71,7 +79,8 @@ then replaced by the one-shot `SOUND_AFTERBURNER_PLAY` on release (`:1357-1358`)
 plays once and the middle of the sample loops.
 
 **Above `F1_0`.** A volume above `F1_0` (1.0) marks a sound as protected (next section) and, in
-`digi_get_sound_loc`, lets it stay louder than 1.0 near the listener. The callers:
+`digi_get_sound_loc`, keeps it above 1.0 near the listener. How loud that played depended on the
+layer below: the Windows 95 code capped it at full scale (Part 1's table), and DOS did not. The callers:
 
 | Volume | Sound | Code |
 |---|---|---|
@@ -223,12 +232,12 @@ comment says.
 | Channels | 16 at top detail | `-nosdlmixer`: 16 (`digi_audio.cpp:229-237`, `digi_audio.h:18`); SDL2 and SDL3 builds: 64 (`digi_mixer.cpp:320`, `common/sdl/effect_mixer.h:38`) | |
 | Full channels | steal oldest unprotected | `-nosdlmixer`: same (`digi_audio.cpp:367-408`); SDL2 and SDL3: **no stealing**, the first free channel or the new sound is refused (`digi_mixer.cpp:323-330`, `:776-782`; `effect_mixer.h:133-152`) | |
 | Protection by `soundobj`, looping, `> F1_0` | yes | `-nosdlmixer` only; the SDL_mixer builds ignore the `sound_object *` argument (`digi_mixer.cpp:768`) | |
-| Volume above 1.0 | louder (Windows layer scales by `fixmuldiv(volume, digi_volume, F1_0)`, `windigi.c:476`) | SDL_mixer builds clamp at 1.0: `fix2byte` returns 255 from `UINT8_MAX << 8` (`digi_mixer.cpp:341-350`; `common/sdl/audio_gains.h:29-37`); so the `F3_0` countdown plays at the level of an `F1_0` pickup | |
+| Volume above 1.0 | Windows 95: capped at full scale. `windigi.c:476-477` passes `volume × digi_volume`, and `XlatSSToDSVol` caps the DirectSound attenuation at 0 dB (`b94413b91:unused/win95/ds.c:483-495`); at slider 8, 0 dB is already reached at half volume. DOS: `2·F1_0` plays at 2×, but `3·F1_0` at 1× (answer 2 below) | SDL_mixer builds clamp at 1.0: `fix2byte` returns 255 from `UINT8_MAX << 8` (`digi_mixer.cpp:341-350`; `common/sdl/audio_gains.h:29-37`); so the `F3_0` countdown plays at the level of an `F1_0` pickup | |
 | Loop points | honoured (`windigi.c:486-491`) | ignored in every build: `(void)loop_start; (void)loop_end;` (`digi_mixer.cpp:790-791`); `-nosdlmixer` wraps to the sample start (`digi_audio.cpp:280-286`). The afterburner loop replays its ignition | lost in the port; the 2006 DOS port already wrapped to the start (`b94413b91:arch/dos/digi.c:190-197`) |
 | `digi_end_sound` | unlinks, the sample finishes | `-nosdlmixer`: same (`digi_audio.cpp:468-478`); SDL2 and SDL3: **stops the channel** (`digi_mixer.cpp:830-834`; SDL3 `:200-205`, `MIX_StopTrack(..., 0)` at `effect_mixer.h:446`). A once sound object whose object dies is cut off | |
-| Pan law | SOS's (unknown) | linear, −6 dB centre per side (`sdl-audio.md` area 5) | |
+| Pan law | near side at full gain, far side falls linearly (measured, #103): centre +6 dB per side against SDL2 | linear, −6 dB centre per side (`sdl-audio.md` area 5) | |
 
-The last two object-linked changes matter for #105. Since 2018, explosions and robot sounds follow
+The last two object-linked changes matter for #104. Since 2018, explosions and robot sounds follow
 their object, which R-pos wants; but with `digi_end_sound` stopping the channel in the SDL_mixer
 builds, a sound linked to an object that dies within its length stops early, with a hard cut (no
 fade, `MIX_StopTrack(..., 0)`). `explode_badass_weapon` links `SOUND_BADASS_EXPLOSION` to the
@@ -283,7 +292,7 @@ events "may end suddenly" (A3) and states no fade. Descent's `SSStopChannel` cut
 **Voice-level ducking in a concurrency group.** Unreal's Volume Scale is "The scaling factor
 (ducking) applied to older sounds, which compounds based on the Volume Scale Mode", with "The time
 (in seconds) to duck using the Volume Scale." and "The time (in seconds) to recover from volume
-scaling." (A6). This is the newest-first ducking #105's prototype built, and the one R-pos rules
+scaling." (A6). This is the newest-first ducking the closed #105 prototype built, and the one R-pos rules
 out for positional sounds.
 
 ### Ducking and loudness control
@@ -318,7 +327,7 @@ carry passive mixes "triggered automatically" (B7); no "sound class ducking" pag
 **Masking.** One peer-reviewed source fetched: "forward masking has a much longer time course for
 decay than the buildup of backward masking", with a fitted time constant "relatively short
 (<11 ms), although in some instances longer time constants were found" (B12). No source in this
-run for simultaneous masking (a faint sound during a loud one), which is the case #105 needs.
+run for simultaneous masking (a faint sound during a loud one); #104 does not rely on masking.
 
 **Loudness targets.** Sony's audio group (interview, secondary): "an average of -23 LUFS ... for
 PS3" and "-18 LUFS for PSVita, with a tolerance of +/-2 LU" (B11). This is integrated loudness, not
@@ -333,7 +342,7 @@ coarse ancestor of the first: path length through open segments sets the level, 
 all or nothing (a closed door silences, Part 1). Wwise rooms, portals and diffraction were not
 fetched (Gaps).
 
-## Part 3. Mapping, without choosing a design
+## Part 3. Mapping
 
 Columns: what the original did (Part 1); what current engines do for that kind of sound (Part 2);
 options that obey R-clip, R-duck and R-pos; where ducking or masking fits.
@@ -343,8 +352,8 @@ options that obey R-clip, R-duck and R-pos; where ducking or masking fits.
 | **2D samples**: own weapon fire, pickups, HUD, menu | stealable at `F1_0`; own Vulcan at half | per-event max instances, steal oldest (A1, A6) | per-sound instance cap (own Vulcan, pickups); fixed per-voice headroom; steal the oldest copy of the same sound with a short fade (A6) | Not positional, so R-pos does not bind; but they are the player's own feedback and the densest class (Vulcan). Ducking them under explosions changes the feel of firing; a cap is safer than a duck. |
 | **3D one-shots at a position**: hits, doors, other ships' fire, explosions | level fixed at start; stealable; oldest stolen first | cull quietest or farthest (A1, A6); loudness priority (B1) | admission by audibility: a new sound below the quietest playing one is not started when full; when a sound must go, the quietest one-shot ends with a short fade (A6) | Fits at **onset only**: a faint distant hit starting under a loud close explosion may be skipped (DICE culling, B1). Lowering one that already plays breaks R-pos (its level would no longer match its fixed position). |
 | **3D one-shots on an object**: robot sounds, badass explosions (tracked since 2018) | not tracked in 1996; tracked today | same as above, with distance updates | as above; level follows the object every frame (R-pos asks for it); decide whether a sound ends with its object (today's SDL builds cut) or finishes (original intent, `SOF_LINK_TO_OBJ`) | Same as above. A "missile flying right past" is this class: R-pos forbids lowering it near and raising it as it leaves. |
-| **Loud, protected** (`> F1_0`): countdown, siren, boss death, multiplayer kill | never stolen; louder than 1.0 | high priority, never culled | reserve headroom for them; restore their extra level (clamped at 1.0 today) within the budget | Countdown and siren are non-positional alarms: other one-shots yielding to them at onset is real-world plausible (an alarm masks). Boss death is positional: R-pos applies. |
-| **Sound objects, forever**: afterburners, falls, hums, boss see | protected; tracked; out of earshot stop, back from the beginning; 4-channel quarter for permanents | virtual voices that keep time (A2, A4) or restart (A7) | reserve each at its maximum level (#105's candidate); virtualise out of earshot and resume in place, or restart as the original did (afterburner: restart replays ignition) | **Never.** R-pos: "a loop must not pump with unrelated sounds". |
+| **Loud, protected** (`> F1_0`): countdown, siren, boss death, multiplayer kill | never stolen; at full scale (Windows 95) or louder (DOS) | high priority, never culled | reserve headroom for them; restore their extra level (clamped at 1.0 today) within the budget | Countdown and siren are non-positional alarms: other one-shots yielding to them at onset is real-world plausible (an alarm masks). Boss death is positional: R-pos applies. |
+| **Sound objects, forever**: afterburners, falls, hums, boss see | protected; tracked; out of earshot stop, back from the beginning; 4-channel quarter for permanents | virtual voices that keep time (A2, A4) or restart (A7) | reserve each at its maximum level; virtualise out of earshot and resume in place, or restart as the original did (afterburner: restart replays ignition) | **Never.** R-pos: "a loop must not pump with unrelated sounds". |
 | **Permanent level ambience**: animated-texture sounds | quarter of channels, counted with all sound objects | ambience bed, often a bus of its own | lift the quarter to a quarter of 64 or decouple it from tracked one-shots (today a fight starves it) | Never on the loop's level (R-pos). Starting new ambience during a fight is a choice, not a duck. |
 | **Queued announcements** (CTF, hoard) | one at a time, `F1_0+1`, 30 s life | dialogue-style priority | keep the queue; reserve like an alarm | The case where engines duck others (dialogue over music); but the original never lowered effects for them. |
 | **Looping 2D**: earthshaker rumble | one global loop, scripted volume | music/ambience bus | as a forever sound | Its level is scripted by the game; leave it. |
@@ -354,13 +363,14 @@ options that obey R-clip, R-duck and R-pos; where ducking or masking fits.
 
 - **R-clip against R-pos.** Without changing the level of a playing positional sound, only three
   levers remain: per-voice headroom, admission (refuse or cull at start), and ending a sound.
-  Headroom for the worst case is large: 64 voices at full scale need about −36 dB each
-  (20·log10(64)); 16 voices about −24 dB. Anything above that relies on admission being right.
+  Headroom for the theoretical worst case is large: 64 voices at full scale need about −36 dB
+  each (20·log10(64)); 16 voices about −24 dB. Measured on the demo, the peak is far lower (Part 4).
 - **Admission by audibility against the original's choice.** Quietest-first (A1, A6, B1) keeps
   the loud close sounds the original sometimes lost to oldest-first stealing, but changes which
   sounds the player hears, so it is a deliberate deviation from 1996.
-- **Original loudness against headroom.** Parallax made alarms and boss deaths louder than 1.0;
-  the SDL builds clamp them. Restoring them costs headroom for everything else.
+- **Original loudness against headroom.** DOS played `2·F1_0` sounds at twice full volume, and
+  the Windows 95 code capped them at full scale. #104 follows Windows 95 (Part 4), which costs no
+  headroom.
 - **Loop restart against seamlessness.** Restarting from the beginning (original, A7) is faithful
   but replays the afterburner's ignition; resuming in place (A2, A4) is smoother but not what 1996
   did.
@@ -372,6 +382,49 @@ options that obey R-clip, R-duck and R-pos; where ducking or masking fits.
 - **Linear distance law with `max_volume > F1_0`.** Such a sound is still at 1.0 at its reach and
   then drops to silence: a step that R-pos would call a level not following position.
 
+## Part 4. The design #104 took
+
+#104's criteria are the source of truth for the fix; this part records why.
+
+**Measured with the offline mixer** (#103: an SDL2 event log and the dumped chunks replay the
+capture bit-exact on 99.69 % of frames). The demo's peaks come from one shared impact sample
+started up to 6 times per buffer, once per projectile hit. Gain each rule set needs for zero
+clipping on the demo:
+
+| Rules | Gain for zero clipping |
+|---|---|
+| Today, 64 voices, 65th refused | −14.5 dB |
+| 16 voices, original stealing | −10.1 dB |
+| 16 voices, at most 3 copies of a sound | −7.5 dB |
+| 16 voices, identical sounds in one buffer dropped | −5.9 dB |
+| **64 voices, original rules** (pan law, oldest unprotected stolen; the demo replays every sound at `F1_0`) | **−15.8 dB** (−15.9 dB with music); peak 6.17× full scale |
+
+**Chosen:** 64 voices with the original's rules, effects and music both −18 dB against today's
+levels (gain 1/8). At full sliders the demo's effects then peak at 0.77 of full scale: 2.2 dB
+to spare without music, 1.1 dB when music at full scale peaks at the same moment (0.77 plus
+0.125, about 0.90). On its own, a volley of up to about 15 in-phase copies of the impact sound
+fits; the demo's volleys reach 6.
+
+**Volumes above 1.0 follow Parallax's Windows 95 code from the source release** (owner,
+2026-11-01: the later Parallax-sanctioned version wins over DOS). A Windows 95 upgrade shipped in
+the Vertigo bundle (November 1996), but nothing ties `main/old/windigi.c` and `unused/win95/ds.c`
+to that executable; the protection rests on this source, the cap needs none. They play at full scale, stay at full level farther
+away, and are protected from stealing. The cap sits at `F1_0`, as today. The Windows code's slider-8
+quirk (full level from half volume up, an artefact of DirectSound's attenuation-only scale) is
+not copied, nor are two more: a volume change on a playing sound skips the start's `<<2`
+(`windigi.c:387` against `:477`), and the attenuation counts 10 dB per halving, not 6. The pan law stays the DOS one (owner, 2026-11-01). Windows 95 faded the far side across 100 dB
+(`XlatSSToDSPan`, `b94413b91:unused/win95/ds.c:468-480`): −25 dB 14° off centre, −50 dB at 30°. Music can never exceed full scale, so this bound
+holds for any song and any slider setting (R-setting).
+
+**Rejected:**
+- **Copy limits and dropping identical sounds** reach about −8 dB, but they do so by making a
+  volley of simultaneous hits no louder than one hit (three in-phase copies are 9.5 dB louder
+  than one): R-balance.
+- **A loudness budget with ducking or a limiter** (#105, closed): ducking by channel count breaks
+  R-pos, and SDL2 clamps after each add, so a master limiter cannot work in every build.
+- **Restoring 16 channels:** −13.0 dB with the original's rules, still clipping at louder gains,
+  and it loses sounds. More voices pay off with 3D placement (#107, after the fix).
+
 ## Extending this doc
 
 - Add Wwise from Audiokinetic's own docs once they can be fetched by a permitted route: virtual
@@ -379,33 +432,24 @@ options that obey R-clip, R-duck and R-pos; where ducking or masking fits.
   by distance, auto-ducking fields, HDR window release and active range, and Spatial Audio portals.
   Each goes into `game-audio-mixing-sources.md` with its quote and dates, then into Part 2.
 - Add the DICE GDC 2009 deck's text (window release time) if a copy with text is found.
-- When the DOSBox measurements land, replace each "measurement question" below with its number
-  and the capture's date, and move the answered rows of Part 3 into #105's criteria.
 - Part 1 was read from code; if the fork changes `digiobj.cpp` or the backends, re-check the
   "Today's code" table.
 
-## Questions only a measurement answers
+## Measurement answers and open questions
 
-For the DOSBox measurements of the original:
+Answered in DOSBox (#103):
 
-1. Does a 17th sound in DOS take the oldest unprotected channel, as Parallax's Windows layer does
-   (`windigi.c:493-511`), or does SOS apply its own rule?
-2. Is an `F3_0` sound (countdown, siren) louder than an `F1_0` one in DOS, or does SOS clamp the
-   volume at 1.0?
-3. Does the afterburner loop between its loop points in DOS (no ignition repeat)?
-4. Does SOS step a channel's volume and pan at the frame's change, or ramp it?
-5. The SOS pan law (centre level per side).
-6. Does a sound stop with a click when stolen?
+1. A 17th sound in DOS takes the oldest channel, as Parallax's Windows layer does
+   (`windigi.c:493-511`), and the stolen sound is cut instantly: it clicks.
+2. A `2·F1_0` sound plays twice as loud as an `F1_0` one. A `3·F1_0` sound plays at 1×, which suggests the value wraps.
+3. The pan law: the near side stays at full gain and the far side falls linearly.
 
-For DXX-Rebirth and the #105 prototype:
+Still open:
 
-7. How often do the 64 channels fill on the demo, and how many sounds are refused per minute
-   (SDL2, SDL3), against steals in `-nosdlmixer`?
-8. Does `SOUND_BADASS_EXPLOSION` end early in the SDL builds (the weapon object dies, then
+4. Does the afterburner loop between its loop points in DOS (no ignition repeat)?
+5. Does SOS step a channel's volume and pan at the frame's change, or ramp it?
+6. Does `SOUND_BADASS_EXPLOSION` end early in the SDL builds (the weapon object dies, then
    `digi_end_sound` stops the channel), against its full length in `-nosdlmixer`?
-9. How often is the ambient quarter full of tracked one-shots, so that level sounds do not start?
-10. The distribution of summed peak level over real play (not the worst case), to size per-voice
-    headroom: at which headroom does no sample clip on the demo, and how much quieter is that
-    than the original?
-11. By ear (blind A/B): are faint one-shots skipped at the onset of a loud close explosion
-    noticed? This is the masking case no fetched source quantifies.
+7. How often is the ambient quarter full of tracked one-shots, so that level sounds do not start?
+8. The `> F1_0` volumes on the fix: `ND_EVENT_SOUND` replays at `F1_0` (`newdemo.cpp:1248`), so
+   the demo cannot show them; #104 tests them with a crafted stimulus.
